@@ -1,0 +1,15 @@
+General => Umum
+
+framerate => Perbarui Batas Kecepatan Bingkai
+drawFramerate => Batasi Kecepatan Bingkai
+language => Bahasa Engine
+gameQuality => Kualitas Game
+lowQuality => Kualitas Rendah
+renderThread => Thread Render
+colorblindMode => Filter Buta Warna
+antialiasing => Anti-Aliasing
+flashing => Lampu Berkedip
+shaders => Shader
+cacheOnGPU => Pencadangan GPU
+autoPause => Otomatis Jeda
+gcFreeZone => Kawasan Bebas Bea GC

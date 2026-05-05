@@ -1,0 +1,16 @@
+General => Umum
+
+framerate => Ubah batas FPS Anda
+frawFramerate => untuk mengetahui jumlah bingkai maksimum yang akan digambar, lihat pembaruan Batas Atas Diskriminasi
+language => Ubah bahasa engine
+lockRender => Pembaruan ini akan dilakukan secara terpisah dari pembaruan gambar; hal ini akan meningkatkan jumlah bingkai sekitar dua hingga tiga kali lipat (tergantung pada performa perangkat)
+renderThread => Memisahkan utas rendering dapat meningkatkan kecepatan bingkai
+gameQuality => Ubah kualitas game untuk layar
+lowQuality => Nonaktifkan beberapa objek di stage
+colorblindMode => Filter untuk penderita buta warna yang lebih ramah bagi mereka yang mengalami kondisi tersebut
+antialiasing => Aktifkan atau nonaktifkan antialiasing, yang meningkatkan kualitas grafis dengan sedikit penurunan kinerja
+flashing => Toggle flashing lights that can cause epileptic seizures and strain
+shaders => Shader yang digunakan untuk beberapa efek visual
+cacheOnGPU => Memungkinkan GPU digunakan untuk menyimpan tekstur dalam cache, sehingga mengurangi penggunaan RAM
+autoPause => Menghentikan game saat tidak fokus
+gcFreeZone => Tunda sebagian besar proses pembersihan RAM untuk mengurangi lag mendadak saat bermain game dan mengatasi masalah crash akibat kebocoran memori yang disebabkan oleh penggunaan RAM yang berlebihan.

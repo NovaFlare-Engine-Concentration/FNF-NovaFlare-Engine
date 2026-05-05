@@ -1,0 +1,19 @@
+Input => Input
+
+ControlsSubState => Setup Kontrol
+
+
+TouchMain => Sentuh Utama
+
+needMobileControl => Mendukung Kontrol Mobile
+controlsAlpha => Kontrol Alpha
+
+
+TouchGame => Sentuh Game
+
+MobileControlSelectSubState => Jenis Kontrol
+hitboxLocation => Lokasi Hitbox
+dynamicColors => Warna Dinamis
+playControlsAlpha => Kontrol Play Alpha
+extraKey => Ekstra Key
+MobileExtraControl => Ekstra Kontrol Mobile

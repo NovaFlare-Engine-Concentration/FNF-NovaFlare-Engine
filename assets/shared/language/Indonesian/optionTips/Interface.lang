@@ -1,0 +1,14 @@
+User Interface => Antarmuka Pengguna
+
+
+UserInterface => AntarmukaPengguna
+
+customFade => Jenis kustom fade
+customFadeText => Teks fade khusus yang terlihat
+customFadeSound => Suara volume kustom fade
+audioDisplayQuality => Kualitas analisis data musik
+audioDisplayUpdate => Interval respons alat analisis musik
+freeplayOld => Gunakan freeplay psych
+skipTitleVideo => Lewati video intro
+resultsScreen => Buka Layar Hasil pada akhir lagu
+loadingScreen => Tambahkan sebuah LoadingScreen untuk PlayState

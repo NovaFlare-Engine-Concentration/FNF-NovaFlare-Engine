@@ -1,0 +1,17 @@
+Skin => Skin
+
+
+Note => Note
+
+noteSkin => Note Skin
+noteRGB => RGB Note
+noteColorSwap => HSV Note
+NotesSubState => Setup Warna Note
+NotesSubStateLegacy => Setup Warna Lama
+
+Splash => Splash
+
+showSplash => Tampilkan Splash
+splashSkin => Splash Skin
+splashRGB => RGB Splash
+splashAlpha => Splash Alpha

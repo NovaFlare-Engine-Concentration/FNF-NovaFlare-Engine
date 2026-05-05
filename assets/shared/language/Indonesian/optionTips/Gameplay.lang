@@ -1,0 +1,37 @@
+GamePlay => Gameplay
+
+downScroll => Notenya turun, bukan naik, cukup sederhana
+middleScroll => Letakkan lajur Anda di tengah atau di sebelah kanan
+flipChart => Balik chart untuk bermain
+ghostTapping => Menganggap penekanan tombol arah saat tidak ada panah sebagai miss
+guitarHeroSustains => Hold Notes tidak dapat ditekan jika Anda melewatkannya
+noReset => Tekan R untuk mengakhiri game
+
+
+Opponent => Lawan
+
+playOpponent => Bermain sebagai lawan
+opponentCodeFix => Fungsi GoodNoteHit dan opponentNoteHit saling bertukar upaya
+botOpponentFix => Skrip akan mengira Anda telah membuka bot
+healthDrainOPPO => Penguras Kesehatan pada mode lawan
+healthDrainOPPOMult => Pengganda penguras kesehatan pada mode lawan
+
+
+judgement => Penghakiman
+
+safeFrames => Mengubah jumlah bingkai yang tersedia untuk memainkan note lebih awal atau lebih lambat
+marvelousWindow => Berapa milidetik yang terdapat dalam MARVELOUS judge
+sickWindow => Berapa milidetik yang terdapat dalam SICK judge
+goodWindow => Berapa milidetik yang terdapat dalam GOOD judge
+badWindow => Berapa milidetik yang terdapat dalam BAD judge
+marvelousRating => Perluas marvelous judge untuk bermain
+marvelousSprite => Marvelous judge juga akan menggunakan "sick!" judge sprite
+ratingOffset => Ubah offset rate 
+NoteOffsetState => Mengubah offset musik dan posisi penghakiman
+
+
+Gameplaybackend => Gameplay Backend
+
+fixLNL => Kurangi panjang Long Note
+saveScoreBase => dasar penyimpanan rekaman pemutaran, Skor: skor tertinggi, Akurasi: dengan akurasi tertinggi, Misses: dengan jumlah misses paling sedikit, Kombo tertinggi: kombo terbanyak
+gameOverVibration => Perangkat akan bergetar saat game berakhir

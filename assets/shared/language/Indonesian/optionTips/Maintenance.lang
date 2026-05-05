@@ -1,0 +1,15 @@
+Maintenance => Pemeliharaan
+
+developerMode => mode pengembang, yang menonaktifkan beberapa tampilan kesalahan dan jejak
+devConScale => ukuran konsol yang digunakan untuk menampilkan semua keluaran jejak
+
+oldHscriptVersion => Versi yang dikurangi agar skrip hscript dapat digunakan untuk fungsi runhaxecode
+
+
+APP => Aplikasi
+
+discordRPC => Tampilkan aplikasi dari kotak \"Sedang Bermain\" di Discord
+checkForUpdates => checkForUpdates
+screensaver => Ponsel akan masuk ke mode tidur setelah tidak digunakan selama beberapa detik
+filesCheck => Periksa apakah ada file yang hilang dalam game
+filesCheckNew => Periksa apakah ada file yang mencurigakan dalam game

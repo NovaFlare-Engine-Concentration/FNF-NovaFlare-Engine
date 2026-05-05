@@ -1,0 +1,47 @@
+Game UI => Antarmuka Pengguna Game
+
+
+GameUI => AntarmukaPenggunaGame
+
+Visble => Terlihat
+hideHud => Sembunyikan hud
+showComboNum => Kemunculan Combo sprite
+showRating => Kemunculan Rating sprite
+opponentStrums => Tampilkan lawan strums pada layar
+judgementCounter => Tampilkan penghakiman anda
+keyboardViewer => Berikan umpan balik mengenai tombol yang Anda tekan
+
+
+TimeBar => TimeBar
+
+timeBarType => Jenis tampilan
+
+
+HealthBar => HealthBar
+
+healthBarAlpha => Alpha
+oldHealthBarVersion => Versi yang dikurangi menjadi psych 0.63h
+Combo => Kombo
+comboColor => Izinkan untuk mengambil dan menggunakan warna rating
+comboOffsetFix => Perbaiki posisi offset
+
+
+KeyBoard => KeyBoard
+
+keyboardAlpha => Alpha
+keyboardTime => tahan tombol untuk menampilkan waktu
+keyboardTimeDisplay => tampilkan detail pers
+keyboardBGColor => keyboardBGColor
+keyboardTextColor => keyboardTextColor
+
+
+Camera => Kamera
+
+camZooms => Aktifkan atau nonaktifkan zoom kamera dalam game
+scoreZoom => Skor beat saat Anda menekan note
+
+
+pauseButton => Tambahkan pauseButton di game
+
+compulsionPause => Anda dapat memaksa membuka menu jeda
+compulsionPauseNumber => Berapa kali tombol harus ditekan untuk memaksa jeda

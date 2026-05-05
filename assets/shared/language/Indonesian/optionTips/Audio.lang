@@ -1,0 +1,7 @@
+Audio => Audio
+
+mainMusic => Jenis lagu layar utama
+optionMusic => Jenis lagu layar opsi
+pauseMusic => Jenis lagu layar jeda
+hitsoundType => Jenis hitsound
+hitsoundVolume => Volume hitsound

@@ -1,0 +1,17 @@
+Skin => Skin
+
+
+Note => Note
+
+noteSkin => Ubah noteSkin Anda saat ini
+noteRGB => RGB untuk Note
+noteColorSwap => Gunakan HSV Coloring seperti gaya psych lama untuk Note
+NotesSubState => Setup warna Note
+NotesSubStateLegacy => Setup HSV Note
+
+Splash => Splash
+
+showSplash => Tampilan pada sick/marvelous judge
+splashSkin => Ubah splashSkin anda saat ini
+splashRGB => RGB untuk Splash
+splashAlpha => Alpha

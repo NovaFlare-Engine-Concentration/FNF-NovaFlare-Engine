@@ -1,0 +1,37 @@
+GamePlay => Gameplay
+
+downScroll => Downscroll
+middleScroll => MiddleScroll
+flipChart => Balik Chart
+ghostTapping => Ketukan Hantu
+guitarHeroSustains => Guitar Hero Sustains
+noReset => Tidak Ada Reset
+
+
+Opponent => Lawan
+
+playOpponent => Bermain Lawan
+opponentCodeFix => Perbaikan Kode Lawan
+botOpponentFix => Perbaikan Bot Lawan
+healthDrainOPPO => Pengurangan Kesehatan Lawan
+healthDrainOPPOMult => Pengali Pengurasan Lawan
+
+
+judgement => Penghakiman
+
+safeFrames => Bingkai Aman
+marvelousWindow => Jendela Marvelous
+sickWindow => Jendela Sick
+goodWindow => Jendela Good
+badWindow => Jendela Bad
+marvelousRating => Rating Marvelous
+marvelousSprite => Sprite Marvelous
+ratingOffset => Offset Rating
+NoteOffsetState => Offset Note
+
+
+Gameplaybackend => Gameplay Backend
+
+fixLNL => Perbaiki Note Panjang
+saveScoreBase => dasar penyimpanan rekaman pemutaran
+gameOverVibration => Getaran Game Over

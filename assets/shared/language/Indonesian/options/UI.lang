@@ -1,0 +1,47 @@
+Game UI => Antarmuka Pengguna Game
+
+
+GameUI => Antarmuka Pengguna Game
+
+Visble => Visibilitas
+hideHud => Sembunyikan HUD
+showComboNum => Tampilkan Kombo Num
+showRating => Tampilkan Rating
+opponentStrums => Lawan Strums
+judgementCounter => Penghitung Penghakiman
+keyboardViewer => Tampilan Keyboard
+
+
+TimeBar => Bar Waktu
+
+timeBarType => Jenis Bar Waktu
+
+
+HealthBar => Bar Kesehatan
+
+healthBarAlpha => Bar Kesehatan Alpha
+oldHealthBarVersion => Bar Kesehatan Lama
+Combo => Kombo
+comboColor => Warna Kombo
+comboOffsetFix => Perbaikan Kombo Offset
+
+
+KeyBoard => Keyboard
+
+keyboardTimeDisplay => Rincian Tekan Keyboard
+keyboardAlpha => Keyboard Alpha
+keyboardTime => Waktu Berkelanjutan Keyboard 
+keyboardBGColor => Warna BG Keyboard
+keyboardTextColor => Warna Teks Keyboard
+
+
+Camera => Kamera
+
+camZooms => Kamera Zoom
+scoreZoom => Skor Zoom
+
+
+pauseButton => Tombol Jeda
+
+compulsionPause => Jeda Paksa
+compulsionPauseNumber => Jumlah Jeda Paksa
