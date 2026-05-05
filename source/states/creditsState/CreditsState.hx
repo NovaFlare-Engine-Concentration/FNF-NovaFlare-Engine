@@ -129,7 +129,13 @@ class CreditsState extends MusicBeatState
 				"Engine sound effort support\n\nComposer,Painter,Meme subculture lover\nI'm not very professional about creating things, I basically treat them as hobbies",
 				'5123A0',
 				'https://space.bilibili.com/401733211'
-			]
+			],
+			    'sirthegamercoder',
+			    'sir',
+			    'Translator',
+			    'Indonesian translator',
+			    'ff0000',
+			    'https://github.com/sirthegamercoder',
 		],
 		[
 			['Psych Engine Team'],
