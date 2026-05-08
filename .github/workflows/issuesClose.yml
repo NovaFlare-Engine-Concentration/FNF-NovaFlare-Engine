@@ -36,6 +36,11 @@ jobs:
             
             for (const issue of issues) {
               console.log(`Checking issue #${issue.number}: "${issue.title}"`);
+
+              if (issue.pull_request) {
+                console.log(`Skipping PR #${issue.number}`);
+                continue;
+              }
               
               if (memberLogins.includes(issue.user.login)) {
                 console.log(`Skipping issue #${issue.number} - created by repository member ${issue.user.login}`);
