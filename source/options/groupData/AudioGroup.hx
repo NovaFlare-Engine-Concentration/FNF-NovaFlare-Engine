@@ -81,6 +81,12 @@ class AudioGroup extends OptionCata
             }
         };
 
+        var option:Option = new Option(this, 'audioDisplayQuality', INT, [1, 4]);
+		addOption(option);
+
+		var option:Option = new Option(this, 'audioDisplayUpdate', INT, [0, 200, 'MS']);
+		addOption(option);
+
 		changeHeight(0); //初始化真正的height
 	}
 }

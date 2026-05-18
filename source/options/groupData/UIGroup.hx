@@ -103,10 +103,10 @@ class UIGroup extends OptionCata
 		var option:Option = new Option(this, 'pauseButton', BOOL);
 		addOption(option);
 
-		var option:Option = new Option(this, 'compulsionPause', BOOL);
+		var option:Option = new Option(this, 'CompulsionPause', BOOL);
 		addOption(option);
 
-		var option:Option = new Option(this, 'compulsionPauseNumber', INT, [1, 10]);
+		var option:Option = new Option(this, 'CompulsionPauseNumber', INT, [1, 10]);
 		addOption(option);
 
 		changeHeight(0); //初始化真正的height

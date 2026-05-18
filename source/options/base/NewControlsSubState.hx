@@ -1,4 +1,4 @@
-package options.base;
+﻿package options.base;
 
 import flixel.addons.display.FlxBackdrop;
 import flixel.addons.display.FlxGridOverlay;
@@ -141,8 +141,6 @@ class NewControlsSubState extends MusicBeatSubstate
     public function new()
     {
         super();
-
-		FlxG.mouse.visible = !ClientPrefs.data.needMobileControl;
 
 		instance = this;
 

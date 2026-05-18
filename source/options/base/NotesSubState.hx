@@ -1,4 +1,4 @@
-package options.base;
+﻿package options.base;
 
 import lime.system.Clipboard;
 
@@ -208,7 +208,7 @@ class NotesSubState extends MusicBeatSubstate
 		controllerPointer.alpha = 0.6;
 		add(controllerPointer);
 
-		FlxG.mouse.visible = !ClientPrefs.data.needMobileControl && !controls.controllerMode;
+		FlxG.mouse.visible = !controls.controllerMode;
 		controllerPointer.visible = controls.controllerMode;
 		_lastControllerMode = controls.controllerMode;
 
@@ -293,7 +293,7 @@ class NotesSubState extends MusicBeatSubstate
 
 		if (controls.BACK)
 		{
-			FlxG.mouse.visible = !ClientPrefs.data.needMobileControl;
+			FlxG.mouse.visible = true;
 			FlxG.sound.play(Paths.sound('cancelMenu'));
 			ClientPrefs.saveSettings();
 			FlxTransitionableState.skipNextTransIn = true;
@@ -315,7 +315,7 @@ class NotesSubState extends MusicBeatSubstate
 		if (controls.controllerMode != _lastControllerMode)
 		{
 			// trace('changed controller mode');
-			FlxG.mouse.visible = !ClientPrefs.data.needMobileControl && !controls.controllerMode;
+			FlxG.mouse.visible = !controls.controllerMode;
 			controllerPointer.visible = controls.controllerMode;
 
 			// changed to controller mid state

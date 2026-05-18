@@ -1,7 +1,6 @@
 package options.groupData;
 
 import developer.console.Console;
-import developer.console.ConsoleToggleButton;
 
 class MaintenanceGroup extends OptionCata
 {
@@ -14,17 +13,9 @@ class MaintenanceGroup extends OptionCata
 
         var option:Option = new Option(this, 'developerMode', BOOL);
 		option.experMode = true;
-		option.onChange = function() {
-			if (!ClientPrefs.data.developerMode) {
-				Console.hide();
-				ConsoleToggleButton.hide();
-			} else {
-				ConsoleToggleButton.show();
-			}
-		};
         addOption(option);
         
-        var option:Option = new Option(this, 'devConScale', FLOAT, [0.5, 3, 1]);
+        var option:Option = new Option(this, 'DevConScale', FLOAT, [0.5, 3, 1]);
 		addOption(option);
 		option.onChange = () -> updateText();
 	
@@ -37,6 +28,10 @@ class MaintenanceGroup extends OptionCata
 		addOption(option);
 
 		var option:Option = new Option(this, 'checkForUpdates', BOOL);
+		addOption(option);
+
+		var maxthread:Int = Std.int(Math.max(1, CoolUtil.getCPUThreadsCount() - #if DISCORD_ALLOWED 2 #else 1 #end));
+		var option:Option = new Option(this, 'loadThreads', INT, [1, maxthread, ' Thread']);
 		addOption(option);
 
 		#if mobile
