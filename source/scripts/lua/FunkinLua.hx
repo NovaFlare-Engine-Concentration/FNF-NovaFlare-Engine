@@ -282,7 +282,7 @@ class FunkinLua
 		
 		set("readJson", function(jsonFile:String)
 		{
-			//var path:String = jsonFile;
+			////var path:String = jsonFile;
 			var path:String = Paths.getPath(jsonFile, TEXT);
 			#if MODS_ALLOWED
 			if (!FileSystem.exists(path))
