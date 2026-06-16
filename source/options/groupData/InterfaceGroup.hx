@@ -8,7 +8,7 @@ class InterfaceGroup extends OptionCata
 
 		var option:Option = new Option(this, 'User Interface', TITLE);
 		addOption(option);
-		
+
 		var CustomFadeArray:Array<String> = ['Move', 'Alpha'];
 		var option:Option = new Option(this, 'customFade', STRING, CustomFadeArray);
 		addOption(option);
@@ -27,6 +27,9 @@ class InterfaceGroup extends OptionCata
 
 		var maxthread:Int = Std.int(Math.max(1, CoolUtil.getCPUThreadsCount() - #if DISCORD_ALLOWED 2 #else 1 #end));
 		var option:Option = new Option(this, 'loadThreads', INT, [1, maxthread, ' Thread']);
+		addOption(option);
+
+		var option:Option = new Option(this, 'useFlixelCoords', BOOL);
 		addOption(option);
 
 		changeHeight(0); //初始化真正的height

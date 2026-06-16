@@ -48,10 +48,10 @@ class GamePlayGroup extends OptionCata
         var option:Option = new Option(this, 'botOpponentFix', BOOL);
         addOption(option);
 
-        var option:Option = new Option(this, 'HealthDrainOPPO', BOOL);
+        var option:Option = new Option(this, 'healthDrainOPPO', BOOL);
         addOption(option);
 
-        var option:Option = new Option(this, 'HealthDrainOPPOMult', FLOAT, [0, 5, 1]);
+        var option:Option = new Option(this, 'healthDrainOPPOMult', FLOAT, [0, 5, 1]);
         addOption(option);
 
          /////--Judgement--\\\\\

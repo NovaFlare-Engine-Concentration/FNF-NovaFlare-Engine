@@ -1,6 +1,6 @@
 Graphics => 图形设置
 
-
+Rendering => 渲染相关的设置
 FPScounter => 数据显示
 
 showFPS => 显示当前帧数

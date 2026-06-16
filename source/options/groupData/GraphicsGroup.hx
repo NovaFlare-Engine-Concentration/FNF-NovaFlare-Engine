@@ -70,6 +70,10 @@ class GraphicsGroup extends OptionCata
 		var option:Option = new Option(this, 'fpsScale', FLOAT, [0, 5, 1]);
 		option.onChange = () -> changeWatermark();
 		addOption(option);
+
+		var option:Option = new Option(this, 'fpsDisplayMode', STRING, ['TPS', 'FPS']);
+		option.onChange = () -> changeWatermark();
+		addOption(option);
 		
 		/////--Watermark--\\\\\
 
@@ -81,6 +85,7 @@ class GraphicsGroup extends OptionCata
 		addOption(option);
 
 		var option:Option = new Option(this, 'watermarkScale', FLOAT, [0, 5, 1]);
+
 		option.onChange = () -> changeWatermark();
 		addOption(option);
 

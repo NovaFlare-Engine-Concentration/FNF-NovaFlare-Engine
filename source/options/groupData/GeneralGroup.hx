@@ -20,19 +20,6 @@ class GeneralGroup extends OptionCata
 		addOption(option);
 		option.onChange = onChangePause;
 
-				
-		/////--Watermark--\\\\\
-
-		var option:Option = new Option(this, 'watermark', TEXT);
-		addOption(option);
-
-		var option:Option = new Option(this, 'showWatermark', BOOL);
-		option.onChange = () -> changeWatermark();
-		addOption(option);
-
-		var option:Option = new Option(this, 'watermarkScale', FLOAT, [0, 5, 1]);
-		option.onChange = () -> changeWatermark();
-		addOption(option);
 
 		var colorblindFilterArray:Array<String> = [
 			'None',
@@ -86,24 +73,6 @@ class GeneralGroup extends OptionCata
 		}
 
 		return [displayOutput, displayOutput];
-	}
-
-	function languageArray():Array<String> 
-	{
-		var output:Array<String> = [];
-		var contents:Array<String> = FileSystem.readDirectory(Paths.getPath('language'));
-		for (item in contents)
-		{
-			if (item == "JustSay")
-				continue; // JustSay不能被读取为语言文件
-			var itemPath = Paths.getPath('language') + '/' + item;
-			if (FileSystem.isDirectory(itemPath))
-			{
-				output.push(item);
-			}
-		}
-		Language.check();
-		return output;
 	}
 
 	///////////////////////////////////////////////////////////////
@@ -178,11 +147,5 @@ class GeneralGroup extends OptionCata
 	function onChangePause()
 	{
 		FlxG.autoPause = ClientPrefs.data.autoPause;
-	}
-
-	function onChangeLanguage()
-	{
-		Language.resetData();
-		OptionsState.instance.changeLanguage();
 	}
 }

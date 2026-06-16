@@ -52,6 +52,8 @@ class OptionsState extends MusicBeatState
 			Paths.clearStoredMemory();
 			Paths.clearUnusedMemory();
 		}
+
+		FlxG.mouse.visible = !ClientPrefs.data.needMobileControl;
 		
 		persistentUpdate = persistentDraw = true;
 		instance = this;

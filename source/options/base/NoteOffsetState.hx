@@ -1,4 +1,4 @@
-﻿package options.base;
+package options.base;
 
 import flixel.addons.display.shapes.FlxShapeCircle;
 
@@ -222,7 +222,7 @@ class NoteOffsetState extends MusicBeatState
 		if (controls.controllerMode != _lastControllerMode)
 		{
 			// trace('changed controller mode');
-			FlxG.mouse.visible = !controls.controllerMode;
+			FlxG.mouse.visible = !ClientPrefs.data.needMobileControl && !controls.controllerMode;
 			controllerPointer.visible = controls.controllerMode;
 
 			// changed to controller mid state
@@ -473,7 +473,7 @@ class NoteOffsetState extends MusicBeatState
 			FlxG.sound.playMusic(Paths.music('freakyMenu'), 1);
 
 			MusicBeatState.switchState(new options.OptionsState());
-			FlxG.mouse.visible = true;
+			FlxG.mouse.visible = !ClientPrefs.data.needMobileControl;
 		}
 
 		Conductor.songPosition = FlxG.sound.music.time;
@@ -607,10 +607,10 @@ class NoteOffsetState extends MusicBeatState
 		beatText.visible = !onComboMenu;
 
 		controllerPointer.visible = false;
-		FlxG.mouse.visible = false;
+		FlxG.mouse.visible = !ClientPrefs.data.needMobileControl;
 		if (onComboMenu)
 		{
-			FlxG.mouse.visible = !controls.controllerMode;
+			FlxG.mouse.visible = !ClientPrefs.data.needMobileControl && !controls.controllerMode;
 			controllerPointer.visible = controls.controllerMode;
 		}
 
