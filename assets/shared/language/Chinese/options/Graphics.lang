@@ -8,6 +8,7 @@ showExtra => 更多性能数据
 rainbowFPS => 帧数变色
 memoryType => 运存展示类型
 fpsScale => 大小
+fpsDisplayMode => 显示模式
 
 
 Watermark => 水印设置

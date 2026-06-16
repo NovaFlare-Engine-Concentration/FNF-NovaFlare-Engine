@@ -59,9 +59,22 @@ class MusicBeatState extends FlxUIState
 		mobileControls = new MobileControls();
 
 		var stage = Lib.current.stage;
-		var scale:Float = Math.min((stage.stageWidth / FlxG.width), (stage.stageHeight / FlxG.height));
-		var newWidth:Int = Std.int(stage.stageWidth / scale);
-		var newHeight:Int = Std.int(stage.stageHeight / scale);
+
+		var scale:Float;
+		var newWidth:Int;
+		var newHeight:Int;
+
+		if (ClientPrefs.data.useFlixelCoords)
+		{
+			newWidth = Std.int(FlxG.width);
+			newHeight = Std.int(FlxG.height);
+		}
+		else
+		{
+			scale = Math.min((stage.stageWidth / FlxG.width), (stage.stageHeight / FlxG.height));
+			newWidth = Std.int(stage.stageWidth / scale);
+			newHeight = Std.int(stage.stageHeight / scale);
+		}
 
 		camControls = new FlxCamera(0, 0, newWidth, newHeight);
 
@@ -93,9 +106,22 @@ class MusicBeatState extends FlxUIState
 		if (virtualPad != null)
 		{
 			var stage = Lib.current.stage;
-			var scale:Float = Math.min((stage.stageWidth / FlxG.width), (stage.stageHeight / FlxG.height));
-			var newWidth:Int = Std.int(stage.stageWidth / scale);
-			var newHeight:Int = Std.int(stage.stageHeight / scale);
+
+			var scale:Float;
+			var newWidth:Int;
+			var newHeight:Int;
+
+			if (ClientPrefs.data.useFlixelCoords)
+			{
+				newWidth = Std.int(FlxG.width);
+				newHeight = Std.int(FlxG.height);
+			}
+			else
+			{
+				scale = Math.min((stage.stageWidth / FlxG.width), (stage.stageHeight / FlxG.height));
+				newWidth = Std.int(stage.stageWidth / scale);
+				newHeight= Std.int(stage.stageHeight / scale);
+			}
 			vpadCam = new FlxCamera(0, 0, newWidth, newHeight);
 			vpadCam.bgColor.alpha = 0;
 			FlxG.cameras.add(vpadCam, DefaultDrawTarget);

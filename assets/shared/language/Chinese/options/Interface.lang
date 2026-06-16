@@ -10,3 +10,4 @@ skipTitleVideo => 跳过启动动画
 resultsScreen => 结尾结算界面
 loadingScreen => 预加载界面
 loadThreads => 加载线程数
+useFlixelCoords => UI坐标模式

@@ -33,7 +33,7 @@ class OptionsState extends MusicBeatState
 	var naviGroup:Array<NaviGroup> = [];
 	var naviMove:MouseMove;
 
-	var cataGroup:Array<OptionCata> = [];
+	public var cataGroup:Array<OptionCata> = [];
 	public var cataMove:MouseMove;
 	public var stringCount:Array<StringSelect> = []; //string开启的检测
 
@@ -57,7 +57,7 @@ class OptionsState extends MusicBeatState
 		instance = this;
 
 		naviArray = [
-			new NaviData('NovaFlare Engine', ['General','User Interface','GamePlay','Game UI','Skin','Input','Audio','Graphics','Maintenance'])
+			new NaviData('NovaFlare Engine', ['Language','General','User Interface','GamePlay','Game UI','Skin','Input','Audio','Graphics','Maintenance'])
 		];
 		
 		var path = Paths.mods('stageScripts/options/');
@@ -295,6 +295,8 @@ class OptionsState extends MusicBeatState
 		{
 			case 'General':
 				obj = new GeneralGroup(outputX, outputY, outputWidth, outputHeight);
+			case 'Language':
+				obj = new LanguageGroup(outputX, outputY, outputWidth, outputHeight);
 			case 'User Interface':
 				obj = new InterfaceGroup(outputX, outputY, outputWidth, outputHeight);
 			case 'GamePlay':
@@ -456,6 +458,7 @@ class OptionsState extends MusicBeatState
 		resetButton.changeLanguage();
 		searchButton.changeLanguage();
 		backButton.changeLanguage();
+
 	}
 
 	public static var stateType:Int = 0; //检测到底退回到哪个界面

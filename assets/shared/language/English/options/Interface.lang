@@ -12,3 +12,5 @@ freeplayOld => Old Freeplay
 skipTitleVideo => Skip Title Video
 resultsScreen => Results Screen
 loadingScreen => Loading Screen
+loadThreads => Load Threads
+useFlixelCoords => UI Coordinate Mode

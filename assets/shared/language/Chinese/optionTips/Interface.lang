@@ -13,3 +13,4 @@ skipTitleVideo => 跳过游戏启动时的动画
 resultsScreen => 在结尾歌曲处打开结算界面
 loadingScreen => 为 PlayState 添加预加载界面并更快地加载，如果遇到问题，请禁用它
 loadThreads => 加载资源的线程数量，有时候并不是越多越好
+useFlixelCoords => UI元素（按键区、视频播放等）使用Flixel舞台坐标。关闭后改用OpenFL屏幕坐标。

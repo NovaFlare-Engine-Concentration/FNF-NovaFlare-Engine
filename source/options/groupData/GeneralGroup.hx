@@ -16,11 +16,6 @@ class GeneralGroup extends OptionCata
 		var option:Option = new Option(this, 'Basic', TEXT);
 		addOption(option);
 
-		var langArray:Array<String> = languageArray();
-		var option:Option = new Option(this, 'language', STRING, langArray);
-		addOption(option);
-		option.onChange = onChangeLanguage;
-
 		var option:Option = new Option(this, 'autoPause', BOOL);
 		addOption(option);
 		option.onChange = onChangePause;
@@ -66,7 +61,7 @@ class GeneralGroup extends OptionCata
 		addOption(option);
 		option.onChange = onChangeFilter;
 
-		changeHeight(0); //初始化真正的height
+		changeHeight(0);
 	}
 
 	///////////////////////////////////////////////////////////////////////////
@@ -78,7 +73,7 @@ class GeneralGroup extends OptionCata
 
 		var data:Array<Float> = [640 * 360, 854 * 480, 960 * 540, 1280 * 720, 1366 * 768, 1600 * 900, 1920 * 1080, 2560 * 1440, 2560 * 1600, 3200 * 1800, 3840 * 2160];
 		var displayData:Array<String> = ["360P", "480P", "540P", "720P", "768P", "900P", "1080P", "1440P (2K)", "1600P", "1800P", "2160P (4K)"];
-		
+
 		for (i in 0...data.length)
 		{
 			if (maxReso > Math.floor(data[i]))
@@ -111,6 +106,75 @@ class GeneralGroup extends OptionCata
 		return output;
 	}
 
+	///////////////////////////////////////////////////////////////
+
+	function onChangeFramerate()
+	{
+		if (ClientPrefs.data.framerate > FlxG.drawFramerate)
+		{
+			FlxG.updateFramerate = ClientPrefs.data.framerate;
+			FlxG.drawFramerate = ClientPrefs.data.framerate;
+		}
+		else
+		{
+			FlxG.drawFramerate = ClientPrefs.data.framerate;
+			FlxG.updateFramerate = ClientPrefs.data.framerate;
+		}
+	}
+
+	function onChangeDrawFramerate()
+	{
+		FlxG.stage.application.window.drawFrameRate = ClientPrefs.data.drawFramerate;
+	}
+
+	function onChangelockRender()
+	{
+		FlxG.stage.application.window.lockRender = ClientPrefs.data.lockRender;
+	}
+
+	function onChangerenderThread()
+	{
+		GL.setMultiThreaded(ClientPrefs.data.renderThread);
+	}
+
+	function onChangeResolution()
+	{
+		var output:Array<Float> = [];
+		switch(ClientPrefs.data.resolution) {
+			case '360P':
+				output = [640, 360];
+			case '480P':
+				output = [854, 480];
+			case '540P':
+				output = [960, 540];
+			case '720P':
+				output = [1280, 720];
+			case '768P':
+				output = [1366, 768];
+			case '900P':
+				output = [1600, 900];
+			case '1080P':
+				output = [1920, 1080];
+			case '1440P (2K)':
+				output = [2560, 1440];
+			case '1600P':
+				output = [2560, 1600];
+			case '1800P':
+				output = [3200, 1800];
+			case '2160P (4K)':
+				output = [3840, 2160];
+			default:
+				var display:Display = lime.system.System.getDisplay(0);
+				output = [display.bounds.width, display.bounds.height];
+		}
+		openfl.Lib.current.stage.setLogicalSize(Std.int(output[0]), Std.int(output[1]));
+	}
+
+	function onChangeFilter()
+	{
+		ColorblindFilter.UpdateColors();
+	}
+
 	function onChangePause()
 	{
 		FlxG.autoPause = ClientPrefs.data.autoPause;
@@ -121,22 +185,4 @@ class GeneralGroup extends OptionCata
 		Language.resetData();
 		OptionsState.instance.changeLanguage();
 	}
-
-	function onChangeFilter()
-	{
-		ColorblindFilter.UpdateColors();
-	}
-
-	function changeWatermark() {
-		Main.fpsVar.visible = ClientPrefs.data.showFPS;
-		Main.fpsVar.scaleX = Main.fpsVar.scaleY = ClientPrefs.data.fpsScale;
-		//Main.fpsVar.change();
-		if (Main.watermark != null)
-		{
-			Main.watermark.scaleX = Main.watermark.scaleY = ClientPrefs.data.watermarkScale;
-			Main.watermark.y += (1 - ClientPrefs.data.watermarkScale) * Main.watermark.bitmapData.height;
-			Main.watermark.visible = ClientPrefs.data.showWatermark;
-		}
-	}
-
 }

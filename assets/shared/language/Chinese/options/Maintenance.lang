@@ -13,3 +13,4 @@ checkForUpdates => 版本检查
 screensaver => 休眠禁用
 filesCheck => 文件缺失检查
 filesCheckNew => 可疑文件检查
+storageFolder => 存储文件夹

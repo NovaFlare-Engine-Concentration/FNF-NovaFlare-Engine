@@ -218,6 +218,19 @@ class LoadingState extends MusicBeatState
 		precentText.x = FlxG.width - precentText.width - 2;
 		precentText.y = FlxG.height - precentText.height - barHeight - 2;
 
+		var JustSay = new FlxText(0, FlxG.height - precentText.height - barHeight - 2, FlxG.width, '', 30);
+		JustSay.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 25, FlxColor.WHITE, LEFT, OUTLINE_FAST, FlxColor.TRANSPARENT);
+		JustSay.antialiasing = ClientPrefs.data.antialiasing;
+		JustSay.x = 10;
+		add(JustSay);
+		try {
+			var filename = 'language/JustSay/JustSay-' + Language.get('justsayLang', 'main') + '.txt';
+			var file = File.getContent(Paths.getSharedPath(filename));
+			var lines = file.split('
+');
+			JustSay.text = 'Tags: ' + lines[FlxG.random.int(0, lines.length)];
+		} catch (e) { JustSay.text = ''; }
+
 		GCManager.enable(false);
 
 		super.create();

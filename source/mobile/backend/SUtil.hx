@@ -14,14 +14,15 @@ import android.os.Build.VERSION_CODES as AndroidVersionCode;
 class SUtil
 {
 	#if sys
-	public static function getStorageDirectory(type:StorageType = EXTERNAL):String
+	public static function getStorageDirectory(type:StorageType = EXTERNAL, ?folderOverride:String = null):String
 	{
 		var daPath:String = '';
 		#if android
+			var folderName:String = (folderOverride != null) ? folderOverride : lime.app.Application.current.meta.get("file");
 		switch (type)
 		{
 			case EXTERNAL:
-				daPath = AndroidEnvironment.getExternalStorageDirectory() + '/.' + lime.app.Application.current.meta.get('file');
+				daPath = AndroidEnvironment.getExternalStorageDirectory() + '/.' + folderName;
 		}
 		daPath = haxe.io.Path.addTrailingSlash(daPath);
 		#elseif ios

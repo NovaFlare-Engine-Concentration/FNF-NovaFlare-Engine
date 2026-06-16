@@ -63,8 +63,15 @@ class FPSCounter extends Sprite
 			}
 		}
 
-		this.title.text = "TPS \n " + "/ " + ClientPrefs.data.framerate + ' \n';
-
-		this.data.text = Std.string(DataCalc.updateFPS) + " ";
+		if (ClientPrefs.data.fpsDisplayMode == 'TPS')
+		{
+			this.title.text = "TPS \n " + "/ " + ClientPrefs.data.framerate + ' \n';
+			this.data.text = Std.string(DataCalc.updateFPS) + " ";
+		}
+		else
+		{
+			this.title.text = "FPS \n " + "/ " + ClientPrefs.data.drawFramerate + ' \n';
+			this.data.text = Std.string(DataCalc.drawFPS) + " ";
+		}
 	}
 }

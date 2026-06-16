@@ -33,6 +33,8 @@ class Option extends FlxSpriteGroup
 	public var strGroup:Array<String> = null;
 	public var strDisplayGroup:Array<String> = null;
 
+	public var nationalFlag:FlxSprite;
+
 	//INT FLOAT PERCENT;
 	public var minValue:Float = 0;
 	public var maxValue:Float = 0;
@@ -242,6 +244,12 @@ class Option extends FlxSpriteGroup
 			OptionsState.instance.changeTip(tips);
 			alreadyShowTip = true;
 		}
+
+		if (this.variable == 'language')
+		{
+			var hue = (Date.now().getTime() / 10) % 360;
+			baseBG.color = FlxColor.fromHSB(hue, 1, 1);
+		}
 	}
 
 	private function set_experMode(value:Bool):Bool {
@@ -322,6 +330,51 @@ class Option extends FlxSpriteGroup
 		select = new StringSelect(0, baseBG.height + inter, follow.bg.realWidth * (1 - (1 / 2 / 50 * 2)), follow.bg.width * 0.2, this);
 		select.visible = false;
 		add(select);
+
+		if (this.variable == 'language' && this.type == STRING) {
+			nationalFlag = new FlxSprite().loadGraphic(Paths.image("menuExtendHide/option/nation/" + defaultValue));
+			nationalFlag.origin.set(0, 0);
+			var scaleX = baseBG.width / nationalFlag.width;
+			var scaleY = baseBG.height / nationalFlag.height;
+			var scale = Math.min(scaleX, scaleY);
+			nationalFlag.scale.set(scale, scale);
+			nationalFlag.setPosition(
+				baseBG.x + baseBG.width + 20,
+				baseBG.y + baseBG.height - (nationalFlag.height * scale)
+			);
+			add(nationalFlag);
+
+			if (Paths.image("menuExtendHide/option/nation/" + defaultValue) == null)
+			{
+				nationalFlag.visible = false;
+			} else {
+				nationalFlag.visible = true;
+			}
+		}
+	}
+
+	public function changeLangNation()
+	{
+		if (nationalFlag != null)
+		{ 
+			if (Paths.image("menuExtendHide/option/nation/" + defaultValue) == null)
+			{
+				nationalFlag.visible = false;
+				return;
+			}
+
+			nationalFlag.loadGraphic(Paths.image("menuExtendHide/option/nation/" + defaultValue));
+			nationalFlag.origin.set(0, 0);
+			var scaleX = baseBG.width / nationalFlag.width;
+			var scaleY = baseBG.height / nationalFlag.height;
+			var scale = Math.min(scaleX, scaleY);
+			nationalFlag.scale.set(scale, scale);
+			nationalFlag.setPosition(
+				baseBG.x + baseBG.width + 20,
+				baseBG.y + baseBG.height - (nationalFlag.height * scale)
+			);
+			nationalFlag.visible = true;
+		}
 	}
 
 	var tipsLight:Rect;

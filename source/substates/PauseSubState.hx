@@ -198,6 +198,7 @@ class PauseSubState extends MusicBeatSubstate
 			var diff:String = Difficulty.getString(i);
 			difficultyChoices.push(diff);
 		}
+		difficultyChoices.push('Change Ver');
 		difficultyChoices.push('Back');
 
 		for (i in 0...difficultyChoices.length)
@@ -207,6 +208,8 @@ class PauseSubState extends MusicBeatSubstate
 			optionText.x = -1000;
 			optionText.y = (i - difficultyCurSelected) * 180 + 325;
 			optionText.setFormat(font, 50, FlxColor.BLACK);
+			if (difficultyChoices[i] == 'Change Ver')
+				optionText.color = FlxColor.RED;
 			if (optionText.width > 300)
 				optionText.scale.set(300 / optionText.width, 300 / optionText.width);
 			optionText.updateHitbox();
@@ -361,7 +364,19 @@ class PauseSubState extends MusicBeatSubstate
 		cheatingText.antialiasing = ClientPrefs.data.antialiasing;
 		add(cheatingText);
 
-		menuText = [dataText, songText, ballText, practiceText, botText, cheatingText];
+		var engineText = new FlxText(0, 15, 0, 'Chart Engine: ' + Song.chartEngineVersion, 32);
+		engineText.setFormat(font, 25);
+		engineText.updateHitbox();
+		engineText.antialiasing = ClientPrefs.data.antialiasing;
+		add(engineText);
+
+		var formatText = new FlxText(0, 15, 0, 'Format: ' + Song.detectedFormat, 32);
+		formatText.setFormat(font, 25);
+		formatText.updateHitbox();
+		formatText.antialiasing = ClientPrefs.data.antialiasing;
+		add(formatText);
+
+		menuText = [dataText, songText, ballText, practiceText, botText, cheatingText, engineText, formatText];
 
 		var curText = 0;
 		for (i in menuText)
@@ -715,6 +730,43 @@ class PauseSubState extends MusicBeatSubstate
 		}
 		else if (staymainmenu == 'difficulty')
 		{
+			if (difficultyChoices[difficultyCurSelected] == 'Change Ver')
+			{
+				// Toggle engine between Pe-0.7.3 and Pe-1.0.4
+				var nextEngine:String = (Song.chartEngineVersion == 'Pe-1.0.4') ? 'Pe-0.7.3' : 'Pe-1.0.4';
+				closeMenu(function(trm:FlxTimer)
+				{
+					try
+					{
+						var name:String = PlayState.SONG.song;
+						var poop = Highscore.formatSong(name, PlayState.storyDifficulty);
+						Song.forceEngineVersion = nextEngine;
+						PlayState.SONG = Song.loadFromJson(poop, name);
+						MusicBeatState.resetState();
+						FlxG.sound.music.volume = 0;
+						PlayState.changedDifficulty = false;
+						PlayState.chartingMode = false;
+					}
+					catch (e:Dynamic)
+					{
+						missingText.text = 'ERROR WHILE LOADING CHART: ' + PlayState.SONG.song + '-Engine';
+						missingText.screenCenter(X);
+						FlxG.sound.play(Paths.sound('cancelMenu'));
+						if (missingTextTimer == null && missingTextTween != null)
+						{
+							missingTextTween = FlxTween.tween(missingText, {y: 680}, 0.5, {ease: FlxEase.quartOut});
+							missingTextTimer = new FlxTimer().start(2, function(tmr:FlxTimer)
+							{
+								missingTextTween = FlxTween.tween(missingText, {y: 720}, 0.5, {ease: FlxEase.quartIn});
+								missingTextTimer = null;
+								missingTextTween = null;
+							}, 1);
+						}
+					}
+				});
+				return;
+			}
+
 			if (difficultyChoices[difficultyCurSelected] == 'Back')
 			{
 				for (i in difficultyBars)

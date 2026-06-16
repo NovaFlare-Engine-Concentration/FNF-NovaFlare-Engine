@@ -38,9 +38,20 @@ class FlxHitbox extends FlxMobileInputManager
 
 		var stage = Lib.current.stage;
 
-		var scale:Float = Math.min(stage.stageWidth / 1280, stage.stageHeight / 720);
-		var newWidth:Int = Std.int(stage.stageWidth / scale);
-		var newHeight:Int = Std.int(stage.stageHeight / scale);
+		var newWidth:Int;
+		var newHeight:Int;
+
+		if (ClientPrefs.data.useFlixelCoords)
+		{
+			newWidth = Std.int(FlxG.width);
+			newHeight = Std.int(FlxG.height);
+		}
+		else
+		{
+			var scale:Float = Math.min(stage.stageWidth / 1280, stage.stageHeight / 720);
+			newWidth = Std.int(stage.stageWidth / scale);
+			newHeight = Std.int(stage.stageHeight / scale);
+		}
 
 		if (ClientPrefs.data.extraKey == 0)
 		{

@@ -67,7 +67,20 @@ class GraphicsGroup extends OptionCata
 		var option:Option = new Option(this, 'rainbowFPS', BOOL);
 		addOption(option);
 
-		var option:Option = new Option(this, 'FPSScale', FLOAT, [0, 5, 1]);
+		var option:Option = new Option(this, 'fpsScale', FLOAT, [0, 5, 1]);
+		option.onChange = () -> changeWatermark();
+		addOption(option);
+		
+		/////--Watermark--\\\\\
+
+		var option:Option = new Option(this, 'Watermark', TEXT);
+		addOption(option);
+
+		var option:Option = new Option(this, 'showWatermark', BOOL);
+		option.onChange = () -> changeWatermark();
+		addOption(option);
+
+		var option:Option = new Option(this, 'watermarkScale', FLOAT, [0, 5, 1]);
 		option.onChange = () -> changeWatermark();
 		addOption(option);
 

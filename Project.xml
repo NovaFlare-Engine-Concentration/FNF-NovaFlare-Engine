@@ -2,7 +2,7 @@
 <project>
 	<!-- _________________________ Application Settings _________________________ -->
 
-	<app title="NovaFlare Engine" file="NovaFlare Engine" packageName="com.NovaFlareEngine" package="com.NovaFlareEngine" main="Main" version="1.2.0" build-number="28260503" company="NF crew" />
+	<app title="NovaFlare Engine" file="NovaFlare Engine" packageName="com.NovaFlareEngineNew" package="com.NovaFlareEngineNew" main="Main" version="1.2.1" build-number="28260503" company="NF crew" />
 	<!--Switch Export with Unique ApplicationID and Icon-->
 	<set name="APP_ID" value="0x0100f6c013bbc000" />
 	
@@ -235,6 +235,9 @@
 	<!-- Do whatever you want I'm tired uninstall and install everytime -->
 	<certificate path="key.keystore" password="novaFlare" alias="psychport" alias-password="novaFlare" if="android" unless="debug" />
 
+	<!-- Fix Android 16 back button -->
+	<config:android application="android:enableOnBackInvokedCallback=false" if="android" />
+	
 	<!--Avoid memory leaks with for loops in HScript-->
 	<haxedef name="loop_unroll_max_cost" value="25" />
 

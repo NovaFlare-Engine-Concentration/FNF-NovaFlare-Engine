@@ -13,3 +13,4 @@ checkForUpdates => 检查应用程序版本
 screensaver => 处于非活动状态不会进入休眠状态
 filesCheck => 检查游戏是否丢失文件
 filesCheckNew => 检查游戏是否有有问题的文件
+storageFolder => 选择储存游戏数据的文件夹，切换后游戏将自动退出。

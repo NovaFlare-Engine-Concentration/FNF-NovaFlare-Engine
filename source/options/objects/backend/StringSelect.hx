@@ -38,7 +38,7 @@ class StringSelect extends FlxSpriteGroup
 
         var calcHeight:Float = height;
         if (follow.strGroup.length < 5) calcHeight = calcHeight * (follow.strGroup.length / 5);
-        
+
         bg = new Rect(0, 0, width, calcHeight, width / 75, width / 75, 0xffffff, 0);
         add(bg);
 
@@ -55,7 +55,7 @@ class StringSelect extends FlxSpriteGroup
             optionSprites.push(option);
             option.y = follow.followY + follow.innerY + mainY + i * height / 5; //初始化在state的y
         }
-        
+
         // 创建滑块
         var calcWidth = width / init;
         var calcHeight = bg.height * 5 / options.length;
@@ -66,17 +66,17 @@ class StringSelect extends FlxSpriteGroup
         var calc = -1 * (height / 5) * (options.length - 5);
         if (optionSprites.length < 5) calc = 0;
 
-        optionMove = new MouseMove(this, 'posiData', 
+        optionMove = new MouseMove(this, 'posiData',
 								[calc , 0],
-								[ 
-									[follow.followX + follow.innerX + mainX - specX, follow.followX + follow.innerX + mainX - specX + bg.width], 
+								[
+									[follow.followX + follow.innerX + mainX - specX, follow.followX + follow.innerX + mainX - specX + bg.width],
 									[follow.y + mainY, follow.y + mainY + bg.height]
 								]
 								);
 		OptionsState.instance.addMove(optionMove);
         //optionMove.mouseWheelSensitivity = 10;
     }
-    
+
     public var allowUpdate:Bool = true;
     override public function update(elapsed:Float):Void
     {
@@ -95,12 +95,12 @@ class StringSelect extends FlxSpriteGroup
             if (options.length < 5) calcHeight = bg.height / options.length;
             option.y = follow.y + mainY + i * calcHeight + posiData; //初始化在state的y
         }
-    
+
         var mouse = FlxG.mouse;
-        
+
         var startY:Float = follow.y + mainY;
         var overY:Float  = follow.y + mainY + bg.height;
-        
+
         for (str in optionSprites) {
             changeRect(str, startY, overY);
         }
@@ -118,18 +118,18 @@ class StringSelect extends FlxSpriteGroup
         // 获取选项矩形的顶部和底部坐标（相对于父容器）
         var optionTop = str.y;
         var optionBottom = str.y + str.height;
-        
+
         // 计算实际可见区域
         var visibleTop = Math.max(optionTop, startY);    // 可见顶部取两者最大值
         var visibleBottom = Math.min(optionBottom, overY); // 可见底部取两者最小值
-        
+
         // 完全不可见的情况（在背景上方或下方）
         if (visibleBottom <= startY || visibleTop >= overY) {
             str.visible = false;
             str.allowChoose = false;
             return;
         }
-        
+
         // 设置可见性
         str.visible = true;
         str.allowChoose = true;
@@ -137,7 +137,7 @@ class StringSelect extends FlxSpriteGroup
         // 计算裁剪参数（基于局部坐标系）
         var clipY = Math.max(0, startY - optionTop);  // 裁剪上边距
         var clipHeight = visibleBottom - visibleTop;  // 可见高度
-        
+
         // 创建/更新裁剪矩形
         var swagRect = str.clipRect;
         if (swagRect == null) {
@@ -145,11 +145,11 @@ class StringSelect extends FlxSpriteGroup
         } else {
             swagRect.set(0, clipY, str.width, clipHeight);
         }
-        
+
         // 应用裁剪
         str.clipRect = swagRect;
     }
-    
+
     public function updateSelection(index:Int):Void
     {
         for (i in 0...optionSprites.length) {
@@ -217,7 +217,7 @@ class ChooseRect extends FlxSpriteGroup {
             if (bg.alpha < 1) bg.alpha += EngineSet.FPSfix(0.09);
 
             if (mouse.justPressed) {
-                
+
             }
 
             if (mouse.pressed) {
@@ -240,7 +240,7 @@ class ChooseRect extends FlxSpriteGroup {
 
         if (!mouse.pressed)
         {
-            
+
         }
 	}
 }

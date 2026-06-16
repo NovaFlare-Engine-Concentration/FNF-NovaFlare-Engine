@@ -334,6 +334,11 @@ class InitState extends MusicBeatState
 	
 		video = new FlxVideoSprite(0, 0);
 		video.antialiasing = true;
+		if (!ClientPrefs.data.useFlixelCoords)
+		{
+			video.bitmap.x -= FlxG.game.x;
+			video.bitmap.y -= FlxG.game.y;
+		}
 		video.bitmap.onFormatSetup.add(function():Void
 		{
 			if (video.bitmap != null && video.bitmap.bitmapData != null)

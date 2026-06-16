@@ -16,6 +16,7 @@ import lime.app.Application;
 
 import flixel.graphics.FlxGraphic;
 import flixel.FlxGame;
+import flixel.util.FlxSave;
 
 import developer.display.FPSViewer;
 import developer.display.Graphics;
@@ -24,6 +25,7 @@ import developer.console.Console;
 import developer.console.ConsoleToggleButton;
 
 import general.objects.screen.MouseEffect;
+import general.objects.ReplayOverlay;
 
 import states.titleState.TitleState;
 import states.backend.initState.InitState;
@@ -63,6 +65,12 @@ class Main extends Sprite
 
 	public static var fpsVar:FPSViewer;
 	public static var watermark:Watermark;
+	private static var replayOverlay:ReplayOverlay;
+
+	public static function getReplayOverlay():ReplayOverlay
+	{
+		return replayOverlay;
+	}
 
 	#if mobile
 	public static final platform:String = "Phones";
@@ -138,10 +146,28 @@ class Main extends Sprite
 
 		#if mobile
 		#if android
-		if (!FileSystem.exists(AndroidEnvironment.getExternalStorageDirectory() + '/.' + Application.current.meta.get('file')))
-			FileSystem.createDirectory(AndroidEnvironment.getExternalStorageDirectory() + '/.' + Application.current.meta.get('file'));
+		var defaultFolder:String = Application.current.meta.get('file');
+		var storageFolder:String = defaultFolder;
+
+		// Read saved storage folder preference from config file
+		var configFile:String = AndroidEnvironment.getExternalStorageDirectory() + '/.novaflare_storage_config';
+		try {
+			if (FileSystem.exists(configFile))
+			{
+				var savedFolder:String = sys.io.File.getContent(configFile).trim();
+				if (savedFolder != '' && savedFolder != null)
+					storageFolder = savedFolder;
+			}
+		} catch (e:Dynamic) {
+			trace('Failed to read storage config: $e');
+		}
+
+		if (!FileSystem.exists(AndroidEnvironment.getExternalStorageDirectory() + '/.' + storageFolder))
+			FileSystem.createDirectory(AndroidEnvironment.getExternalStorageDirectory() + '/.' + storageFolder);
 		#end
-		Sys.setCwd(SUtil.getStorageDirectory());
+		Sys.setCwd(SUtil.getStorageDirectory(
+			#if android EXTERNAL, storageFolder #else EXTERNAL #end
+		));
 		#end
 
 		#if android
@@ -192,6 +218,9 @@ class Main extends Sprite
 
 		var effect = new MouseEffect();
 		addChild(effect);
+
+		replayOverlay = new ReplayOverlay();
+		addChild(replayOverlay);
 
 		#if linux
 		var icon = Image.fromFile("icon.png");

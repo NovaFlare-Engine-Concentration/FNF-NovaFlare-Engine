@@ -21,6 +21,10 @@ import states.freeplayState.objects.down.*;
 import states.freeplayState.objects.others.*;
 import states.freeplayState.objects.select.*;
 import states.freeplayState.objects.song.*;
+import states.freeplayState.objects.replay.*;
+
+import states.freeplayState.objects.replay.ReplayRect.ReplaySortMode;
+import states.freeplayState.objects.replay.ReplayRect.ReplayData;
 
 import substates.GameplayChangersSubstate;
 import substates.ResetScoreSubState;
@@ -29,7 +33,11 @@ import games.backend.WeekData;
 import games.backend.Highscore;
 import games.backend.Song;
 import games.backend.Replay;
+import games.backend.Replay.StateRecord;
+import substates.ResultsScreen;
 import games.backend.diffCalc.DiffRating;
+import general.shapeEx.RoundRect;
+import general.shapeEx.RoundRect.OriginType;
 
 class FreeplayState extends MusicBeatState
 {
@@ -54,6 +62,7 @@ class FreeplayState extends MusicBeatState
 
 	var camBG:FlxCamera;
 	var camSongs:FlxCamera;
+	var camReplay:FlxCamera;
 	var camAfter:FlxCamera;
 
 	public static var vocalsPlayer1:FlxSound;
@@ -90,8 +99,19 @@ class FreeplayState extends MusicBeatState
 
 	///////////////////////////////////////////////////////////////////////////////////////////////
 
-	//var replayGroup:Array<ReplayRect> = [];
+	var replayGroup:Array<ReplayRect> = [];
 	public var replayMove:MouseMove;
+	public var replaySortMode:ReplaySortMode = DATE_DESC;
+	public var replayPosiData:Float = 0;
+	public var replayStartX:Float = 15;
+	public var replayStartY:Float = 300;
+	public var replaySlope:Float = 0.20;
+
+	var replaySortBtn:Array<RoundRect> = [];
+	var replaySortLabel:Array<FlxText> = [];
+	var replaySortText:FlxText;
+	var replayNoDataText:FlxText;
+	var replayTitleText:FlxText;
 
 	///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -110,10 +130,13 @@ class FreeplayState extends MusicBeatState
 	public var searchJustUnfocused:Bool = false;
 
 	var noMatchText:FlxText;
+	var searchCountText:FlxText;
 
 	override function create()
 	{
 		super.create();
+
+		Song.forceEngineVersion = null;
 
 		instance = this;
 
@@ -167,6 +190,9 @@ class FreeplayState extends MusicBeatState
 		camSongs = new FlxCamera();
 		camSongs.bgColor = 0x00000000;
 		FlxG.cameras.add(camSongs);
+		camReplay = new FlxCamera();
+		camReplay.bgColor = 0x00000000;
+		FlxG.cameras.add(camReplay);
 		camAfter = new FlxCamera();
 		camAfter.bgColor = 0x00000000;
 		FlxG.cameras.add(camAfter);
@@ -315,6 +341,71 @@ class FreeplayState extends MusicBeatState
 		add(songsMove);
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+				//////////////////////////////////////////////////////////////////////////////////////////
+
+		replayTitleText = new FlxText(replayStartX, replayStartY - 50, 300, 'Local Replays', 18);
+		replayTitleText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 18, 0xFFFFFFFF, LEFT);
+		replayTitleText.borderStyle = NONE;
+		replayTitleText.antialiasing = ClientPrefs.data.antialiasing;
+		replayTitleText.cameras = [camReplay];
+		add(replayTitleText);
+
+		var sortModes:Array<{label:String, mode:ReplaySortMode}> = [
+			{label: 'Date', mode: DATE_DESC},
+			{label: 'Score', mode: SCORE_DESC},
+			{label: 'Acc', mode: ACC_DESC},
+			{label: 'Combo', mode: COMBO_DESC},
+		];
+		for (i in 0...sortModes.length)
+		{
+			var btnX:Float = replayStartX + 225 + i * 100;
+			var btnY:Float = replayStartY - 52;
+			var sel:Bool = (replaySortMode == sortModes[i].mode);
+			var btn:RoundRect = new RoundRect(btnX, btnY, 80, 24, 8, OriginType.LEFT_UP, 0xFFFFFFFF);
+			btn.alpha = sel ? 1.0 : 0.35;
+			btn.cameras = [camReplay];
+			btn.ID = i;
+			add(btn);
+			replaySortBtn.push(btn);
+
+			var label:FlxText = new FlxText(btnX, btnY, 80, sortModes[i].label, 12);
+			label.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 12, sel ? 0xFF000000 : 0xFFFFFFFF, CENTER);
+			label.borderStyle = NONE;
+			label.antialiasing = ClientPrefs.data.antialiasing;
+			label.cameras = [camReplay];
+			label.alignment = CENTER;
+			label.y += (24 - label.height) / 2;
+			add(label);
+			replaySortLabel.push(label);
+		}
+
+		replaySortText = new FlxText(replayStartX, replayStartY - 20, 620, '', 13);
+		replaySortText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 13, 0x88FFFFFF, LEFT);
+		replaySortText.borderStyle = NONE;
+		replaySortText.antialiasing = ClientPrefs.data.antialiasing;
+		replaySortText.cameras = [camReplay];
+		add(replaySortText);
+
+		replayNoDataText = new FlxText(replayStartX, replayStartY + 10, ReplayRect.fixWidth, 'No replays found', 16);
+		replayNoDataText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 16, 0x55FFFFFF, CENTER);
+		replayNoDataText.borderStyle = NONE;
+		replayNoDataText.antialiasing = ClientPrefs.data.antialiasing;
+		replayNoDataText.cameras = [camReplay];
+		replayNoDataText.visible = false;
+		add(replayNoDataText);
+
+		replayMove = new MouseMove(this, 'replayPosiData',
+			[0, 0],
+			[[replayStartX, replayStartX + ReplayRect.fixWidth], [replayStartY, FlxG.height - 60]]);
+		replayMove.useLerp = true;
+		replayMove.lerpSmooth = 10;
+		replayMove.mouseWheelSensitivity = -1000;
+		replayMove.event = replayMoveEvent;
+		replayMove.forceUpdateEvent = true;
+		add(replayMove);
+
+		//////////////////////////////////////////////////////////////////////////////////////////
 		
 		selectedBG = new SkewRoundRect(0, -20, 680, 90, 20, 20, -10, 0, 0x000000, 0.4);
         selectedBG.antialiasing = ClientPrefs.data.antialiasing;
@@ -335,6 +426,15 @@ class FreeplayState extends MusicBeatState
 		noMatchText.cameras = [camAfter];
 		noMatchText.visible = false;
 		add(noMatchText);
+
+		searchCountText = new FlxText(searchButton.x, searchButton.y + searchButton.height + 10, 0, '', 16);
+		searchCountText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 16, 0x88FFFFFF, RIGHT);
+		searchCountText.borderStyle = NONE;
+		searchCountText.antialiasing = ClientPrefs.data.antialiasing;
+		searchCountText.cameras = [camAfter];
+		searchCountText.visible = true;
+		searchCountText.text = '${songGroup.length} charts';
+		add(searchCountText);
 
 		//////////////////////////////////////////////////////////////////////////////////////////
 
@@ -368,6 +468,11 @@ class FreeplayState extends MusicBeatState
 
 		WeekData.setDirectoryFromWeek();
 		songGroup[curSelected].changeSelectAll(true);
+
+		#if windows
+		var currentWindow = lime.app.Application.current.window;
+		currentWindow.title = "NovaFlare Engine";
+		#end
 	}
 
 	function weekIsLocked(name:String):Bool
@@ -590,6 +695,30 @@ class FreeplayState extends MusicBeatState
 			}
 		}
 
+		// replay hover & sort button handling
+		if (keyboardState == 0 && !stopAll)
+		{
+			var mouseX:Float = FlxG.mouse.x;
+			var mouseY:Float = FlxG.mouse.y;
+
+			for (btn in replaySortBtn)
+			{
+				if (mouseX >= btn.x && mouseX <= btn.x + btn.width
+					&& mouseY >= btn.y && mouseY <= btn.y + btn.height
+					&& FlxG.mouse.justPressed)
+				{
+					var sortModes:Array<ReplaySortMode> = [DATE_DESC, SCORE_DESC, ACC_DESC, COMBO_DESC];
+					if (btn.ID >= 0 && btn.ID < sortModes.length)
+						toggleReplaySort(sortModes[btn.ID]);
+				}
+			}
+
+			for (r in replayGroup)
+			{
+				r.updateHover(mouseX, mouseY);
+			}
+		}
+
 		searchJustUnfocused = false;
 	}
 
@@ -680,6 +809,11 @@ class FreeplayState extends MusicBeatState
 		});
 
 		updateAudio();
+
+		if (curDifficulty >= 0 && curDifficulty < Difficulty.list.length)
+		{
+			loadReplaysForCurrentSong();
+		}
 	}
 
 	var allowPlayMusic:Bool = true;
@@ -849,6 +983,224 @@ class FreeplayState extends MusicBeatState
 		}
 	}
 
+	public function watchReplay(rsdPath:String)
+	{
+		if (curDifficulty < 0 || curDifficulty >= Difficulty.list.length)
+			return;
+
+		var songLowercase:String = Paths.formatToSongPath(songsData[curSelected].songName);
+		var poop:String = Highscore.formatSong(songLowercase, curDifficulty);
+
+		try
+		{
+			PlayState.SONG = Song.loadFromJson(poop, songLowercase);
+			PlayState.isStoryMode = false;
+			PlayState.storyDifficulty = curDifficulty;
+			PlayState.replayMode = true;
+			Replay.preparedPath = rsdPath;
+		}
+		catch (e:Dynamic)
+		{
+			trace('ERROR loading replay: $e');
+			FlxG.sound.play(Paths.sound('cancelMenu'));
+			return;
+		}
+
+		Highscore.savePlayCount(songLowercase, curDifficulty);
+
+		LoadingState.prepareToSong();
+		if (ClientPrefs.data.loadingScreen)
+		{
+			FlxTransitionableState.skipNextTransIn = true;
+			FlxTransitionableState.skipNextTransOut = true;
+		}
+		LoadingState.loadAndSwitchState(new PlayState());
+		stopAll = true;
+		#if (MODS_ALLOWED && DISCORD_ALLOWED)
+		DiscordClient.loadModRPC();
+		#end
+	}
+
+	public function openReplayResults(rsdPath:String)
+	{
+		#if sys
+		BackendThread.run(() -> {
+			var record:StateRecord = ReplayRect.loadStateRecord(rsdPath);
+			MainLoop.runInMainThread(function():Void
+			{
+				if (record != null)
+				{
+					ResultsScreen.isFromFreeplay = true;
+					ResultsScreen.freeplayRecord = record;
+					persistentUpdate = false;
+					openSubState(new ResultsScreen(0, 0));
+				}
+				else
+				{
+					FlxG.sound.play(Paths.sound('cancelMenu'));
+				}
+			});
+		});
+		#end
+	}
+
+	public function loadReplaysForCurrentSong()
+	{
+		for (r in replayGroup)
+		{
+			remove(r);
+			r.destroy();
+		}
+		replayGroup = [];
+		replayPosiData = 0;
+
+		if (curDifficulty < 0 || curDifficulty >= Difficulty.list.length)
+		{
+			replayNoDataText.visible = true;
+			if (replayMove != null)
+				replayMove.moveLimit = [0, 0];
+			return;
+		}
+
+		var diffName:String = Difficulty.list[curDifficulty];
+		var data:Array<ReplayData> = ReplayRect.loadReplayData(songsData[curSelected].songName, diffName, songsData[curSelected].folder);
+
+		if (data.length == 0)
+		{
+			replayNoDataText.visible = true;
+			if (replayMove != null)
+				replayMove.moveLimit = [0, 0];
+			return;
+		}
+
+		ReplayRect.sortReplays(data, replaySortMode);
+
+		replayNoDataText.visible = false;
+
+		var startY:Float = replayStartY;
+		for (i in 0...data.length)
+		{
+			var replayData:ReplayData = data[i];
+			var baseY:Float = startY + i * ReplayRect.fixHeight * 1.3;
+			var baseX:Float = replayStartX + 80 - (baseY - replayStartY) * replaySlope;
+			var rect:ReplayRect = new ReplayRect(baseX, baseY, ReplayRect.fixWidth, ReplayRect.fixHeight, replayData);
+			rect.cameras = [camReplay];
+			rect.onClick = function()
+			{
+				watchReplay(replayData.rsdPath);
+			};
+			rect.onClickSettings = function()
+			{
+				openReplayResults(replayData.rsdPath);
+			};
+			add(rect);
+			replayGroup.push(rect);
+		}
+
+		var maxScroll:Float = Math.max(0, data.length * ReplayRect.fixHeight * 1.3 - (FlxG.height - 60 - replayStartY));
+		if (replayMove != null)
+			replayMove.moveLimit = [0, maxScroll];
+
+		updateReplaySortLabel();
+	}
+
+	public function replayMoveEvent()
+	{
+		for (i in 0...replayGroup.length)
+		{
+			var baseY:Float = replayStartY + i * ReplayRect.fixHeight * 1.3 - replayPosiData;
+			replayGroup[i].moveY(baseY);
+			replayGroup[i].x = replayStartX + 80 - (baseY - replayStartY) * replaySlope;
+		}
+	}
+
+	function toggleReplaySort(mode:ReplaySortMode)
+	{
+		var nextMode:ReplaySortMode = mode;
+		if (replaySortMode == mode)
+		{
+			nextMode = switch (mode)
+			{
+				case DATE_DESC: DATE_ASC;
+				case DATE_ASC: DATE_DESC;
+				case SCORE_DESC: SCORE_ASC;
+				case SCORE_ASC: SCORE_DESC;
+				case ACC_DESC: ACC_ASC;
+				case ACC_ASC: ACC_DESC;
+				case COMBO_DESC: COMBO_ASC;
+				case COMBO_ASC: COMBO_DESC;
+			}
+		}
+		replaySortMode = nextMode;
+		updateSortBtnColors();
+		loadReplaysForCurrentSong();
+	}
+
+	function updateSortBtnColors()
+	{
+		var sortModes:Array<{label:String, mode:ReplaySortMode}> = [
+			{label: 'Date', mode: DATE_DESC},
+			{label: 'Score', mode: SCORE_DESC},
+			{label: 'Acc', mode: ACC_DESC},
+			{label: 'Combo', mode: COMBO_DESC},
+		];
+		for (i in 0...replaySortBtn.length)
+		{
+			if (replaySortBtn[i] != null)
+			{
+				remove(replaySortBtn[i]);
+				replaySortBtn[i].destroy();
+			}
+			if (replaySortLabel[i] != null)
+			{
+				remove(replaySortLabel[i]);
+				replaySortLabel[i].destroy();
+			}
+		}
+		replaySortBtn = [];
+		replaySortLabel = [];
+
+		for (i in 0...sortModes.length)
+		{
+			var btnX:Float = replayStartX + 225 + i * 100;
+			var btnY:Float = replayStartY - 52;
+			var sel:Bool = (replaySortMode == sortModes[i].mode);
+			var btn:RoundRect = new RoundRect(btnX, btnY, 80, 24, 8, OriginType.LEFT_UP, 0xFFFFFFFF);
+			btn.alpha = sel ? 1.0 : 0.35;
+			btn.cameras = [camReplay];
+			btn.ID = i;
+			add(btn);
+			replaySortBtn.push(btn);
+
+			var label:FlxText = new FlxText(btnX, btnY, 80, sortModes[i].label, 12);
+			label.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 12, sel ? 0xFF000000 : 0xFFFFFFFF, CENTER);
+			label.borderStyle = NONE;
+			label.antialiasing = ClientPrefs.data.antialiasing;
+			label.cameras = [camReplay];
+			label.alignment = CENTER;
+			label.y += (24 - label.height) / 2;
+			add(label);
+			replaySortLabel.push(label);
+		}
+	}
+
+	function updateReplaySortLabel()
+	{
+		var label:String = switch (replaySortMode)
+		{
+			case DATE_DESC: 'Sort: Date (Newest)';
+			case DATE_ASC: 'Sort: Date (Oldest)';
+			case SCORE_DESC: 'Sort: Score (High)';
+			case SCORE_ASC: 'Sort: Score (Low)';
+			case ACC_DESC: 'Sort: Accuracy (High)';
+			case ACC_ASC: 'Sort: Accuracy (Low)';
+			case COMBO_DESC: 'Sort: Combo (High)';
+			case COMBO_ASC: 'Sort: Combo (Low)';
+		}
+		if (replaySortText != null)
+			replaySortText.text = label;
+	}
+
 	public function changeSelection(change:Int = 0, playSound:Bool = true)
 	{
 		if (isSearchActive && change != 0)
@@ -917,6 +1269,8 @@ class FreeplayState extends MusicBeatState
 			{
 				song.searchMatch = true;
 			}
+			searchCountText.text = '${songGroup.length} charts';
+			searchCountText.visible = true;
 			return;
 		}
 
@@ -934,6 +1288,14 @@ class FreeplayState extends MusicBeatState
 			if (match && song == SongRect.openRect && song.diffAdded)
 				openStillMatches = true;
 		}
+
+		var matchCount:Int = 0;
+		for (song in songGroup)
+		{
+			if (song.searchMatch) matchCount++;
+		}
+		searchCountText.text = '$matchCount / ${songGroup.length} charts found';
+		searchCountText.visible = true;
 
 		noMatchText.visible = (firstMatch < 0);
 
@@ -972,6 +1334,13 @@ class FreeplayState extends MusicBeatState
 	{
 		super.beatHit();
 		if (Std.int(Conductor.getBeat(Conductor.songPosition)) % 2 == 0 && SongRect.openRect != null) SongRect.openRect.beatHit();
+
+		if (detailBpmSign != null)
+		{
+			detailBpmSign.flipX = !detailBpmSign.flipX;
+			detailBpmSign.alpha = 0.4;
+			FlxTween.tween(detailBpmSign, {alpha: 1}, 0.3);
+		}
 	}
 	
 	override function closeSubState()

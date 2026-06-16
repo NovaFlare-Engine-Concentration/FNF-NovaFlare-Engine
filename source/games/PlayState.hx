@@ -407,9 +407,6 @@ class PlayState extends MusicBeatState
 
 		replayExam = new Replay(this);
 		add(replayExam);
-		if (replayMode) {
-			replayExam.load();
-		}
 
 		camGame = initPsychCamera();
 		camHUD = new FlxCamera();
@@ -756,6 +753,14 @@ class PlayState extends MusicBeatState
 		if (ClientPrefs.data.downScroll)
 			replayTxt.y = timeBar.y - 78;
 
+		if (Main.getReplayOverlay() != null)
+		{
+			if (replayMode && ClientPrefs.data.showReplayWatermark)
+				Main.getReplayOverlay().showOverlay();
+			else
+				Main.getReplayOverlay().hideOverlay();
+		}
+
 		if (ClientPrefs.data.timeBarType == 'Song Name'){
 			timeTxt.size = 24;
 			timeTxt.y += 3;
@@ -764,6 +769,10 @@ class PlayState extends MusicBeatState
 		replayTxt.cameras = [camHUD];
 
 		generateSong(SONG.song);
+
+		if (replayMode) {
+			replayExam.load();
+		}
 
 		keyboardViewer = new KeyboardViewer(ClientPrefs.data.comboOffset[4], ClientPrefs.data.comboOffset[5]);
 		keyboardViewer.antialiasing = ClientPrefs.data.antialiasing;
@@ -1749,15 +1758,24 @@ class PlayState extends MusicBeatState
 			{
 				var daStrumTime:Float = songNotes[0];
 				var daNoteData:Int = Std.int(songNotes[1] % (SONG.mania + 1));
-				var gottaHitNote:Bool = section.mustHitSection;
+				var gottaHitNote:Bool;
+
+				var isPe104:Bool = (Song.chartEngineVersion == 'Pe-1.0.4');
+				if (isPe104)
+				{
+					// Pe-1.0.4: lanes 0..mania = player, mania+1.. = opponent (no mustHitSection flip)
+					gottaHitNote = (songNotes[1] < (SONG.mania + 1));
+				}
+				else
+				{
+					// Pe-0.7.3: mustHitSection determines base side, flipped for opponent-lane notes
+					gottaHitNote = section.mustHitSection;
+					if (songNotes[1] > SONG.mania)
+						gottaHitNote = !section.mustHitSection;
+				}
 
 				if (ClientPrefs.data.flipChart)
 					daNoteData -= Std.int((daNoteData - 1.5) * 2);
-
-				if (songNotes[1] > SONG.mania)					
-				{
-					gottaHitNote = !section.mustHitSection;
-				}
 
 				var oldNote:Note;
 				if (unspawnNotes.length > 0)
@@ -1768,11 +1786,12 @@ class PlayState extends MusicBeatState
 				var swagNote:Note = new Note(daStrumTime, daNoteData, oldNote);
 				swagNote.mustPress = gottaHitNote;
 				swagNote.sustainLength = songNotes[2];
-				
-				swagNote.gfNote = (section.gfSection && (songNotes[1]<(SONG.mania + 1)));
+
+				if (isPe104)
+					swagNote.gfNote = (section.gfSection && gottaHitNote == section.mustHitSection);
+				else
+					swagNote.gfNote = (section.gfSection && (songNotes[1] < (SONG.mania + 1)));
 				swagNote.noteType = songNotes[3];
-				if (!Std.isOfType(songNotes[3], String))
-					swagNote.noteType = ChartingState.noteTypeList[songNotes[3]]; // Backward compatibility + compatibility with Week 7 charts
 
 				swagNote.scrollFactor.set();
 
@@ -1879,9 +1898,9 @@ class PlayState extends MusicBeatState
 				var charType:Int = 0;
 				switch (event.value1.toLowerCase())
 				{
-					case 'gf' | 'girlfriend' | '1':
+					case 'gf' | 'girlfriend':
 						charType = 2;
-					case 'dad' | 'opponent' | '0':
+					case 'dad' | 'opponent':
 						charType = 1;
 					default:
 						var val1:Int = Std.parseInt(event.value1);
@@ -2360,7 +2379,7 @@ class PlayState extends MusicBeatState
 	var allowDebugKeys:Bool = true;
 	var pressPaue:Int = 0;
 
-	var pausedTimePos:Float = 0;
+	public var pausedTimePos:Float = 0;
 
 	override function handleInput(elapsed:Float)
 	{
@@ -3144,7 +3163,9 @@ class PlayState extends MusicBeatState
 
 							var lastAlpha:Float = boyfriend.alpha;
 							boyfriend.alpha = 0.00001;
+							boyfriend.visible = false;
 							boyfriend = boyfriendMap.get(value2);
+							boyfriend.visible = true;
 							boyfriend.alpha = lastAlpha;
 							iconP1.changeIcon(boyfriend.healthIcon);
 						}
@@ -3161,7 +3182,9 @@ class PlayState extends MusicBeatState
 							var wasGf:Bool = dad.curCharacter.startsWith('gf-') || dad.curCharacter == 'gf';
 							var lastAlpha:Float = dad.alpha;
 							dad.alpha = 0.00001;
+							dad.visible = false;
 							dad = dadMap.get(value2);
+							dad.visible = true;
 							if (!dad.curCharacter.startsWith('gf-') && dad.curCharacter != 'gf')
 							{
 								if (wasGf && gf != null)
@@ -3190,7 +3213,9 @@ class PlayState extends MusicBeatState
 
 								var lastAlpha:Float = gf.alpha;
 								gf.alpha = 0.00001;
+								gf.visible = false;
 								gf = gfMap.get(value2);
+								gf.visible = true;
 								gf.alpha = lastAlpha;
 							}
 							setOnScripts('gfName', gf.curCharacter);
@@ -3444,7 +3469,18 @@ class PlayState extends MusicBeatState
 					highestCombo: highestCombo,
 					songMisses: songMisses,
 					hitMapTime: NoteTime,
-					hitMapMs: NoteMs
+					hitMapMs: NoteMs,
+					replayVersion: ClientPrefs.data.replayQuality ? 2 : 1,
+					sickCount: ratingsData[0].hits,
+					goodCount: ratingsData[1].hits,
+					badCount: ratingsData[2].hits,
+					shitCount: ratingsData[3].hits,
+					mania: SONG.mania,
+					safeFrames: ClientPrefs.data.safeFrames,
+					ratingOffset: ClientPrefs.data.ratingOffset,
+					noteOffset: ClientPrefs.data.noteOffset,
+					botPlay: ClientPrefs.getGameplaySetting('botplay', 'bool'),
+						gameplaySettingsJson: haxe.Json.stringify(ClientPrefs.data.gameplaySettings)
 				};
 				//replayExam.savePlayRecord(record);
 			}
@@ -3483,6 +3519,8 @@ class PlayState extends MusicBeatState
 						FlxG.save.flush();
 					}
 					changedDifficulty = false;
+					transitioning = true;
+					return true;
 				}
 				else
 				{
@@ -3499,27 +3537,31 @@ class PlayState extends MusicBeatState
 					FlxG.sound.music.stop();
 					LoadingState.prepareToSong();
 					LoadingState.loadAndSwitchState(new PlayState());
-				}
+					transitioning = true;
+					return true;
+					}
+			}
+	}
+
+		// Always show results after all scripts have run (even if Function_Stop was returned)
+		if (!transitioning)
+		{
+			ResultsScreen.savedModDir = Mods.currentModDirectory;
+			Mods.loadTopMod();
+			#if DISCORD_ALLOWED DiscordClient.resetClientID(); #end
+
+			if (ClientPrefs.data.resultsScreen)
+			{
+				openSubState(new ResultsScreen(boyfriend.getScreenPosition().x, boyfriend.getScreenPosition().y));
+				FlxG.sound.playMusic(Paths.music('freakyMenu'), 0.7);
 			}
 			else
 			{
-				trace('WENT BACK TO FREEPLAY??');
-				#if DISCORD_ALLOWED DiscordClient.resetClientID(); #end
-
-				if (ClientPrefs.data.resultsScreen)
-				{
-					openSubState(new ResultsScreen(boyfriend.getScreenPosition().x, boyfriend.getScreenPosition().y));
-					FlxG.sound.playMusic(Paths.music('freakyMenu'), 0.7);
-				}
-				else
-				{
-					Mods.loadTopMod();
-					MusicBeatState.switchState(new FreeplayState());
-					FlxG.sound.playMusic(Paths.music('freakyMenu'), 0);
-					FlxG.sound.music.fadeIn(4, 0, 0.7);
-				}
-				changedDifficulty = false;
+				MusicBeatState.switchState(new FreeplayState());
+				FlxG.sound.playMusic(Paths.music('freakyMenu'), 0);
+				FlxG.sound.music.fadeIn(4, 0, 0.7);
 			}
+			changedDifficulty = false;
 			transitioning = true;
 		}
 		return true;
@@ -3680,12 +3722,24 @@ class PlayState extends MusicBeatState
 
 	private function popUpScore(note:Note = null):Void
 	{
-		var noteDiff:Float = replayMode ? note.strumTime - @:privateAccess replayExam.time + ClientPrefs.data.ratingOffset : 
-			note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset;
+		var recordedJudgment:games.backend.Replay.NoteJudgment = null;
+		if (replayMode && @:privateAccess replayExam.hasJudgments)
+			recordedJudgment = @:privateAccess replayExam.getRecordedJudgment(note.strumTime, note.noteData);
+
+		var noteDiff:Float;
+		if (recordedJudgment != null)
+		{
+			// Use the original player's actual hit timing from recording
+			noteDiff = recordedJudgment.hitDiff * playbackRate;
+		}
+		else
+		{
+			noteDiff = replayMode ? note.strumTime - @:privateAccess replayExam.time + ClientPrefs.data.ratingOffset :
+				note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset;
+		}
 
 		if ((ClientPrefs.data.playOpponent && cpuControlled_opponent) || (!ClientPrefs.data.playOpponent && cpuControlled))
 			noteDiff = 0;
-		// best botplay for real lmao
 
 		NoteMs.push(noteDiff / playbackRate);
 		NoteTime.push(note.strumTime);
@@ -3694,15 +3748,38 @@ class PlayState extends MusicBeatState
 
 		var score:Int = 350;
 
-		// tryna do MS based judgment due to popular demand
-		var daRating:Rating = Conductor.judgeNote(ratingsData, Math.abs(noteDiff) / playbackRate);
+		var daRating:Rating = null;
+		if (recordedJudgment != null)
+		{
+			// Use the original recorded rating, not the engine's re-judgment
+			for (r in ratingsData)
+			{
+				if (r.name == recordedJudgment.rating)
+				{
+					daRating = r;
+					break;
+				}
+			}
+			if (daRating == null) daRating = ratingsData[0];
+			score = daRating.score;
+			if (!note.ratingDisabled)
+				daRating.hits++;
+			note.rating = recordedJudgment.rating;
+			note.ratingMod = daRating.ratingMod;
+			totalNotesHit += daRating.ratingMod;
+		}
+		else
+		{
+			daRating = Conductor.judgeNote(ratingsData, Math.abs(noteDiff) / playbackRate);
+			totalNotesHit += daRating.ratingMod;
+			note.ratingMod = daRating.ratingMod;
+			if (!note.ratingDisabled)
+				daRating.hits++;
+			note.rating = daRating.name;
+			score = daRating.score;
 
-		totalNotesHit += daRating.ratingMod;
-		note.ratingMod = daRating.ratingMod;
-		if (!note.ratingDisabled)
-			daRating.hits++;
-		note.rating = daRating.name;
-		score = daRating.score;
+			@:privateAccess replayExam.recordJudgment(note.strumTime, note.noteData, noteDiff / playbackRate, daRating.name, note.isSustainNote);
+		}
 
 		if (daRating.noteSplash && !note.noteSplashData.disabled)
 			spawnNoteSplashOnNote(note);
@@ -4338,6 +4415,7 @@ class PlayState extends MusicBeatState
 			songMisses++;
 		totalPlayed++;
 		RecalculateRating(true);
+		if (note != null) @:privateAccess replayExam.recordJudgment(note.strumTime, note.noteData, 0, 'miss', note.isSustainNote);
 		if (note != null)
 		{
 			var noteIdx:Int = index;
@@ -4549,11 +4627,27 @@ class PlayState extends MusicBeatState
 			invalidateNote(note);
 	}
 
-	public inline function goodNoteHit(note:Note):Void
+	function checkReplayForceMiss(note:Note):Bool
+	{
+		if (replayMode && @:privateAccess replayExam.hasJudgments)
+		{
+			var rec:games.backend.Replay.NoteJudgment = @:privateAccess replayExam.getRecordedJudgment(note.strumTime, note.noteData);
+			if (rec != null && rec.rating == 'miss')
+			{
+				noteMiss(note);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public function goodNoteHit(note:Note):Void
 	{
 		if (note.wasGoodHit)
 			return;
 		if (cpuControlled && note.ignoreNote)
+			return;
+		if (checkReplayForceMiss(note))
 			return;
 
 		var isSus:Bool = note.isSustainNote; // GET OUT OF MY HEAD, GET OUT OF MY HEAD, GET OUT OF MY HEAD
@@ -4829,6 +4923,10 @@ class PlayState extends MusicBeatState
 		Note.globalRgbShaders = [];
 		games.backend.NoteTypesConfig.clearNoteTypesData();
 		instance = null;
+
+		if (Main.getReplayOverlay() != null)
+			Main.getReplayOverlay().hideOverlay();
+
 		@:privateAccess
 		FlxG.game._filters = [];
 		camGame.filters = camHUD.filters = camOther.filters = [];

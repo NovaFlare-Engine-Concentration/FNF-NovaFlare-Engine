@@ -22,10 +22,11 @@ class InterfaceGroup extends OptionCata
 		var option:Option = new Option(this, 'skipTitleVideo', BOOL);
 		addOption(option);
 
-		var option:Option = new Option(this, 'resultsScreen', BOOL);
+		var option:Option = new Option(this, 'loadingScreen', BOOL);
 		addOption(option);
 
-		var option:Option = new Option(this, 'loadingScreen', BOOL);
+		var maxthread:Int = Std.int(Math.max(1, CoolUtil.getCPUThreadsCount() - #if DISCORD_ALLOWED 2 #else 1 #end));
+		var option:Option = new Option(this, 'loadThreads', INT, [1, maxthread, ' Thread']);
 		addOption(option);
 
 		changeHeight(0); //初始化真正的height

@@ -5,6 +5,9 @@ class ResetButton extends FlxSpriteGroup
 	var rect:Rect;
 	var text:FlxText;
 
+	var waitingForConfirm:Bool = false;
+	var confirmTimer:Float = 0;
+
 	public function new(x:Float, y:Float, width:Float, height:Float)
 	{
 		super(x, y);
@@ -23,6 +26,28 @@ class ResetButton extends FlxSpriteGroup
 
 	public var onFocus:Bool = false;
 
+	function getConfirmText():String
+	{
+		var t = Language.get('ResetConfirm', 'options');
+		// Fallback if translation key doesn't exist
+		if (t == 'ResetConfirm' || t == 'ResetConfirm (404)')
+			t = 'Sure?';
+		return t;
+	}
+
+	function getResetText():String
+	{
+		return Language.get('Reset');
+	}
+
+	function updateTextDisplay(newText:String)
+	{
+		
+		text.text = newText;
+		text.x = rect.x + rect.width / 2 - text.width / 2;
+		text.y = rect.y + rect.height / 2 - text.height / 2;
+	}
+
 	override function update(elapsed:Float)
 	{
 		super.update(elapsed);
@@ -31,20 +56,53 @@ class ResetButton extends FlxSpriteGroup
 
 		onFocus = mouse.overlaps(this);
 
+		if (waitingForConfirm)
+		{
+			confirmTimer += elapsed;
+			if (confirmTimer > 2.0)
+			{
+				waitingForConfirm = false;
+				confirmTimer = 0;
+				updateTextDisplay(getResetText());
+			}
+		}
+
 		if (onFocus)
 		{
 			rect.color = EngineSet.mainColor;
 			if (mouse.justReleased)
-				OptionsState.instance.resetData();
+			{
+				if (!waitingForConfirm)
+				{
+					waitingForConfirm = true;
+					confirmTimer = 0;
+					updateTextDisplay(getConfirmText());
+				}
+				else
+				{
+					waitingForConfirm = false;
+					confirmTimer = 0;
+					updateTextDisplay(getResetText());
+					OptionsState.instance.resetData();
+				}
+			}
 		}
 		else
 		{
 			rect.color = OptionsState.instance.mainColor;
+			if (waitingForConfirm)
+			{
+				waitingForConfirm = false;
+				confirmTimer = 0;
+				updateTextDisplay(getResetText());
+			}
 		}
 	}
 
 	public function changeLanguage() {
-		text.text = Language.get('Reset', 'options');
+		waitingForConfirm = false;
+		confirmTimer = 0;
+		text.text = Language.get('Reset');
 		text.font = Paths.font(Language.get('fontName', 'main') + '.ttf');
 	}
 }

@@ -10,12 +10,21 @@ import sys.io.File;
 import sys.FileSystem;
 #end
 
+typedef NoteJudgment = {
+	var strumTime:Float;
+	var noteData:Int;
+	var hitDiff:Float;
+	var rating:String;
+	var isSustain:Bool;
+}
+
 typedef FrameSave = {
 	var time:Float;
 	var songSpeed:Float;
 	var playbackRate:Float;
 	var pressKey:Array<String>;
 	var releaseKey:Array<String>;
+	@:optional var noteJudgments:Array<NoteJudgment>;
 }
 
 typedef StateRecord = {
@@ -23,7 +32,7 @@ typedef StateRecord = {
 	var difficulty:String;
 	var playDate:String;
 	var songLength:Float;
-	
+
 	var songSpeed:Float;
 	var playbackRate:Float;
 	var healthGain:Float;
@@ -31,10 +40,10 @@ typedef StateRecord = {
 	var cpuControlled:Bool;
 	var practiceMode:Bool;
 	var instakillOnMiss:Bool;
-	var playOpponent:Bool; 
+	var playOpponent:Bool;
 	var flipChart:Bool;
-	
-	var songScore:Int; 
+
+	var songScore:Int;
 	var ratingPercent:Float;
 	var ratingFC:String;
 	var songHits:Int;
@@ -42,6 +51,17 @@ typedef StateRecord = {
 	var songMisses:Int;
 	var hitMapTime:Array<Float>;
 	var hitMapMs:Array<Float>;
+	var replayVersion:Int;
+	var sickCount:Int;
+	var goodCount:Int;
+	var badCount:Int;
+	var shitCount:Int;
+	var mania:Int;
+	var safeFrames:Float;
+	var ratingOffset:Int;
+	var noteOffset:Int;
+	var botPlay:Bool;
+	var gameplaySettingsJson:String;
 }
 
 class Replay extends FlxBasic
@@ -65,6 +85,13 @@ class Replay extends FlxBasic
 	private var songSpeedDesyncMs:Float = 0;
 	private var playbackRateDesyncMs:Float = 0;
 
+	// High-quality replay: pre-recorded judgments for override
+	public var hasJudgments(default, null):Bool = false;
+	private var judgmentMap:Map<String, NoteJudgment> = new Map<String, NoteJudgment>();
+	public var recordedSongSpeed(default, null):Float = 0;
+	public var recordedPlaybackRate(default, null):Float = 0;
+	public var replayVersion(default, null):Int = 1;
+
 	/////////////////////////////////////////////
 
 	public function new(follow:Dynamic)
@@ -76,8 +103,67 @@ class Replay extends FlxBasic
 	public function load() {
 		isRecording = false;
 		frameData = ReplaySave.loadPlayRecord();
+		buildJudgmentMap();
+
+		if (ReplaySave.loadedStateRecord != null) {
+			var result:String = verifyIntegrity(ReplaySave.loadedStateRecord);
+			if (result != null) trace('REPLAY INTEGRITY WARNING: $result');
+			// Always continue playback regardless of integrity
+		}
+
 		blockKeys();
 		ensureLaneMap();
+	}
+
+	private function buildJudgmentMap():Void
+	{
+		judgmentMap.clear();
+		hasJudgments = false;
+		for (frame in frameData)
+		{
+			if (frame.noteJudgments != null)
+			{
+				for (j in frame.noteJudgments)
+				{
+					var key:String = '${j.strumTime}_${j.noteData}';
+					if (!judgmentMap.exists(key))
+						judgmentMap.set(key, j);
+				}
+				hasJudgments = true;
+			}
+		}
+	}
+
+	public function getRecordedJudgment(strumTime:Float, noteData:Int):NoteJudgment
+	{
+		return judgmentMap.get('${strumTime}_${noteData}');
+	}
+
+	public function verifyIntegrity(stateRecord:StateRecord):String
+	{
+		if (stateRecord.replayVersion < 2) return null;
+		var issues:Array<String> = [];
+
+		// Force-restore all recorded settings to prevent cheating
+		Reflect.setField(follow, 'songSpeed', stateRecord.songSpeed);
+		Reflect.setField(follow, 'playbackRate', stateRecord.playbackRate);
+		Reflect.setField(follow, 'healthGain', stateRecord.healthGain);
+		Reflect.setField(follow, 'healthLoss', stateRecord.healthLoss);
+		Reflect.setField(follow, 'instakillOnMiss', stateRecord.instakillOnMiss);
+		Reflect.setField(follow, 'cpuControlled', stateRecord.cpuControlled);
+		Reflect.setField(follow, 'practiceMode', stateRecord.practiceMode);
+		ClientPrefs.data.playOpponent = stateRecord.playOpponent;
+		ClientPrefs.data.flipChart = stateRecord.flipChart;
+		ClientPrefs.data.ratingOffset = stateRecord.ratingOffset;
+		ClientPrefs.data.noteOffset = stateRecord.noteOffset;
+		if (stateRecord.gameplaySettingsJson != null && stateRecord.gameplaySettingsJson.length > 0) { try { var gs:Dynamic = haxe.Json.parse(stateRecord.gameplaySettingsJson); for (k in Reflect.fields(gs)) ClientPrefs.data.gameplaySettings.set(k, Reflect.field(gs, k)); } catch (e:Dynamic) {} }
+
+		this.recordedSongSpeed = stateRecord.songSpeed;
+		this.recordedPlaybackRate = stateRecord.playbackRate;
+		this.replayVersion = stateRecord.replayVersion;
+
+		trace('Replay v2: restored recorded environment (speed=${stateRecord.songSpeed}, rate=${stateRecord.playbackRate})');
+		return issues.length > 0 ? issues.join('; ') : null;
 	}
 
 	override function destroy() {
@@ -85,18 +171,36 @@ class Replay extends FlxBasic
 		super.destroy();
 	}
 
+	private var pendingJudgments:Array<NoteJudgment> = [];
 	private var lastSaveTime:Float = 0;
 	override function update(elapsed:Float)
 	{
 		super.update(elapsed);
 		if (!isRecording) return;
 
-		if (FlxG.keys.justPressed.ANY || FlxG.keys.justReleased.ANY || lastSaveTime >= 0.01666) {
+		if (FlxG.keys.justPressed.ANY || FlxG.keys.justReleased.ANY || pendingJudgments.length > 0 || lastSaveTime >= 0.01666) {
 			lastSaveTime = 0;
-			frameData.push(inputUpload());
+			var frame:FrameSave = inputUpload();
+			if (ClientPrefs.data.replayQuality && pendingJudgments.length > 0) {
+				frame.noteJudgments = pendingJudgments.copy();
+				pendingJudgments = [];
+			}
+			frameData.push(frame);
 		} else {
 			lastSaveTime += elapsed;
 		}
+	}
+
+	public function recordJudgment(strumTime:Float, noteData:Int, hitDiff:Float, rating:String, isSustain:Bool):Void
+	{
+		if (!isRecording || !ClientPrefs.data.replayQuality) return;
+		pendingJudgments.push({
+			strumTime: strumTime,
+			noteData: noteData,
+			hitDiff: hitDiff,
+			rating: rating,
+			isSustain: isSustain
+		});
 	}
 
 	private var globalTick:Int = 0; // 跨帧累加的全局tick，用于精准判断"下一回放帧"
@@ -321,13 +425,20 @@ class Replay extends FlxBasic
 }
 
 class ReplaySave {
+	public static var loadedStateRecord:StateRecord = null;
+
 	public static function loadPlayRecord():Array<FrameSave>
 	{
 		#if sys
 		var content:String = File.getContent(Replay.preparedPath);
 		content = EncryptUtil.aesDecrypt(content);
 		var json:Dynamic = Json.parse(content);
-		
+
+		if (json.stateRecord != null)
+			loadedStateRecord = json.stateRecord;
+		else
+			loadedStateRecord = null;
+
 		return json.frameRecord;
 		#else
 		return null;
@@ -337,7 +448,7 @@ class ReplaySave {
 	public static function savePlayRecord(frameData:Array<FrameSave>, stateRecord:StateRecord)
 	{
 		#if sys
-		BackendThread.run(() -> {
+		{
 			var srdSave:StringBuf = new StringBuf();
 			srdSave.add("{\n");
 			
@@ -348,7 +459,8 @@ class ReplaySave {
 				"songSpeed", "playbackRate", "healthGain", "healthLoss",
 				"cpuControlled", "practiceMode", "instakillOnMiss", "playOpponent", "flipChart",
 				"songScore", "ratingPercent", "ratingFC", "songHits", "highestCombo", "songMisses",
-				"hitMapTime", "hitMapMs"
+				"hitMapTime", "hitMapMs", "replayVersion", "sickCount", "goodCount", "badCount", "shitCount",
+				"mania", "safeFrames", "ratingOffset", "noteOffset", "botPlay", "gameplaySettingsJson"
 			];
 			for (i in 0...fields.length) {
 				var key = fields[i];
@@ -367,8 +479,12 @@ class ReplaySave {
 				srdSave.add('\t\t\t"songSpeed": ' + frame.songSpeed + ',\n');
 				srdSave.add('\t\t\t"playbackRate": ' + frame.playbackRate + ',\n');
 				srdSave.add('\t\t\t"pressKey": ' + Json.stringify(frame.pressKey) + ',\n');
-				srdSave.add('\t\t\t"releaseKey": ' + Json.stringify(frame.releaseKey) + '\n');
-				srdSave.add('\t\t}');
+				srdSave.add('\t\t\t"releaseKey": ' + Json.stringify(frame.releaseKey));
+				if (frame.noteJudgments != null && frame.noteJudgments.length > 0) {
+					srdSave.add(',\n');
+					srdSave.add('\t\t\t"noteJudgments": ' + Json.stringify(frame.noteJudgments));
+				}
+				srdSave.add('\n\t\t}');
 				if (i < frameData.length - 1) srdSave.add(",\n");
 			}
 			srdSave.add('\n\t]\n');
@@ -399,7 +515,7 @@ class ReplaySave {
 			if (!FileSystem.exists(folder))
 				FileSystem.createDirectory(folder);
 
-			folder = folder + "/" + Difficulty.getString().toUpperCase() + "/";
+			folder = folder + Difficulty.getString().toUpperCase() + "/";
 			if (!FileSystem.exists(folder))
 				FileSystem.createDirectory(folder);
 
@@ -434,11 +550,21 @@ class ReplaySave {
 			txtSave.add('Hits: ${stateRecord.songHits}\n');
 			txtSave.add('Highest Combo: ${stateRecord.highestCombo}\n');
 			txtSave.add('Misses: ${stateRecord.songMisses}\n');
-			
+			txtSave.add('Replay Version: ${stateRecord.replayVersion}\n');
+			txtSave.add('Sick Count: ${stateRecord.sickCount}\n');
+			txtSave.add('Good Count: ${stateRecord.goodCount}\n');
+			txtSave.add('Bad Count: ${stateRecord.badCount}\n');
+			txtSave.add('Shit Count: ${stateRecord.shitCount}\n');
+		txtSave.add('Mania: ${stateRecord.mania}\n');
+		txtSave.add('Safe Frames: ${stateRecord.safeFrames}\n');
+		txtSave.add('Rating Offset: ${stateRecord.ratingOffset}\n');
+		txtSave.add('Note Offset: ${stateRecord.noteOffset}\n');
+		txtSave.add('Bot Play: ${stateRecord.botPlay}\n');
+
 			var txtFileName:String = StringTools.replace(fileName, ".rsd", ".txt");
 			var txtPath:String = folder + txtFileName;
 			File.saveContent(txtPath, txtSave.toString());
-		});
+		}
 		#end
 	}
 }

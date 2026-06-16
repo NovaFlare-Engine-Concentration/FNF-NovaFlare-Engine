@@ -25,6 +25,8 @@ class CustomSubstate extends MusicBeatSubstate
 			PlayState.instance.persistentUpdate = false;
 			PlayState.instance.persistentDraw = true;
 			PlayState.instance.paused = true;
+			PlayState.instance.pausedTimePos = Conductor.songPosition;
+			if (PlayState.instance.timing != null) PlayState.instance.timing.pause();
 			if (FlxG.sound.music != null)
 			{
 				FlxG.sound.music.pause();

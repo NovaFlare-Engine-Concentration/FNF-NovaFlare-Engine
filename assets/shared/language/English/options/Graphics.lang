@@ -8,6 +8,7 @@ showExtra => Show Extra Data
 rainbowFPS => Rainbow FPS
 memoryType => Memory Type
 fpsScale => FPS Scale
+fpsDisplayMode => FPS Display Mode
 
 
 Watermark => Watermark

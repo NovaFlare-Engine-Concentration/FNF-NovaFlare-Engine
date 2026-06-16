@@ -65,6 +65,8 @@ import lime.system.Display;
 	public var gameOverVibration:Bool = false;
 	public var ratingOffset:Int = 0;
 	public var noteOffset:Int = 0;
+	public var replayQuality:Bool = true;
+	public var showReplayWatermark:Bool = true;
 	public var marvelousWindow:Int = 15;
 	public var sickWindow:Int = 45;
 	public var goodWindow:Int = 90;
@@ -145,10 +147,12 @@ import lime.system.Display;
 	public var resultsScreen:Bool = true;
 	public var loadingScreen:Bool = false;
 	public var loadThreads:Int = #if mobile 2 #else 4 #end;
+	public var useFlixelCoords:Bool = true;
 
 	// Watermark
 	public var showFPS:Bool = true;
 	public var rainbowFPS:Bool = true;
+	public var fpsDisplayMode:String = 'TPS';
 	public var memoryType:String = 'Usage';
 	public var fpsScale:Float = 1;
 	public var watermarkScale:Float = 1;
@@ -157,6 +161,8 @@ import lime.system.Display;
 	public var comboOffset:Array<Int> = [0, 0, 0, 0, 530, 470];
 
 	public var language:String = 'English';
+
+	public var storageFolder:String = 'NovaFlare Engine';
 
 	public var developerMode:Bool = false;
 	public var devConScale:Float = #if mobile 1.8 #else 1.5 #end;

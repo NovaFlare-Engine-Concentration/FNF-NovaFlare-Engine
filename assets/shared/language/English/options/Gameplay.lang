@@ -34,4 +34,6 @@ Gameplaybackend => Gameplay Backend
 
 fixLNL => Fix Long Notes
 saveScoreBase => playback record storage basis
+replayQuality => Replay Quality
+showReplayWatermark => Show Replay Watermark
 gameOverVibration => Game Over Vibration

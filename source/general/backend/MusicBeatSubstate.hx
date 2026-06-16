@@ -48,9 +48,21 @@ class MusicBeatSubstate extends FlxSubState
 		mobileControls = new MobileControls();
 
 		var stage = Lib.current.stage;
-		var scale:Float = Math.min((stage.stageWidth / FlxG.width), (stage.stageHeight / FlxG.height));
-		var newWidth:Int = Std.int(stage.stageWidth / scale);
-		var newHeight:Int = Std.int(stage.stageHeight / scale);
+		var scale:Float = 0;
+		var newWidth:Int = 0;
+		var newHeight:Int = 0;
+
+		if (ClientPrefs.data.useFlixelCoords)
+		{
+			newWidth = Std.int(FlxG.width);
+			newHeight = Std.int(FlxG.height);
+		}
+		else
+		{
+			scale = Math.min((stage.stageWidth / FlxG.width), (stage.stageHeight / FlxG.height));
+			newWidth = Std.int(stage.stageWidth / scale);
+			newHeight = Std.int(stage.stageHeight / scale);
+		}
 
 		var camControls = new FlxCamera(newWidth, newHeight);
 		camControls.x = (FlxG.width - newWidth) / 2;

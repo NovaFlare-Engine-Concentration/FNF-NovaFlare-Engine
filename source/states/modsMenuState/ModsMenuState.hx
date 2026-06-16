@@ -449,6 +449,7 @@ class ModsMenuState extends MusicBeatState
 			{
 				if (FlxG.mouse.justPressed)
 				{
+					var pressedOnMod:Bool = false;
 					for (i in centerMod - 2...centerMod + 3)
 					{
 						var mod = modsGroup.members[i];
@@ -461,13 +462,16 @@ class ModsMenuState extends MusicBeatState
 							mouseOffsets.y = FlxG.mouse.y - mod.y;
 							curSelectedMod = i;
 							changeSelectedMod();
+							pressedOnMod = true;
 							break;
 						}
 					}
-					hoveringOnMods = true;
-					var button = getButton();
-					button.ignoreCheck = button.onFocus = false;
-					gottaClickAgain = false;
+					if (pressedOnMod)
+					{
+						var button = getButton();
+						button.ignoreCheck = button.onFocus = false;
+						gottaClickAgain = false;
+					}
 				}
 
 				if (hoveringOnMods)
@@ -1097,7 +1101,7 @@ class MenuButton extends FlxSpriteGroup
 			return;
 		}
 
-		if (!ignoreCheck && !Controls.instance.controllerMode && FlxG.mouse.justMoved && FlxG.mouse.visible)
+		if (!ignoreCheck && !Controls.instance.controllerMode && (FlxG.mouse.justPressed || FlxG.mouse.justMoved))
 			onFocus = FlxG.mouse.overlaps(this);
 
 		if (onFocus && onClick != null && FlxG.mouse.justPressed)
