@@ -13,6 +13,7 @@ import options.OptionsState;
 
 import games.backend.WeekData;
 import games.backend.Highscore;
+import games.backend.Replay;
 import games.backend.Song;
 
 /*
@@ -190,8 +191,7 @@ class PauseSubState extends MusicBeatSubstate
 		backButton.visible = false;
 		#if mobile backButton.y -= 127; #end
 
-		if (Difficulty.list.length < 2)
-			options.remove('Difficulty');
+		// Always show Difficulty (contains Coast Ver regardless of diff count)
 
 		for (i in 0...Difficulty.list.length)
 		{
@@ -661,7 +661,7 @@ class PauseSubState extends MusicBeatSubstate
 					}
 					else
 					{
-						PlayState.replayMode = false;
+						PlayState.replayMode = false; Replay.restoreSettings();
 						MusicBeatState.switchState(new FreeplayState());
 					}
 					FlxG.sound.playMusic(Paths.music('freakyMenu'));
@@ -669,7 +669,7 @@ class PauseSubState extends MusicBeatSubstate
 					PlayState.chartingMode = false;
 					FlxG.camera.followLerp = 0;
 				case 'Editor':
-					PlayState.replayMode = false;
+					PlayState.replayMode = false; Replay.restoreSettings();
 					MusicBeatState.switchState(new ChartingState());
 					PlayState.chartingMode = true;
 			}
