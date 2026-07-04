@@ -2691,6 +2691,19 @@ class PlayState extends MusicBeatState
 			shaderUpdate(elapsed);
 		#end
 
+		nps = notesHitArray.length;
+		if (nps > maxNPS)
+			maxNPS = nps;
+
+		setOnLuas('nps', nps);
+		setOnLuas('maxFPS', maxNPS);
+
+		if (npsCheck != nps)
+		{
+			npsCheck = nps;
+			scoreTxtUpdate();
+		}
+
 		onUpdatePostArgs[0] = elapsed;
 		callOnScripts('onUpdatePost', onUpdatePostArgs);
 	}
@@ -2707,18 +2720,6 @@ class PlayState extends MusicBeatState
 				else
 					balls = 0;
 				balls--;
-			}
-			nps = notesHitArray.length;
-			if (nps > maxNPS)
-				maxNPS = nps;
-
-			setOnLuas('nps', nps);
-			setOnLuas('maxFPS', maxNPS);
-
-			if (npsCheck != nps)
-			{
-				npsCheck = nps;
-				scoreTxtUpdate();
 			}
 		}
 
@@ -3453,6 +3454,7 @@ class PlayState extends MusicBeatState
 					difficulty: Difficulty.getString().toUpperCase(),
 					songLength: songLength,
 					playDate: Date.now().toString(),
+					modDir: Mods.currentModDirectory == '' ? 'originFunkin' : Mods.currentModDirectory,
 					songSpeed: songSpeed,
 					playbackRate: playbackRate,
 					healthGain: healthGain,

@@ -467,7 +467,7 @@ class FreeplayState extends MusicBeatState
 		//////////////////////////////////////////////////////////////////////////////////////////
 
 		WeekData.setDirectoryFromWeek();
-		songGroup[curSelected].changeSelectAll(true);
+		if (songGroup != null && songGroup[curSelected] != null) songGroup[curSelected].changeSelectAll(true);
 
 		#if windows
 		var currentWindow = lime.app.Application.current.window;

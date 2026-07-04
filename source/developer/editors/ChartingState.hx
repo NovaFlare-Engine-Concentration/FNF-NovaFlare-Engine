@@ -519,7 +519,11 @@ class ChartingState extends MusicBeatState
 			#end
 			{
 				clearEvents();
+				var savedFmt = Song.detectedFormat;
+				var savedCE = Song.chartEngineVersion;
 				var events:SwagSong = Song.loadFromJson('events', songName);
+				Song.detectedFormat = savedFmt;
+				Song.chartEngineVersion = savedCE;
 				_song.events = events.events;
 				changeSection(curSec);
 			}
@@ -2162,20 +2166,12 @@ class ChartingState extends MusicBeatState
 
 		if (!blockInput)
 		{
-			// Horizontal grid scrolling: [/] hold (desktop) or mobile pad hold
-			if (!vortex && !FlxG.keys.pressed.SHIFT)
-			{
-				var scrollSpeed:Float = 300 * FlxG.elapsed;
-				var hScrollLeft = controls.mobileC ? (virtualPad.buttonLeft2 != null && virtualPad.buttonLeft2.pressed) : FlxG.keys.pressed.LBRACKET;
-				var hScrollRight = controls.mobileC ? (virtualPad.buttonRight2 != null && virtualPad.buttonRight2.pressed) : FlxG.keys.pressed.RBRACKET;
+			var scrollSpeed:Float = 300 * FlxG.elapsed;
 
-				// [ = left bracket = camera goes left = see right lanes = negative offset
-				// ] = right bracket = camera goes right = see left lanes = positive offset
-				if (hScrollLeft)
-					shiftGridX(-scrollSpeed);
-				else if (hScrollRight)
-					shiftGridX(scrollSpeed);
-			}
+			if ((FlxG.keys.pressed.LEFT && FlxG.keys.pressed.CONTROL) || (virtualPad.buttonK.justPressed))
+				shiftGridX(-scrollSpeed);
+			else if ((FlxG.keys.pressed.RIGHT && FlxG.keys.pressed.CONTROL) || (virtualPad.buttonL.justPressed))
+				shiftGridX(scrollSpeed);
 
 			if (FlxG.keys.justPressed.ESCAPE || virtualPad.buttonC.justPressed)
 			{

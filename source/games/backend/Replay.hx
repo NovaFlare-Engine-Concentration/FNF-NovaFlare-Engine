@@ -31,6 +31,7 @@ typedef StateRecord = {
 	var songName:String;
 	var difficulty:String;
 	var playDate:String;
+	var modDir:String;
 	var songLength:Float;
 
 	var songSpeed:Float;
@@ -70,6 +71,7 @@ class Replay extends FlxBasic
 	private var follow:Dynamic;
 	private var isRecording:Bool = true;
 	public static var preparedPath:String;
+	public static var settingsBackup:Map<String, Dynamic> = new Map<String, Dynamic>();
 	private var keysHeld:Map<FlxKey, Bool> = new Map<FlxKey, Bool>();
 	private var keyToLane:Map<FlxKey, Int> = null;
 	private var laneCount:Int = 0;
@@ -144,6 +146,24 @@ class Replay extends FlxBasic
 		if (stateRecord.replayVersion < 2) return null;
 		var issues:Array<String> = [];
 
+		// Backup current settings before overriding
+		settingsBackup.set('songSpeed', Reflect.field(follow, 'songSpeed'));
+		settingsBackup.set('playbackRate', Reflect.field(follow, 'playbackRate'));
+		settingsBackup.set('healthGain', Reflect.field(follow, 'healthGain'));
+		settingsBackup.set('healthLoss', Reflect.field(follow, 'healthLoss'));
+		settingsBackup.set('instakillOnMiss', Reflect.field(follow, 'instakillOnMiss'));
+		settingsBackup.set('cpuControlled', Reflect.field(follow, 'cpuControlled'));
+		settingsBackup.set('practiceMode', Reflect.field(follow, 'practiceMode'));
+		settingsBackup.set('playOpponent', ClientPrefs.data.playOpponent);
+		settingsBackup.set('flipChart', ClientPrefs.data.flipChart);
+		settingsBackup.set('ratingOffset', ClientPrefs.data.ratingOffset);
+		settingsBackup.set('noteOffset', ClientPrefs.data.noteOffset);
+		settingsBackup.set('extraKey', ClientPrefs.data.extraKey);
+		// Backup keybinds
+		var kbBackup:Map<String, Array<FlxKey>> = new Map<String, Array<FlxKey>>();
+		for (k in ClientPrefs.keyBinds.keys()) { var v = ClientPrefs.keyBinds.get(k); if (v != null) kbBackup.set(k, v.copy()); }
+		settingsBackup.set('keyBinds', kbBackup);
+
 		// Force-restore all recorded settings to prevent cheating
 		Reflect.setField(follow, 'songSpeed', stateRecord.songSpeed);
 		Reflect.setField(follow, 'playbackRate', stateRecord.playbackRate);
@@ -164,6 +184,29 @@ class Replay extends FlxBasic
 
 		trace('Replay v2: restored recorded environment (speed=${stateRecord.songSpeed}, rate=${stateRecord.playbackRate})');
 		return issues.length > 0 ? issues.join('; ') : null;
+	}
+
+	public static function restoreSettings():Void
+	{
+		if (settingsBackup.exists('songSpeed')) Reflect.setField(PlayState.instance, 'songSpeed', settingsBackup.get('songSpeed'));
+		if (settingsBackup.exists('playbackRate')) Reflect.setField(PlayState.instance, 'playbackRate', settingsBackup.get('playbackRate'));
+		if (settingsBackup.exists('healthGain')) Reflect.setField(PlayState.instance, 'healthGain', settingsBackup.get('healthGain'));
+		if (settingsBackup.exists('healthLoss')) Reflect.setField(PlayState.instance, 'healthLoss', settingsBackup.get('healthLoss'));
+		if (settingsBackup.exists('instakillOnMiss')) Reflect.setField(PlayState.instance, 'instakillOnMiss', settingsBackup.get('instakillOnMiss'));
+		if (settingsBackup.exists('cpuControlled')) Reflect.setField(PlayState.instance, 'cpuControlled', settingsBackup.get('cpuControlled'));
+		if (settingsBackup.exists('practiceMode')) Reflect.setField(PlayState.instance, 'practiceMode', settingsBackup.get('practiceMode'));
+		if (settingsBackup.exists('playOpponent')) ClientPrefs.data.playOpponent = settingsBackup.get('playOpponent');
+		if (settingsBackup.exists('flipChart')) ClientPrefs.data.flipChart = settingsBackup.get('flipChart');
+		if (settingsBackup.exists('ratingOffset')) ClientPrefs.data.ratingOffset = settingsBackup.get('ratingOffset');
+		if (settingsBackup.exists('noteOffset')) ClientPrefs.data.noteOffset = settingsBackup.get('noteOffset');
+		if (settingsBackup.exists('extraKey')) ClientPrefs.data.extraKey = settingsBackup.get('extraKey');
+		if (settingsBackup.exists('keyBinds')) {
+			var kb:Dynamic = settingsBackup.get('keyBinds');
+			for (k in Reflect.fields(kb)) {
+				var arr:Array<FlxKey> = Reflect.field(kb, k);
+				if (arr != null) ClientPrefs.keyBinds.set(k, arr.copy());
+			}
+		}
 	}
 
 	override function destroy() {
@@ -501,21 +544,16 @@ class ReplaySave {
 			if (!FileSystem.exists(folder))
 				FileSystem.createDirectory(folder);
 
-			if (Mods.currentModDirectory == '') {
-				folder = "replays/originFunkin/";
-				if (!FileSystem.exists(folder))
-					FileSystem.createDirectory(folder);
-			} else {
-				folder = "replays/" + Mods.currentModDirectory + "/";
-				if (!FileSystem.exists(folder))
-					FileSystem.createDirectory(folder);
-			}
+			var modDir = (stateRecord.modDir != null && stateRecord.modDir != '') ? stateRecord.modDir : 'originFunkin';
+			folder = 'replays/' + modDir + '/';
+			if (!FileSystem.exists(folder))
+				FileSystem.createDirectory(folder);
 
 			folder = folder + stateRecord.songName + "/";
 			if (!FileSystem.exists(folder))
 				FileSystem.createDirectory(folder);
 
-			folder = folder + Difficulty.getString().toUpperCase() + "/";
+			folder = folder + stateRecord.difficulty + "/";
 			if (!FileSystem.exists(folder))
 				FileSystem.createDirectory(folder);
 

@@ -478,6 +478,7 @@ class ResultsScreen extends MusicBeatSubstate
 			difficulty: Difficulty.getString().toUpperCase(),
 			songLength: game.songLength,
 			playDate: Date.now().toString(),
+			modDir: Mods.currentModDirectory == '' ? 'originFunkin' : Mods.currentModDirectory,
 			songSpeed: game.songSpeed,
 			playbackRate: game.playbackRate,
 			healthGain: game.healthGain,
@@ -527,6 +528,7 @@ class ResultsScreen extends MusicBeatSubstate
 		{
 			NewCustomFadeTransition(false);
 			PlayState.replayMode = false;
+		Replay.restoreSettings();
 			closeCheck = true;
 		}
 		else

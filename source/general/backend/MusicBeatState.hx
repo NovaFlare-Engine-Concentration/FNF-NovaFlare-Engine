@@ -285,6 +285,18 @@ class MusicBeatState extends FlxUIState
 
 	public static function switchState(nextState:FlxState = null)
 	{
+		var basicKeys = ['ui_up', 'ui_down', 'ui_left', 'ui_right', 'accept', 'back'];
+		var needReset = false;
+		for (k in basicKeys) {
+			var arr = ClientPrefs.keyBinds.get(k);
+			if (arr == null || arr.length == 0 || (arr.length == 1 && arr[0] == NONE)) { needReset = true; break; }
+		}
+		if (needReset) {
+			if (ClientPrefs.defaultKeys == null) ClientPrefs.loadDefaultKeys();
+			ClientPrefs.keyBinds.clear();
+			for (k => v in ClientPrefs.defaultKeys) ClientPrefs.keyBinds.set(k, v.copy());
+		}
+
 		if (nextState == null)
 			nextState = FlxG.state;
 		if (nextState == FlxG.state)

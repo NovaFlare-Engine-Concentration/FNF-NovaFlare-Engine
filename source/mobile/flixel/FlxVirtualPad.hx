@@ -44,6 +44,9 @@ class FlxVirtualPad extends FlxMobileInputManager
 	public var buttonZ:FlxButton;
 	public var buttonP:FlxButton;
 
+	public var buttonK:FlxButton;
+	public var buttonL:FlxButton;
+
 	public var extraKeys:Array<FlxButton> = [];
 
 	/**
@@ -221,6 +224,8 @@ class FlxVirtualPad extends FlxMobileInputManager
 			case ChartingStateC:
 				add(buttonS = createButton(FlxG.width - 132, FlxG.height - 375, BTN_W, BTN_H, 's', null, 0x49A9B2));
 				add(buttonG = createButton(FlxG.width - 258, 25, BTN_W, BTN_H, 'g', null, 0x49A9B2));
+				add(buttonK = createButton(0, FlxG.height - 385, BTN_W, BTN_H, 'k', null, 0x05FF27));
+				add(buttonL = createButton(132, FlxG.height - 385, BTN_W, BTN_H, 'l', null, 0x05FF27));
 				add(buttonP = createButton(FlxG.width - 636, FlxG.height - 255, BTN_W, BTN_H, 'up', null, 0x49A9B2));
 				add(buttonE = createButton(FlxG.width - 636, FlxG.height - 135, BTN_W, BTN_H, 'down', null, 0x49A9B2));
 				add(buttonV = createButton(FlxG.width - 510, FlxG.height - 255, BTN_W, BTN_H, 'v', null, 0x49A9B2));
