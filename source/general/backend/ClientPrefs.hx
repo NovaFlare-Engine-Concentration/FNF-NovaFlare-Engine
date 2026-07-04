@@ -178,6 +178,13 @@ import lime.system.Display;
 	public var theme:String = "Circle";
 	public var songInfo:String = "None";
 	
+	public var showMS:Bool = true;
+	public var hitErrorBarVisible:Bool = false;
+	public var hitBarLines:Int = 5;
+	public var hitBarLineTime:Float = 2.0;
+	public var hitErrorBarOffsetX:Float = 0;
+	public var hitErrorBarOffsetY:Float = 0;
+	public var guideLineAlpha:Float = 0.0;
 	//////////////////////////////////////////////////////////////////////////////////////
 
 	//Psych引擎的箭头RGB可以扔了，已经几乎被PsychEK代替了————卡昔233

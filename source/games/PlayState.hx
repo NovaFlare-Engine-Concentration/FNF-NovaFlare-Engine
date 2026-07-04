@@ -349,6 +349,10 @@ class PlayState extends MusicBeatState
 	var _press:Array<Bool> = [];
 	var _release:Array<Bool> = [];
 
+	//FE Features
+	var hitErrorBar:HitErrorBar;
+	var guideLine:StrumGuideLine;
+
 	public function new()
 	{
 		super();
@@ -779,6 +783,19 @@ class PlayState extends MusicBeatState
 		keyboardViewer.visible = ClientPrefs.data.keyboardViewer;
 		add(keyboardViewer);
 		keyboardViewer.cameras = [camHUD];
+
+		hitErrorBar = new HitErrorBar();
+		hitErrorBar.visible = ClientPrefs.data.hitErrorBarVisible;
+		hitErrorBar.screenCenter();
+		hitErrorBar.x -= 250 + ClientPrefs.data.hitErrorBarOffsetX;
+		hitErrorBar.y = FlxG.height * 0.3 + ClientPrefs.data.hitErrorBarOffsetY; // 顶部10%位置
+		if (ClientPrefs.data.downScroll)
+        hitErrorBar.y = FlxG.height - 100 + ClientPrefs.data.hitErrorBarOffsetY;
+		uiGroup.add(hitErrorBar);
+
+		guideLine = new StrumGuideLine();
+		guideLine.alpha = ClientPrefs.data.guideLineAlpha;
+		uiGroup.insert(0, guideLine);
 
 		camFollow = new FlxObject(0, 0, 1, 1);
 		camFollow.setPosition(camPos.x, camPos.y);
@@ -3598,9 +3615,12 @@ class PlayState extends MusicBeatState
 	var rateSpr_S:FlxSprite;
 	var comboSpr_S:FlxSprite;
 
+	var msText:FlxText = null;
+
 	var rateTween:FlxTween;
 	var comboTween:FlxTween;
 	var comboNumTween:Array<FlxTween> = [];
+	var msTextTween:FlxTween;
 
 	var rateTweenScaleX:FlxTween;
 	var comboTweenScaleX:FlxTween;
@@ -3736,6 +3756,53 @@ class PlayState extends MusicBeatState
 		{
 			noteDiff = replayMode ? note.strumTime - @:privateAccess replayExam.time + ClientPrefs.data.ratingOffset :
 				note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset;
+		}
+
+        if (!ClientPrefs.data.hideHud && ClientPrefs.data.showMS)
+		{
+			var daRating:Rating = Conductor.judgeNote(ratingsData, noteDiff / playbackRate);
+			
+			// ===== 新增：清除旧的 msText =====
+			if (msText != null)
+			{
+				if (msTextTween != null)
+				{
+					msTextTween.cancel();
+					msTextTween = null;
+				}
+				msText.kill();          // 或者 remove(msText) 如果你用的 add()
+				msText.destroy();       // 彻底释放
+				msText = null;
+			}
+
+			msText = new FlxText(0, 0, 0, "", 16);	
+			msText.setFormat(Paths.font('pixel.otf'), 16, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
+			
+			var msTiming:Float = Math.round(noteDiff * 100) / 100;
+			msText.text = (msTiming >= 0 ? "+" : "") + msTiming + 'ms';
+			switch(daRating.name)
+			{
+				case 'sick': msText.color = FlxColor.CYAN;
+				case 'good': msText.color = FlxColor.LIME;
+				case 'bad': msText.color = FlxColor.RED;
+				case 'shit': msText.color = FlxColor.RED;
+			}
+			msText.screenCenter();
+			msText.x = ClientPrefs.data.comboOffset[0] + 600;
+			msText.y -= ClientPrefs.data.comboOffset[1];
+
+			comboGroup.add(msText);
+
+			// 动画（现在用成员变量）
+			if (msTextTween != null)
+			{
+				msTextTween.cancel();
+				msTextTween = null;
+			}
+			msText.alpha = 1;
+			msTextTween = FlxTween.tween(msText, {alpha: 0}, 0.2 / playbackRate, {
+				startDelay: Conductor.crochet * 0.001 / playbackRate
+			});
 		}
 
 		if ((ClientPrefs.data.playOpponent && cpuControlled_opponent) || (!ClientPrefs.data.playOpponent && cpuControlled))
@@ -4734,6 +4801,11 @@ class PlayState extends MusicBeatState
 				highestCombo = combo;
 			notesHitArray.unshift(Date.now());
 			popUpScore(note);
+
+			var rawNoteDiff:Float =  note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset;
+
+			var hitTime:Float = -rawNoteDiff;
+			hitErrorBar.registerHit(hitTime);
 		}
 		var gainHealth:Bool = true; // prevent health gain, *if* sustains are treated as a singular note
 		if (guitarHeroSustains && note.isSustainNote)
