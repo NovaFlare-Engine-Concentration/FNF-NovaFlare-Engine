@@ -1,0 +1,12 @@
+FEFeatures => FE Features
+
+showMS => Show MS
+hitErrorBarVisible => Show Hit Error Bar
+hitBarLines	=> Hit Bar Lines
+hitBarLineTime => Hit Bar Line Time (s)
+hitErrorBarOffsetX => Hit Error Bar Offset X
+hitErrorBarOffsetY => Hit Error Bar Offset Y
+guideLineAlpha => Guide Line Alpha
+
+
+

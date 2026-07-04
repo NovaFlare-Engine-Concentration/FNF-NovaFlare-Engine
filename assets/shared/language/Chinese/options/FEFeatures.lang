@@ -1,0 +1,10 @@
+FEFeatures => FE特色功能
+
+
+showMS => 显示延迟
+hitErrorBarVisible => 显示打击误差条	
+hitBarLines	=> 打击误差条参考线数量
+hitBarLineTime => 参考线存在时间（秒）	
+hitErrorBarOffsetX => 打击误差条水平偏移	
+hitErrorBarOffsetY => 打击误差条垂直偏移	
+guideLineAlpha => 引导线透明度	
