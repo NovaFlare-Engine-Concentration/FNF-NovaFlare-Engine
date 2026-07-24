@@ -1,0 +1,101 @@
+Ah não, o copo d'água caiu!  
+Ficar olhando para a tela por muito tempo enquanto joga pode cansar seus olhos.  
+Ginástica ocular — começando agora!  
+Travando na fase? Dá uma pausa e joga água no rosto!  
+Cuidado com distrações visuais de notificações do celular!  
+Coloca o fone de ouvido logo.  
+Jogar mais músicas pode ajudar a aliviar a pressão baixa.  
+...Ainda sem dormir?  
+Indeciso? Deixa o seletor aleatório decidir por você.  
+Dica: As setas no editor de fases podem ser arrastadas para cima e para baixo (  
+Entediado? Então fica entediado mesmo.  
+Você errou.  
+Para de me olhar — olha a barra de progresso.  
+Faz quanto tempo você joga FNF?  
+AAAAAAAAARRGH.  
+Lembra da última vez que jogou as músicas originais?  
+Sério, o que ainda falta atualizar nessa altura?  
+Segredo: "um segredo."  
+O que mais eu posso te contar?  
+O modo replay salva seus melhores momentos.  
+Faz quanto tempo você usou o modo de prática?  
+*Bip!*  
+Vocês estão todos indo muito bem, mesmo quem tá travando.  
+Se as setas de repente aumentarem de tamanho, não entre em pânico — é só desativar o pré-carregamento.  
+Preciso de férias, tipo, AGORA.  
+Verifica o nível da bateria. Agora. De verdade.  
+debugPrint("NovaFlare Engine travou.")  
+Acha que sabe? Não sabe não.  
+Vai ao banheiro se precisar.  
+Jogadores mobile com dois dedos: tenta com quatro.  
+if 1 == 2 then  
+Ei, você terminou seu dever de casa / trabalho?  
+Esqueceu de alguma coisa? (doge)  
+Eu amo Haxe!  
+Eu odeio Haxe!  
+Não me culpa se travar.  
+Por que alguns dos seus erros nunca acontecem comigo?  
+Verifica sua pasta de erros — provavelmente já transbordou.  
+Isso aí é bem familiar.  
+Isso aí não é familiar nem um pouco.  
+Erro: Não vou te dizer onde você errou.  
+Ah não, foi por pouco!  
+Meu FPS tá flutuando que nem a bolsa de valores.  
+Dica pro: Você não precisa maximizar a taxa de frames.  
+A calmaria antes da tempestade.  
+Você já pensou nos sentimentos da sua tela/teclado?  
+Você já imaginou jogar fases sem nenhum dispositivo?  
+Você provavelmente já superou 90% dos jogadores de FNF.  
+BotPlay, ativar!  
+Lembrete: NovaFlare Engine é baseado no PE0.7.3.  
+Boato: Ajuste uma configuração para ficar compatível com alguns mods do 0.6.3.  
+A primeira opção nas configurações é literalmente seleção de idioma — por que as pessoas ainda perguntam?  
+Confira o GitHub Actions do NovaFlare para o progresso das atualizações.  
+Curiosidade: O que você "produz" está relacionado ao que você "consumiu" antes. (Trocadilho duplo)  
+Bugs menores só devem aparecer com supervisão parental.
+Parabéns! Você foi parabenizado.  
+Inventar essas mensagens tá me dando dor de cabeça.  
+Deixa eu ver quais mensagens você ainda não viu.  
+Três… Dois… Um… Vai!  
+Espero que você não tenha enfiado mods esquisitos na pasta. O_o  
+Boato: Uma versão futura do NovaFlare pode abandonar o Haxe.  
+ZA WARUDO! (Jogo pausado.)  
+Lembra da sua primeira versão do NovaFlare Engine?  
+Você perde se ficar me olhando.  
+FNF treina seu cérebro para fazer várias coisas ao mesmo tempo.  
+Divertido. Emocionante. Alegre. Empolgante.  
+Você escuta as músicas no modo Freeplay?  
+Ainda uma lenda das 4 teclas.  
+Deixa eu adivinhar — você já jogou FNF antes.  
+Pedra, papel ou tesoura? Você começa.  
+NovaFlare-Engine tem um grupo QQ na China. Já entrou?  
+Se os shaders travarem seu dispositivo, é só desligar.  
+Você sabe por que o NovaFlare-Engine foi criado?  
+debugPrint("debugPrint("debugPrint("666")")")  
+if true then  
+GOGOGOGOGOGOGO  
+Você sabe o que eu ia falar.  
+Deixa eu ver qual música você tá jogando.  
+setProperty('diasDeFolga', 99999...)  
+Boyfriend tá certo — você concorda?  
+Que tal tentar Phigros?  
+Se as fases entediarem você, tenta programar.  
+Haxe é lendário.  
+Sinceramente, Lua não chega aos pés do Haxe.  
+nsei nsei nsei nsei nsei nsei nsei nsei nsei  
+Esse bug é mais bugado que um bug.  
+Como tá a vida aí na Terra?  
+Lembrete amigável: Não precisa de lembrete — seu dispositivo que é lento mesmo.  
+Programador selvagem — de graça!  
+Programar é saborear mensagens de erro.  
+Psiu! Silêncio! (Grita alto)  
+O bróder tá dormindo — faz silêncio!  
+Doo-doo-da-doo-da-doo.  
+Nossa, que surpresa total (ironia).  
+Tenho um mau pressentimento sobre isso.  
+Olha! A barra de carregamento!  
+A gente se encontra de novo... de novo. :)  
+Travamentos? Faz parte da experiência.  
+Curiosidade: *Dead Cells* foi escrito em Heaps.  
+Ãham, ãham, tá, com certeza.
+Você deveria agradecer ao DeepSeek por ter te deixado ver as mensagens em inglês.
