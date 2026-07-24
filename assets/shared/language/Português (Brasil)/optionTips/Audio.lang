@@ -1,0 +1,7 @@
+Audio => Áudio
+
+mainMusic => Tipo de música da tela principal
+optionMusic => Tipo de música da tela de opções
+pauseMusic => Tipo de música da tela de pausa
+hitsoundType => Tipo de som de acerto
+hitsoundVolume => Volume do som de acerto
