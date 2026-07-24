@@ -1,0 +1,39 @@
+GamePlay => Jogabilidade
+
+downScroll => Notas para Baixo
+middleScroll => Notas no centro
+flipChart => Inverter Gráfico
+ghostTapping => Toque Fantasma
+guitarHeroSustains => Notas longas do Guitar Hero
+noReset => Sem reset
+
+
+Opponent => Oponente
+
+playOpponent => Jogar como Oponente
+opponentCodeFix => Correção de Código do Oponente
+botOpponentFix => Correção do Bot Oponente
+healthDrainOPPO => Drenagem de Vida do Oponente
+healthDrainOPPOMult => Multiplicador de Drenagem do Oponente
+
+
+judgement => Julgamento
+
+safeFrames => Frames Seguros
+marvelousWindow => Janela Maravilhoso
+sickWindow => Incrível
+goodWindow => Bom
+badWindow => Ruim
+marvelousRating => Avaliação Maravilhoso
+marvelousSprite => Sprite Maravilhoso
+ratingOffset => Deslocamento da Avaliação
+NoteOffsetState => Deslocamento das Notas
+
+
+Gameplaybackend => Backend de Jogabilidade
+
+fixLNL => Corrigir Notas Longas
+saveScoreBase => Base de armazenamento de recorde
+replayQuality => Qualidade do Replay
+showReplayWatermark => Mostrar Marca d'água no Replay
+gameOverVibration => Vibração no Game Over
