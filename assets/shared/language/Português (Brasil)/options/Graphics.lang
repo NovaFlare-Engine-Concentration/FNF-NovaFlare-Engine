@@ -1,0 +1,17 @@
+Graphics => Gráficos
+
+
+FPScounter => Contador de FPS
+
+showFPS => Mostrar FPS
+showExtra => Mostrar Dados Extras
+rainbowFPS => FPS colorido
+memoryType => Tipo de Memória
+fpsScale => Tamanho do contador de FPS
+fpsDisplayMode => Modo de Exibição do FPS
+
+
+Watermark => Marca d'água
+
+showWatermark => Mostrar Marca d'água
+watermarkScale => Tamanho da Marca d'água
