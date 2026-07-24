@@ -1,0 +1,37 @@
+GamePlay => Jogabilidade
+
+downScroll => As notas descem em vez de subir, simples assim
+middleScroll => Coloca sua pista no centro ou à direita
+flipChart => Inverter o gráfico durante o jogo
+ghostTapping => Alternar se pressionar uma direção sem seta conta como erro
+guitarHeroSustains => Notas longas não podem ser pressionadas se você errar
+noReset => Alternar o uso do R para reiniciar ao game over
+
+
+Opponent => Oponente
+
+playOpponent => Jogar como oponente
+opponentCodeFix => Troca de funções GoodNoteHit e opponentNoteHit
+botOpponentFix => O script entenderá que o bot está ativo
+healthDrainOPPO => Drenagem de vida no modo oponente
+healthDrainOPPOMult => Multiplicador de drenagem de vida no modo oponente
+
+
+judgement => Julgamento
+
+safeFrames => Altera quantos frames você tem para acertar uma nota mais cedo ou tarde
+marvelousWindow => Quantos milissegundos existem no julgamento MARAVILHOSO
+sickWindow => Quantos milissegundos existem no julgamento INCRÍVEL
+goodWindow => Quantos milissegundos existem no julgamento BOM
+badWindow => Quantos milissegundos existem no julgamento RUIM
+marvelousRating => Estender o julgamento maravilhoso durante o jogo
+marvelousSprite => O julgamento maravilhoso também usará o sprite de julgamento "incrível!"
+ratingOffset => Altera o deslocamento da avaliação
+NoteOffsetState => Altera o deslocamento da música e a posição do julgamento
+
+
+Gameplaybackend => Backend de Jogabilidade
+
+fixLNL => Reduzir o comprimento das notas longas
+saveScoreBase => Base de armazenamento de recorde, Pontuação: maior pontuação, Precisão: maior precisão, Erros: menor número de erros, Combo: maior combo
+gameOverVibration => O dispositivo vai vibrar ao receber game over
