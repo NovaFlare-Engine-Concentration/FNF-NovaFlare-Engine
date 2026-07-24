@@ -1,0 +1,16 @@
+User Interface => Interface do Usuário
+
+
+UserInterface => Interface do Usuário
+
+customFade => Tipo de transição personalizada
+customFadeText => Texto da transição personalizada visível
+customFadeSound => Volume do som da transição personalizada
+audioDisplayQuality => Qualidade analítica dos dados de música
+audioDisplayUpdate => Intervalo de reação do analisador de música
+freeplayOld => Usar freeplay do Psych
+skipTitleVideo => Pular vídeo de introdução
+resultsScreen => Abrir tela de resultados ao final da música
+loadingScreen => Adicionar uma tela de carregamento para o estado de jogo
+loadThreads => Número de threads para carregamento de recursos
+useFlixelCoords => Usa coordenadas de palco do Flixel para elementos de UI (hitbox, reprodução de vídeo). Quando desativado, usa coordenadas de tela do OpenFL.
