@@ -1,0 +1,17 @@
+Skin => Aparência
+
+
+Note => Nota
+
+noteSkin => Aparência das Notas
+noteRGB => RGB das Notas
+noteColorSwap => HSV das Notas
+NotesSubState => Configuração de Cor das Notas
+NotesSubStateLegacy => Configuração de Cor Antiga
+
+Splash => Splash
+
+showSplash => Mostrar Splash
+splashSkin => Aparência do Splash
+splashRGB => RGB do Splash
+splashAlpha => Transparência do Splash
