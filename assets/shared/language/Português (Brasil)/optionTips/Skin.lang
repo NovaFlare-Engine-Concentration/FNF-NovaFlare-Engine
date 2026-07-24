@@ -1,0 +1,17 @@
+Skin => Aparência
+
+
+Note => Nota
+
+noteSkin => Alterar a aparência atual das notas
+noteRGB => RGB das notas
+noteColorSwap => Usar coloração HSV como o psych antigo para as notas
+NotesSubState => Configuração de cor das notas
+NotesSubStateLegacy => Configuração HSV das notas
+
+Splash => Splash
+
+showSplash => Mostrar ao acertar incrível/maravilhoso
+splashSkin => Alterar a aparência atual do splash
+splashRGB => RGB do splash
+splashAlpha => Transparência do splash
