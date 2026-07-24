@@ -1,0 +1,16 @@
+Maintenance => Manutenção
+
+developerMode => Modo desenvolvedor, que desativa alguns avisos de erro e rastreamentos
+devConScale => Tamanho do console usado para capturar todas as saídas de rastreamento
+
+oldHscriptVersion => Versão reduzida para usar hscript compatível com runhaxecode
+
+
+APP => Aplicativo
+
+discordRPC => Mostrar o aplicativo na caixa \"Jogando\" do Discord
+checkForUpdates => Verificar atualizações
+screensaver => O celular vai dormir após ficar inativo por alguns segundos
+filesCheck => Verificar se o jogo possui arquivos faltando
+filesCheckNew => Verificar se o jogo possui arquivos suspeitos
+storageFolder => Escolher uma pasta para armazenar os dados do jogo. O jogo será reiniciado após a troca.
