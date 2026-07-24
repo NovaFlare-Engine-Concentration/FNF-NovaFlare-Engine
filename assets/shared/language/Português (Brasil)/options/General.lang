@@ -1,0 +1,17 @@
+General => Geral
+
+framerate => Taxa de quadros
+drawFramerate => Taxa de atualização visual
+language => Idioma da Engine
+gameQuality => Qualidade do Jogo
+lowQuality => Baixa Qualidade
+resolution => Resolução
+renderThread => Thread de Renderização
+colorblindMode => Filtro para Daltonismo
+antialiasing => Suavização de Bordas
+flashing => Luzes Piscantes
+shaders => Shaders
+cacheOnGPU => Cache na GPU
+autoPause => Pausa Automática
+replayQuality => Replay em Alta Qualidade
+gcFreeZone => Zona sem GC
