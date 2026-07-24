@@ -1,0 +1,47 @@
+Game UI => Interface do Jogo
+
+
+GameUI => Interface do Jogo
+
+Visble => Visível
+hideHud => Ocultar HUD
+showComboNum => Aparência do sprite de combo
+showRating => Aparência do sprite de avaliação
+opponentStrums => Mostrar as notas do oponente na tela
+judgementCounter => Mostrar seus julgamentos
+keyboardViewer => Feedback das teclas pressionadas
+
+
+TimeBar => Barra de Tempo
+
+timeBarType => Tipo de exibição
+
+
+HealthBar => Barra de Vida
+
+healthBarAlpha => Transparência
+oldHealthBarVersion => Versão reduzida para psych 0.63h
+Combo => Combo
+comboColor => Permitir obter e usar a cor da avaliação
+comboOffsetFix => Corrigir deslocamento de posição
+
+
+KeyBoard => Teclado
+
+keyboardAlpha => Transparência
+keyboardTime => Tempo de exibição do pressionamento sustentado
+keyboardTimeDisplay => Suporte à exibição de detalhes de pressionamento
+keyboardBGColor => Cor de fundo do teclado
+keyboardTextColor => Cor do texto do teclado
+
+
+Camera => Câmera
+
+camZooms => Alternar o zoom da câmera no jogo
+scoreZoom => Pontuação pulsa ao acertar uma nota
+
+
+pauseButton => Adicionar botão de pausa no jogo
+
+compulsionPause => Você pode forçar a abertura do menu de pausa
+compulsionPauseNumber => Quantas vezes pressionar o botão para forçar a pausa
