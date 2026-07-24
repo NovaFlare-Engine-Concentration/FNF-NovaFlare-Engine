@@ -1,0 +1,16 @@
+User Interface => Interface do Usuário
+
+
+UserInterface => Interface do Usuário
+
+customFade => Transição Personalizada
+customFadeText => Texto da Transição Visível
+customFadeSound => Volume do Som da Transição
+audioDisplayQuality => Qualidade da Exibição de Áudio
+audioDisplayUpdate => Atualização da Exibição de Áudio
+freeplayOld => Freeplay Antigo
+skipTitleVideo => Pular Vídeo introdução
+resultsScreen => Tela de Resultados
+loadingScreen => Tela de Carregamento
+loadThreads => Threads de Carregamento
+useFlixelCoords => Modo de Coordenadas da UI
