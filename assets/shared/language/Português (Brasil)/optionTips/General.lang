@@ -1,0 +1,18 @@
+General => Geral
+
+framerate => Alterar o limite de FPS
+frawFramerate => Para o número máximo de frames a renderizar, veja o limite superior de atualização
+language => Alterar o idioma do motor
+lockRender => Atualizará separadamente da atualização de desenho, o efeito é aumentar o número de frames em cerca de duas a três vezes (dependendo do desempenho do dispositivo)
+renderThread => Separar a thread de renderização melhora as taxas de frames
+gameQuality => Alterar a qualidade do jogo na tela
+lowQuality => Desativar alguns objetos nos cenários
+resolution => A resolução dos gráficos do jogo
+colorblindMode => Filtro para daltonismo, tornando o jogo mais acessível
+antialiasing => Alternar suavização de bordas, melhorando a qualidade gráfica com leve custo de desempenho
+flashing => Alternar luzes piscantes que podem causar crises epilépticas e cansaço visual
+shaders => Shaders usados para alguns efeitos visuais
+cacheOnGPU => Permite que a GPU seja usada para armazenar texturas em cache, reduzindo o uso de RAM
+autoPause => Pausa o jogo quando ele perde o foco
+replayQuality => Registra dados de acerto por nota para replays mais precisos. Usa mais memória e espaço em disco.
+gcFreeZone => Suspende a maior parte da limpeza de RAM para reduzir travamentos repentinos durante o jogo e resolver o problema de crashes por vazamento de memória causado pelo uso excessivo de RAM.
