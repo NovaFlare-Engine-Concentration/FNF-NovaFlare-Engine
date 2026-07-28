@@ -54,16 +54,20 @@ jobs:
         shell: pwsh
         run: |
           $bash = 'C:\msys64\usr\bin\bash.exe'
+          $mingwRoot = 'C:\msys64\mingw64'
+          $mingwBin = Join-Path $mingwRoot 'bin'
+          $compiler = Join-Path $mingwBin 'g++.exe'
           if (-not (Test-Path -LiteralPath $bash -PathType Leaf)) {
             throw "MSYS2 bash is missing: $bash"
           }
 
-          & $bash -lc 'pacman -Sy --noconfirm --needed mingw-w64-x86_64-pcre2 mingw-w64-x86_64-mbedtls'
+          & $bash -lc 'pacman -Sy --noconfirm --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-pcre2 mingw-w64-x86_64-mbedtls'
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to install NovaGC native dependencies (exit $LASTEXITCODE)"
           }
 
           $required = @(
+            $compiler,
             'C:\msys64\mingw64\include\pcre2.h',
             'C:\msys64\mingw64\include\mbedtls\ctr_drbg.h',
             'C:\msys64\mingw64\lib\libpcre2-16.a',
@@ -76,6 +80,42 @@ jobs:
               throw "NovaGC native dependency is missing after installation: $path"
             }
           }
+
+          $mingwBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "CXX=$compiler" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:PATH = "$mingwBin;$env:PATH"
+          $env:CXX = $compiler
+
+          $probeSource = Join-Path $env:RUNNER_TEMP 'novagc-native-deps-probe.cpp'
+          $probeBinary = Join-Path $env:RUNNER_TEMP 'novagc-native-deps-probe.exe'
+          @'
+          #define PCRE2_STATIC
+          #define PCRE2_CODE_UNIT_WIDTH 16
+          #include <pcre2.h>
+          #include <mbedtls/ctr_drbg.h>
+
+          int main() {
+              auto regexConfig = &pcre2_config;
+              mbedtls_ctr_drbg_context random;
+              mbedtls_ctr_drbg_init(&random);
+              mbedtls_ctr_drbg_free(&random);
+              return regexConfig == nullptr;
+          }
+          '@ | Set-Content -LiteralPath $probeSource -Encoding utf8
+
+          & $compiler --version
+          & $compiler -std=c++20 -static $probeSource -o $probeBinary `
+            -lpcre2-16 -lmbedtls -lmbedx509 -lmbedcrypto `
+            -lws2_32 -lcrypt32 -lbcrypt
+          if ($LASTEXITCODE -ne 0) {
+            throw "NovaGC native dependency probe failed to compile or link (exit $LASTEXITCODE)"
+          }
+
+          & $probeBinary
+          if ($LASTEXITCODE -ne 0) {
+            throw "NovaGC native dependency probe failed to run (exit $LASTEXITCODE)"
+          }
+          Write-Output "NovaGC native dependency probe passed with $compiler"
 
       - name: Restore private GameAnalytics
         if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
@@ -126,6 +166,11 @@ jobs:
           $toolchain = Join-Path $env:GITHUB_WORKSPACE 'toolchains\haxe-novagc'
           $env:PATH = "$toolchain;$env:PATH"
           $env:HAXE_STD_PATH = Join-Path $toolchain 'std'
+
+          $expectedCompiler = 'C:\msys64\mingw64\bin\g++.exe'
+          if ([IO.Path]::GetFullPath($env:CXX) -ne [IO.Path]::GetFullPath($expectedCompiler)) {
+            throw "Unexpected NovaGC C++ compiler: $env:CXX"
+          }
 
           $selectedHaxe = (Get-Command haxe.exe -ErrorAction Stop).Source
           $expectedHaxe = Join-Path $toolchain 'haxe.exe'
