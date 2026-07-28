@@ -7,6 +7,7 @@ on:
 jobs:
   Windows:
     runs-on: windows-latest
+    environment: private-build
     steps:
       - name: Checkout
         uses: actions/checkout@main
@@ -17,6 +18,7 @@ jobs:
           haxe-version: 4.3.7
 
       - name: Restore private GameAnalytics
+        if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
         shell: pwsh
         env:
           NOVA_GA_IMPL_B64: ${{ secrets.NOVA_GA_IMPL_B64 }}

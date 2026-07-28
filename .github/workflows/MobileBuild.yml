@@ -27,6 +27,7 @@ on:
 jobs: 
   Android:
     runs-on: macos-14
+    environment: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'public-build' || 'private-build' }}
     concurrency:
       group: ${{ github.workflow }}-Android-${{ github.ref }}
 
@@ -52,6 +53,7 @@ jobs:
           haxe-version: 4.3.7
 
       - name: Restore private GameAnalytics
+        if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
         shell: pwsh
         env:
           NOVA_GA_IMPL_B64: ${{ secrets.NOVA_GA_IMPL_B64 }}
@@ -189,6 +191,7 @@ jobs:
           
   iOS:
     runs-on: macos-15
+    environment: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'public-build' || 'private-build' }}
     concurrency:
       group: ${{ github.workflow }}-iOS-${{ github.ref }}
 
@@ -207,6 +210,7 @@ jobs:
           haxe-version: 4.3.7
 
       - name: Restore private GameAnalytics
+        if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
         shell: pwsh
         env:
           NOVA_GA_IMPL_B64: ${{ secrets.NOVA_GA_IMPL_B64 }}

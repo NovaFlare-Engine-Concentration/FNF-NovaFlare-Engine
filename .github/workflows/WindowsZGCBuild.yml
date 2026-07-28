@@ -13,6 +13,7 @@ concurrency:
 jobs:
   Windows-ZGC:
     runs-on: windows-latest
+    environment: private-build
     timeout-minutes: 180
     env:
       HXCPP_COMPILE_JOBS: 4
@@ -77,6 +78,7 @@ jobs:
           }
 
       - name: Restore private GameAnalytics
+        if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
         shell: pwsh
         env:
           NOVA_GA_IMPL_B64: ${{ secrets.NOVA_GA_IMPL_B64 }}
