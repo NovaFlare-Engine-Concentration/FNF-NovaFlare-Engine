@@ -1,7 +1,8 @@
 param(
     [string]$TargetDirectory = (
         Join-Path $PSScriptRoot '..\private\gameanalytics'
-    )
+    ),
+    [switch]$Required
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +22,13 @@ $missing = @(
 $githubEnvironment = $env:GITHUB_ENV
 
 if ($missing.Count -gt 0) {
+    if ($Required) {
+        throw (
+            'Required private GameAnalytics sources are unavailable: ' +
+            ($missing -join ', ')
+        )
+    }
+
     if (-not [string]::IsNullOrWhiteSpace($githubEnvironment)) {
         [IO.File]::AppendAllText(
             $githubEnvironment,

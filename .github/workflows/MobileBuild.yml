@@ -59,7 +59,7 @@ jobs:
           NOVA_GA_IMPL_B64: ${{ secrets.NOVA_GA_IMPL_B64 }}
           NOVA_GA_TYPES_B64: ${{ secrets.NOVA_GA_TYPES_B64 }}
           NOVA_GA_CONFIG_B64: ${{ secrets.NOVA_GA_CONFIG_B64 }}
-        run: ./tools/restore-private-gameanalytics.ps1
+        run: ./tools/restore-private-gameanalytics.ps1 -Required
               
       - name: Determine Android cache strategy
         id: android_cache
@@ -216,7 +216,7 @@ jobs:
           NOVA_GA_IMPL_B64: ${{ secrets.NOVA_GA_IMPL_B64 }}
           NOVA_GA_TYPES_B64: ${{ secrets.NOVA_GA_TYPES_B64 }}
           NOVA_GA_CONFIG_B64: ${{ secrets.NOVA_GA_CONFIG_B64 }}
-        run: ./tools/restore-private-gameanalytics.ps1
+        run: ./tools/restore-private-gameanalytics.ps1 -Required
    
       - name: Determine iOS cache strategy
         id: ios_cache

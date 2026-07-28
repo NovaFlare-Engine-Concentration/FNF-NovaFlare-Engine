@@ -124,7 +124,7 @@ jobs:
           NOVA_GA_IMPL_B64: ${{ secrets.NOVA_GA_IMPL_B64 }}
           NOVA_GA_TYPES_B64: ${{ secrets.NOVA_GA_TYPES_B64 }}
           NOVA_GA_CONFIG_B64: ${{ secrets.NOVA_GA_CONFIG_B64 }}
-        run: ./tools/restore-private-gameanalytics.ps1
+        run: ./tools/restore-private-gameanalytics.ps1 -Required
 
       - name: Install project libraries
         shell: pwsh
@@ -192,9 +192,10 @@ jobs:
             "-Dcommit_sha=$commitSha",
             "-Dbuild_number=$buildNumber"
           )
-          if ($env:NOVA_GAMEANALYTICS_DEFINE) {
-            $arguments += $env:NOVA_GAMEANALYTICS_DEFINE
+          if ($env:NOVA_GAMEANALYTICS_DEFINE -ne '-Dgameanalytics_enabled') {
+            throw 'Windows ZGC artifacts require the private GameAnalytics build'
           }
+          $arguments += $env:NOVA_GAMEANALYTICS_DEFINE
 
           haxe --version
           haxelib @arguments
@@ -231,11 +232,31 @@ jobs:
             throw 'Generated sources do not contain the current NovaGC descriptor ABI'
           }
 
-          $options = Get-Content -LiteralPath $optionsPath -Raw
-          if ($options -notmatch '(?m)^hxcpp_zgc=1$' -or
-              $options -notmatch '(?m)^novagc_precise=1$' -or
-              $options -match '(?m)^legacy_gc_compare=') {
-            throw 'Build options do not select the isolated ZGC configuration'
+          $optionLines = @(
+            Get-Content -LiteralPath $optionsPath |
+              ForEach-Object { $_.Trim() }
+          )
+          $requiredOptions = @('hxcpp_zgc=1', 'novagc_precise=1')
+          $missingOptions = @(
+            $requiredOptions |
+              Where-Object { $optionLines -notcontains $_ }
+          )
+          $legacyOptions = @(
+            $optionLines |
+              Where-Object { $_ -like 'legacy_gc_compare=*' }
+          )
+          if ($missingOptions.Count -gt 0 -or $legacyOptions.Count -gt 0) {
+            $details = @()
+            if ($missingOptions.Count -gt 0) {
+              $details += 'missing: ' + ($missingOptions -join ', ')
+            }
+            if ($legacyOptions.Count -gt 0) {
+              $details += 'forbidden: ' + ($legacyOptions -join ', ')
+            }
+            throw (
+              'Build options do not select the isolated ZGC configuration (' +
+              ($details -join '; ') + ')'
+            )
           }
 
           Write-Output 'NovaGC precise ABI verification passed.'
