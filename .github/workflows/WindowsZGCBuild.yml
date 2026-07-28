@@ -13,7 +13,7 @@ concurrency:
 jobs:
   Windows-ZGC:
     runs-on: windows-latest
-    environment: private-build
+    environment: ${{ github.repository == 'NovaFlare-Engine-Concentration/FNF-NovaFlare-Engine' && 'private-build' || 'public-build' }}
     timeout-minutes: 180
     env:
       HXCPP_COMPILE_JOBS: 4
@@ -118,7 +118,7 @@ jobs:
           Write-Output "NovaGC native dependency probe passed with $compiler"
 
       - name: Restore private GameAnalytics
-        if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+        if: github.repository == 'NovaFlare-Engine-Concentration/FNF-NovaFlare-Engine' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
         shell: pwsh
         env:
           NOVA_GA_IMPL_B64: ${{ secrets.NOVA_GA_IMPL_B64 }}
@@ -192,10 +192,16 @@ jobs:
             "-Dcommit_sha=$commitSha",
             "-Dbuild_number=$buildNumber"
           )
-          if ($env:NOVA_GAMEANALYTICS_DEFINE -ne '-Dgameanalytics_enabled') {
-            throw 'Windows ZGC artifacts require the private GameAnalytics build'
+          $isOfficialRepository = (
+            '${{ github.repository }}' -eq
+            'NovaFlare-Engine-Concentration/FNF-NovaFlare-Engine'
+          )
+          if ($isOfficialRepository) {
+            if ($env:NOVA_GAMEANALYTICS_DEFINE -ne '-Dgameanalytics_enabled') {
+              throw 'Official Windows ZGC artifacts require private GameAnalytics'
+            }
+            $arguments += $env:NOVA_GAMEANALYTICS_DEFINE
           }
-          $arguments += $env:NOVA_GAMEANALYTICS_DEFINE
 
           haxe --version
           haxelib @arguments
