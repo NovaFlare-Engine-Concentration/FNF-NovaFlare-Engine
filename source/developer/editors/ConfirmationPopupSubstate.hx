@@ -1,5 +1,7 @@
 ﻿package developer.editors;
 
+import flixel.util.FlxAxes;
+
 class ConfirmationPopupSubstate extends MusicBeatSubstate
 {
 	var bg:FlxSprite;

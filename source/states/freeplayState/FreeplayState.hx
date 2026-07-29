@@ -85,7 +85,6 @@ class FreeplayState extends MusicBeatState
 	var backgroundRequestId:Int = 0;
 	var backgroundLoadTimer:FlxTimer;
 	var selectedBackgroundGraphic:FlxGraphic;
-	var retiredBackgroundGraphics:Array<FlxGraphic> = [];
 	var detailRequestId:Int = 0;
 	var detailLoadTimer:FlxTimer;
 	var stateDestroyed:Bool = false;
@@ -482,6 +481,8 @@ class FreeplayState extends MusicBeatState
 		backRect = new BackButton(0, FlxG.height - 65, 195, 65);
 		add(backRect);
 		backRect.cameras = [camAfter];
+
+		detailRate.camera = camAfter;
 
 		for (data in 0...funcData.length)
 		{
@@ -1448,23 +1449,11 @@ class FreeplayState extends MusicBeatState
 							if (rect != null && rect.bgPath == path)
 								rect.applyThumbnailGraphic(thumbnailGraphic);
 					}
-					var previous:FlxGraphic = selectedBackgroundGraphic;
+					// bg1/bg2 keep FlxGraphic.useCount accurate throughout an
+					// interrupted cross-fade. Let their frame setters release
+					// the old graphic only after neither sprite references it.
 					selectedBackgroundGraphic = nextGraphic;
 					background.changeSprite(nextGraphic.imageFrame);
-
-					if (previous != null && previous != nextGraphic)
-					{
-						retiredBackgroundGraphics.push(previous);
-						FlxTimer.wait(1.0, function():Void
-						{
-							if (stateDestroyed) return;
-							if (previous != selectedBackgroundGraphic)
-							{
-								retiredBackgroundGraphics.remove(previous);
-								previous.destroy();
-							}
-						});
-					}
 				});
 			});
 		});
@@ -1487,10 +1476,6 @@ class FreeplayState extends MusicBeatState
 			backgroundLoadTimer.cancel();
 			backgroundLoadTimer = null;
 		}
-		for (graphic in retiredBackgroundGraphics)
-			if (graphic != null)
-				graphic.destroy();
-		retiredBackgroundGraphics = [];
 		if (instance == this) instance = null;
 		super.destroy();
 		selectedBackgroundGraphic = null;

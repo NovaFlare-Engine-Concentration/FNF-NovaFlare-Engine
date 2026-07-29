@@ -31,7 +31,7 @@ class GeneralBack extends FlxSpriteGroup
 			button.flipX = true;
 		add(button);
 
-		text = new FlxText(40, 0, 0, Language.get(texts, 'in'), 25);
+		text = new FlxText(40, 0, 0, texts, 25);
 		text.font = Paths.font(Language.get('fontName', 'main') + '.ttf');
 		text.antialiasing = ClientPrefs.data.antialiasing;
 		add(text);

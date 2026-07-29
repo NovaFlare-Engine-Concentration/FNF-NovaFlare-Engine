@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="utf-8"?>
+<project>
+	<!-- _________________________ Application Settings _________________________ -->
+
+	<app title="NovaFlare Engine" file="NovaFlare Engine" packageName="com.NovaFlareEngineNew" package="com.NovaFlareEngineNew" main="Main" version="1.2.1" build-number="28260503" company="NF crew" />
+	<!--Switch Export with Unique ApplicationID and Icon-->
+	<set name="APP_ID" value="0x0100f6c013bbc000" />
+	
+	<!-- NOTE TO SELF: DISABLE THIS IF ISSUES ARE FOUND -->
+	<haxedef name="LINC_LUA_RELATIVE_DYNAMIC_LIB"/> <!-- stable luas PUT AFTER FIRST LINE WITH APP NAME AND ETC -->
+	
+	<!--The flixel preloader is not accurate in Chrome. You can use it regularly if you embed the swf into a html file
+		or you can set the actual size of your file manually at "FlxPreloaderBase-onUpdate-bytesTotal"-->
+	<!-- <app preloader="Preloader" resizable="true" /> -->
+	<app preloader="flixel.system.FlxPreloader" />
+
+	<!--Minimum without FLX_NO_GAMEPAD: 11.8, without FLX_NO_NATIVE_CURSOR: 11.2-->
+	<set name="SWF_VERSION" value="11.8" />
+	
+	<!-- ______________________ NOVAFLARE ENGINE CUSTOMIZATION ______________________ -->
+
+	<define name="MODS_ALLOWED" if="desktop || mobile || emscripten" />
+	<define name="LUA_ALLOWED" if="desktop || mobile" unless="hl"/>
+	<define name="HSCRIPT_ALLOWED" if="desktop || mobile || web" />
+	<define name="ACHIEVEMENTS_ALLOWED" />
+	<define name="DISCORD_ALLOWED" if="desktop" unless="hl"/>
+	<define name="PSYCH_WATERMARKS"/> <!-- DELETE THIS TO REMOVE WATERMARKS/DEV NAMES ON TITLE SCREEN -->
+	<define name="VIDEOS_ALLOWED" if="desktop || mobile" unless="32bits || hl || NOVIDEO || rpi"/> <!-- i'll keep this cuz it makes vscode think i don't use videos -->
+    <define name="CUSTOM_SHADERS_ALLOWED" if="LUA_ALLOWED"/>
+
+	<!--Add Tracy profiler-->
+	<!--define name="TRACY_ALLOWED" if="desktop"/-->
+
+	<section if="officialBuild">
+		<!--define name="TITLE_SCREEN_EASTER_EGG"/-->
+	</section>
+
+	<!-- ____________________________ Window Settings ___________________________ -->
+
+	<!--These window settings apply to all targets-->
+	<window width="1280" height="720" fps="60" background="#000000" hardware="true" vsync="false" allow-shaders="true" antialiasing="0" allowHighDPI="false" preserveDrawingBuffer="false" />
+
+	<!--HTML5-specific-->
+	<window if="html5" resizable="true" />
+
+	<!--Desktop-specific-->
+	<window if="desktop" orientation="landscape" fullscreen="false" resizable="true" vsync="false"/>
+
+	<!--Mobile-specific-->
+	<window if="mobile" orientation="landscape" fullscreen="true" resizable="false" allow-shaders="true" require-shaders="true" allow-high-dpi="true" vsync="false" />
+
+	<!--Switch-specific-->
+	<window if="switch" orientation="landscape" fullscreen="true" width="0" height="0" resizable="true" />
+
+	<!-- OpenAL config -->
+	<section if="desktop">
+		<assets path="alsoft.txt" rename="plugins/alsoft.ini" type="text" if="windows"/>
+		<assets path="alsoft.txt" rename="plugins/alsoft.conf" type="text" unless="windows"/>
+	</section>
+
+	<!-- _____________________________ Path Settings ____________________________ -->
+
+	<set name="BUILD_DIR" value="export/debug" if="debug" />
+	<set name="BUILD_DIR" value="export/release" unless="debug" />
+	<!-- Keep the Immix control build separate so NovaGC and legacy GC can be
+	     rebuilt and profiled side by side without destroying either cache. -->
+	<set name="BUILD_DIR" value="export/legacy-gc" if="legacy_gc_compare" />
+	<set name="BUILD_DIR" value="export/32bit" if="32bits" />
+        <set name="BUILD_DIR" value="export/rpi" if="rpi" />
+	<classpath name="source" />
+
+	<!-- __________________________ Game Assets & Etc. __________________________ -->
+
+	<define name="PRELOAD_ALL" unless="web" />
+	<define name="NO_PRELOAD_ALL" unless="PRELOAD_ALL"/>
+
+	<!-- Assets -->
+	
+	<assets path="assets/fonts" embed="false"/>
+	<assets path="assets/menuExtendHide" rename="assets/shared/images/menuExtendHide" embed="true"/>
+	<assets path="assets/shared"        exclude="*.ogg" if="web"/>
+	<assets path="assets/shared"        exclude="*.mp3" unless="web"/>
+	<assets path="assets/videos"        library="videos"        if="VIDEOS_ALLOWED"/>
+	<assets path="assets/songs"         library="songs"         exclude="*.ogg" if="web"/>
+	<assets path="assets/songs"         library="songs"         exclude="*.mp3" unless="web"/>
+	<assets path="assets/week_assets"   library="week_assets"   rename="assets" exclude="*.ogg" if="web"/>
+	<assets path="assets/week_assets"   library="week_assets"   rename="assets" exclude="*.mp3" unless="web"/>
+	
+	<section if="TITLE_SCREEN_EASTER_EGG">
+		<assets path="assets/secrets" rename="assets/shared" exclude="*.ogg" if="web"/>
+		<assets path="assets/secrets" rename="assets/shared" exclude="*.mp3"  unless="web"/>
+	</section>
+
+	<library name="videos"        preload="true" if="VIDEOS_ALLOWED"/>
+
+	<section if="PRELOAD_ALL">
+	<library name="songs"         preload="true" />
+	<library name="week_assets"   preload="true" />
+	</section>
+
+	<section if="NO_PRELOAD_ALL">
+	<library name="songs"         preload="false" />
+	<library name="week_assets"   preload="false" />
+	</section>
+
+	<define name="CHECK_FOR_UPDATES" />
+
+	<section if="MODS_ALLOWED">
+		<assets path='example_mods' rename='mods' embed='false'/>
+	</section>
+	<assets path='art/readme.txt' rename='do NOT readme.txt' unless="mobile"/>
+
+	<!--不知道为什么他不起作用，目前是直接在haxelib的flixel-ui里面的assets里改的（应该是embed冲突了懒得改了）-->
+	<!--assets path="assets/flixel/flixel-ui/img" rename="flixel/flixel-ui/img" embed="true" /-->
+	<!--assets path="assets/flixel/flixel-ui/xml" rename="flixel/flixel-ui/xml" embed="true" /-->
+
+	<!-- _______________________________ Libraries ______________________________ -->
+
+	<haxelib name="flixel" />
+	<haxelib name="flixel-ui" />
+	<haxelib name="flixel-addons" />
+    <haxelib name="crypto" />
+    <haxelib name="trandom" unless="android" />
+	<haxelib name="hxWebSockets" />
+	<haxelib name="spinehaxe" />
+
+	<!--Psych stuff needed-->
+	<haxelib name="linc_luajit" if="LUA_ALLOWED"/>
+	<haxelib name="luahscript" if="LUA_ALLOWED"/>
+	<haxelib name="hscript-iris-improved" if="HSCRIPT_ALLOWED"/>
+	<haxelib name="hxvlc" if="VIDEOS_ALLOWED"/>
+	<haxelib name="hxCodec" if="VIDEOS_ALLOWED_Old"/>
+	<haxelib name="hxdiscord_rpc" if="DISCORD_ALLOWED"/>
+	<haxelib name="flxanimate" unless="html5"/>
+	<haxelib name="tjson"/>
+	<haxelib name="json2object"/>
+
+    <haxelib name="funkin.vis"/>
+	<haxelib name="grig.audio" />
+
+	<haxelib name="flxsoundfilters" />
+
+	<haxelib name="haxeui-core"/>
+	<haxelib name="haxeui-flixel"/>
+	
+	<!-- Mobile Specific-->
+	<haxelib name="extension-androidtools" if="android" />
+
+	<!-- ModChart Specific-->
+	<haxedef name="FM_ENGINE" value="PSYCH"/>
+	<haxedef name="FM_ENGINE_VERSION" value="0.7"/>
+
+	<haxelib name="modcharts" />
+	<haxeflag name="--macro" value="modchart.backend.macros.Macro.includeFiles()"/>
+
+	<!--<haxelib name="hx-ios-uikit" if="ios" />-->
+	<haxedef name="SHARE_MOBILE_FILES" if="ios" />
+
+	<!-- Disable Discord IO Thread -->
+	<haxedef name="DISCORD_DISABLE_IO_THREAD" if="hxdiscord_rpc" />
+	<haxedef name="NO_PRECOMPILED_HEADERS" if="linux" />
+
+	<!-- Enables a terminal log prompt on debug builds -->
+	<haxelib name="hxcpp-debug-server" if="debug"/>
+
+	<!-- High-rate desktop rendering depends on avoiding full-tree transform
+	     walks and per-frame Event allocation when nothing changed. -->
+	<haxedef name="openfl_enable_experimental_update_queue" if="desktop" />
+	<haxedef name="openfl_pool_events" if="desktop" />
+	<haxedef name="openfl_always_render" if="ios" />
+
+	<haxedef name="HXCPP_ALIGN_ALLOC"/>
+	<haxedef name="HXCPP_GC_GENERATIONAL" />
+	<!-- The public hxcpp name now selects the exact, moving NovaGC backend on
+	     Windows; keep this in the project so normal Lime builds cannot silently
+	     fall back to the old C++ generator ABI. -->
+	<haxedef name="hxcpp_zgc" if="windows" unless="legacy_gc_compare" />
+	<haxedef name="novagc-precise" if="windows" unless="legacy_gc_compare" />
+	<!-- Lime otherwise emits a random web cache-buster into AssetCache on every
+	     native build, forcing one unchanged C++ unit to recompile. -->
+	<haxedef name="lime_disable_assets_version" if="windows" />
+
+	<!-- _______________________________ TRACY ______________________________ -->
+
+	<haxedef name="HXCPP_TRACY" if="TRACY_ALLOWED"/>
+	<haxedef name="HXCPP_TELEMETRY" if="TRACY_ALLOWED"/>
+	<haxedef name="HXCPP_STACK_TRACE" if="TRACY_ALLOWED"/>
+	<haxedef name="HXCPP_STACK_LINES" if="TRACY_ALLOWED"/>
+
+	<!-- ______________________________ Haxedefines _____________________________ -->
+
+	<!--Enable the Flixel core recording system-->
+	<!--<haxedef name="FLX_RECORD" />-->
+
+	<!--Disable the right and middle mouse buttons-->
+	<!-- <haxedef name="FLX_NO_MOUSE_ADVANCED" /> -->
+
+	<!--Disable the native cursor API on Flash-->
+	<!--<haxedef name="FLX_NO_NATIVE_CURSOR" />-->
+
+	<!--Optimise inputs, be careful you will get null errors if you don't use conditionals in your game-->
+	<!-- <haxedef name="FLX_NO_MOUSE" if="mobile" /> -->
+	<!-- <haxedef name="FLX_NO_KEYBOARD" if="mobile" /> -->
+	<!-- <haxedef name="FLX_NO_TOUCH" if="desktop" /> -->
+	<!--<haxedef name="FLX_NO_GAMEPAD" />-->
+
+	<!--Disable the Flixel core sound tray-->
+	<!--<haxedef name="FLX_NO_SOUND_TRAY" />-->
+
+	<!--Disable the Flixel sound management code-->
+	<!--<haxedef name="FLX_NO_SOUND_SYSTEM" />-->
+
+	<!--Disable the Flixel core focus lost screen-->
+	<haxedef name="FLX_NO_FOCUS_LOST_SCREEN" />
+
+	<!-- Show debug traces for hxCodec -->
+	<haxedef name="HXC_DEBUG_TRACE" if="debug hxCodec" />
+	<haxedef name="HXC_LIBVLC_LOGGING" if="debug hxCodec" />
+	
+	<!--Disable the Flixel core debugger. Automatically gets set whenever you compile in release mode!-->
+	<haxedef name="FLX_NO_DEBUG" unless="debug" />
+
+	<!--Enable this for Nape release builds for a serious peformance improvement-->
+	<haxedef name="NAPE_RELEASE_BUILD" unless="debug" />
+
+	<haxedef name="message.reporting" value="pretty" />
+
+	<haxedef name='no-deprecation-warnings' />
+
+	<haxedef name='no-inline' if="html5"/>
+
+	<section if="cpp">
+		<!-- These checks add work to nearly every generated call and preserve
+		     large stacks/string tables. Keep them in debug builds only. -->
+		<haxedef name="HXCPP_CHECK_POINTER" if="debug" />
+		<haxedef name="HXCPP_STACK_LINE" if="debug" />
+		<haxedef name="HXCPP_STACK_TRACE" if="debug" />
+		<haxedef name="HXCPP_CATCH_SEGV" if="debug" />
+		<haxedef name="HXCPP_GC_BIG_BLOCKS" if="debug" />
+	</section>
+
+	<haxedef name="hscriptPos" if="HSCRIPT_ALLOWED" />
+	<haxedef name="STAR_CLASSES" if="HSCRIPT_ALLOWED" />
+
+	<section if="desktop">
+		<!--Enable Handle Error-->
+		<haxedef name="openfl_enable_handle_error" if="${openfl >= 9.4.0}" />
+		<!--Undefinitions-->
+		<undefine name="openfl-disable-handle-error" if="debug" unless="${openfl >= 9.4.0}" />
+	</section>
+	
+	<!-- Do whatever you want I'm tired uninstall and install everytime -->
+	<certificate path="key.keystore" password="novaFlare" alias="psychport" alias-password="novaFlare" if="android" unless="debug" />
+
+	<!-- Fix Android 16 back button -->
+	<config:android application="android:enableOnBackInvokedCallback=false" if="android" />
+	
+	<!--Avoid memory leaks with for loops in HScript-->
+	<haxedef name="loop_unroll_max_cost" value="25" />
+
+	<!--Macro fixes-->
+	<haxeflag name="--macro" value="allowPackage('flash')" />
+	<!-- Preserve every class and field that enters the Haxe type system so
+	     HScript/Type.resolveClass can reach it by name at runtime. -->
+	<haxeflag name="-dce" value="no" if="windows" unless="debug" />
+	<haxeflag name="-dce" value="no" if="debug" unless="ios" />
+	<haxeflag name="-dce" value="no" unless="windows || ios || debug" />
+	<!-- _________________________________ Custom _______________________________ -->
+
+		<!-- GameAnalytics — private module (admin builds only) -->
+		<haxedef name="GAMEANALYTICS_ENABLED" if="gameanalytics_enabled" />
+		<classpath name="private" if="gameanalytics_enabled" />
+		<haxedef name="GAMEANALYTICS_VERBOSE" if="debug && gameanalytics_enabled" />
+
+	<assets path='art/icon16.png' rename='icon.png' if="linux" />
+	<section if="mobile">
+    	<icon path="art/icon16.png" size='16'/>
+    	<icon path="art/icon32.png" size='32'/>
+    	<icon path="art/icon64.png" size='64'/>
+    	<icon path="art/iconOG.png"/>
+    </section>
+    <section if="desktop">
+    	<icon path="art/icon16-PC.png" size='16'/>
+    	<icon path="art/icon32-PC.png" size='32'/>
+    	<icon path="art/icon64-PC.png" size='64'/>
+    	<icon path="art/iconOG-PC.png"/>
+    </section>
+
+	<!--<architecture name="arm64" exclude="armv7" if="android" />-->
+
+<config>
+    <ios deployment="13.6"/>
+</config>
+    
+</project>

@@ -104,10 +104,17 @@ class CrashHandler
 			#if cpp
 			try
 			{
+				#if hxcpp_zgc
 				heapSnapshot =
 					'used_bytes=${Gc.memInfo64(2)}\n' +
 					'committed_bytes=${Gc.memInfo64(4)}\n' +
 					'application_bytes=${Gc.memInfo64(8)}';
+				#else
+				heapSnapshot =
+					'used_bytes=${Gc.memInfo64(2)}\n' +
+					'committed_bytes=${Gc.memInfo64(1)}\n' +
+					'application_bytes=${Gc.memInfo64(4)}';
+				#end
 			}
 			catch (_:Dynamic) {}
 			#end

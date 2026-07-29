@@ -3,6 +3,8 @@ package general.objects;
 import openfl.geom.Rectangle;
 import funkin.vis.dsp.SpectralAnalyzer;
 import funkin.vis.dsp.SpectralAnalyzer.Bar;
+import lime.media.AudioBuffer;
+import lime.media.AudioSource;
 
 /**
  * Main-menu spectrum rendered as one cached sprite texture.
@@ -17,6 +19,10 @@ import funkin.vis.dsp.SpectralAnalyzer.Bar;
 class AudioDisplay extends FlxSprite
 {
 	var analyzer:SpectralAnalyzer;
+	var boundAudioSource:AudioSource;
+	var externalAudioSource:AudioSource;
+	var externalAudioBuffer:AudioBuffer;
+	var useExternalAudioSource:Bool = false;
 
 	public var snd:FlxSound;
 	public var symmetry:Bool = false;
@@ -69,14 +75,7 @@ class AudioDisplay extends FlxSprite
 		buildBars();
 		rasterizeBars();
 
-		@:privateAccess
-		if (snd != null && snd._channel != null && snd._channel.__audioSource != null)
-		{
-			analyzer = new SpectralAnalyzer(snd._channel.__audioSource,
-				Std.int(this.line + Math.abs(0.05 *
-					(4 - ClientPrefs.data.audioDisplayQuality))), 1, 5);
-			analyzer.fftN = 256 * ClientPrefs.data.audioDisplayQuality;
-		}
+		refreshAnalyzerBinding();
 	}
 
 	function buildBars():Void
@@ -88,6 +87,10 @@ class AudioDisplay extends FlxSprite
 
 	override function update(elapsed:Float):Void
 	{
+		// FlxSound.loadStream() disposes the old SoundChannel before installing
+		// the next one. Never let the analyzer retain that disposed AudioSource.
+		refreshAnalyzerBinding();
+
 		if (stopUpdate)
 			return;
 
@@ -95,14 +98,24 @@ class AudioDisplay extends FlxSprite
 		motionTime += elapsed;
 		final sampleInterval = Math.max(1000 / MAX_VISUAL_RATE,
 			ClientPrefs.data.audioDisplayUpdate);
-		if (analyzer != null && saveTime >= sampleInterval)
+		if (analyzer != null && boundAudioSource != null && saveTime >= sampleInterval)
 		{
 			saveTime %= sampleInterval;
 			// Reuse both the level array and its Bar records. Passing null here
 			// rebuilt roughly one hundred managed records on every FFT sample and
 			// needlessly drove a Young collection every few seconds.
-			getValues = analyzer.getLevels(getValues);
-			updateAmplitude();
+			try
+			{
+				getValues = analyzer.getLevels(getValues);
+				updateAmplitude();
+			}
+			catch (e:Dynamic)
+			{
+				// A stream can be released between the channel check above and
+				// the typed-array slice inside funkin.vis. Drop the stale source;
+				// a later update will bind the replacement channel if it has one.
+				invalidateAnalyzerBinding();
+			}
 		}
 
 		// Visual data only needs display-rate interpolation.  The engine frame
@@ -129,13 +142,76 @@ class AudioDisplay extends FlxSprite
 		amplitude = total / count;
 	}
 
-	function addAnalyzer(snd:FlxSound):Void
+	function getCurrentAudioSource():AudioSource
 	{
+		if (useExternalAudioSource)
+			return externalAudioSource;
+
+		var source:AudioSource = null;
 		@:privateAccess
-		if (snd != null && snd._channel != null && snd._channel.__audioSource != null && analyzer == null)
+		if (snd != null && snd._channel != null && snd._channel.__audioSource != null)
 		{
-			analyzer = new SpectralAnalyzer(snd._channel.__audioSource, line, 1, 5);
+			var candidate:AudioSource = snd._channel.__audioSource;
+			if (candidate.buffer != null && candidate.buffer.data != null
+				&& candidate.buffer.data.length > 0)
+				source = candidate;
+		}
+		return source;
+	}
+
+	function refreshAnalyzerBinding():Void
+	{
+		var source = getCurrentAudioSource();
+		if (source == boundAudioSource)
+			return;
+
+		getValues = null;
+		amplitude = 0;
+		saveTime = 0;
+		motionTime = 0;
+		clearUpdate();
+
+		if (source == null)
+		{
+			if (analyzer != null)
+				analyzer.changeSnd(null);
+			boundAudioSource = null;
+			return;
+		}
+
+		if (analyzer == null)
+		{
+			analyzer = new SpectralAnalyzer(source,
+				Std.int(line + Math.abs(0.05 *
+					(4 - ClientPrefs.data.audioDisplayQuality))), 1, 5);
 			analyzer.fftN = 256 * ClientPrefs.data.audioDisplayQuality;
+		}
+		else
+			analyzer.changeSnd(source);
+		boundAudioSource = source;
+	}
+
+	function invalidateAnalyzerBinding():Void
+	{
+		if (analyzer != null)
+			analyzer.changeSnd(null);
+		boundAudioSource = null;
+		getValues = null;
+		amplitude = 0;
+		clearUpdate();
+	}
+
+	function releaseExternalAudioBuffer():Void
+	{
+		if (externalAudioSource != null)
+		{
+			externalAudioSource.dispose();
+			externalAudioSource = null;
+		}
+		if (externalAudioBuffer != null)
+		{
+			externalAudioBuffer.dispose();
+			externalAudioBuffer = null;
 		}
 	}
 
@@ -183,16 +259,36 @@ class AudioDisplay extends FlxSprite
 
 	public function changeAnalyzer(snd:FlxSound):Void
 	{
-		@:privateAccess
-		if (snd != null && snd._channel != null && snd._channel.__audioSource != null)
+		invalidateAnalyzerBinding();
+		releaseExternalAudioBuffer();
+		useExternalAudioSource = false;
+		this.snd = snd;
+		refreshAnalyzerBinding();
+		stopUpdate = false;
+	}
+
+	/**
+	 * Supplies decoded PCM for players such as hxvlc whose placeholder
+	 * SoundChannel does not expose a Lime AudioSource. The buffer is used only
+	 * for FFT sampling; playback time still comes from FlxG.sound.music.
+	 */
+	public function changeAudioBuffer(buffer:AudioBuffer):Void
+	{
+		invalidateAnalyzerBinding();
+		releaseExternalAudioBuffer();
+		useExternalAudioSource = true;
+
+		if (buffer != null && buffer.data != null && buffer.data.length > 0)
 		{
-			if (analyzer == null)
-				addAnalyzer(snd);
-			else
-				analyzer.changeSnd(snd._channel.__audioSource);
-			this.snd = snd;
-			stopUpdate = false;
+			externalAudioBuffer = buffer;
+			// Construct the backend without a buffer so the analysis copy is not
+			// uploaded to OpenAL or played a second time.
+			externalAudioSource = new AudioSource();
+			externalAudioSource.buffer = buffer;
 		}
+
+		refreshAnalyzerBinding();
+		stopUpdate = false;
 	}
 
 	public function clearUpdate():Void
@@ -201,5 +297,17 @@ class AudioDisplay extends FlxSprite
 		for (i in 0...line)
 			barHeights[i] = minimum;
 		rasterizeBars();
+	}
+
+	override public function destroy():Void
+	{
+		if (analyzer != null)
+			analyzer.changeSnd(null);
+		releaseExternalAudioBuffer();
+		analyzer = null;
+		boundAudioSource = null;
+		getValues = null;
+		snd = null;
+		super.destroy();
 	}
 }

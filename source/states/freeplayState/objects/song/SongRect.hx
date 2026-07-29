@@ -36,6 +36,9 @@ class SongRect extends FlxSpriteGroup {
     public var searchMatch:Bool = true;
     public var searchOffset:Float = 0;
 
+    static var openRectRequestId:Int = 0;
+    var destroyDiffRequested:Bool = false;
+
     public var selectShow:Rect;
     private var bg:FlxSprite;
     private var light:SegmentGradientRoundRect;
@@ -250,6 +253,11 @@ class SongRect extends FlxSpriteGroup {
 
         super.update(elapsed);
 
+        if (destroyDiffRequested) {
+            destroyDiffRequested = false;
+            destroyDiff();
+        }
+
         if (light.alpha > 0) {
             light.alpha -= elapsed / (Conductor.crochet * 2 / 1000);
         }
@@ -265,6 +273,7 @@ class SongRect extends FlxSpriteGroup {
 
     public function changeSelectAll(imme:Bool = false) {
         openRect = this;
+        var requestId:Int = ++openRectRequestId;
         selectLight.alpha = 0.6;
 	    FreeplayState.curSelected = this.id;
         FreeplayState.instance.changeSelection();
@@ -273,7 +282,9 @@ class SongRect extends FlxSpriteGroup {
         FreeplayState.curDifficulty = 0;
 
         FlxTimer.wait(0.001, () -> {
-            createDiff(imme);
+            if (exists && FreeplayState.instance != null && openRect == this
+                && requestId == openRectRequestId)
+                createDiff(imme);
         });
         FreeplayState.instance.songsMove.tweenData = FlxG.height * 0.5 - SongRect.fixHeight * 0.5 - FreeplayState.instance.getEffectiveId(FreeplayState.curSelected) * SongRect.fixHeight * FreeplayState.instance.rectInter - (FreeplayState.curDifficulty+1) * DiffRect.fixHeight * 1.05;
         FreeplayState.instance.initSongsData();
@@ -322,7 +333,8 @@ class SongRect extends FlxSpriteGroup {
                     rect.allowSelect = true;
                 } else {
                     FlxTimer.wait(0.1, () -> {
-                        rect.allowSelect = true;
+                        if (rect != null && rect.exists && !rect.allowDestroy)
+                            rect.allowSelect = true;
                     });
                 }
             }
@@ -333,7 +345,8 @@ class SongRect extends FlxSpriteGroup {
                 var rect = cast(member, DiffRect);
                 rect.allowDestroy = false;
                 FlxTimer.wait(0.1, () -> {
-                    rect.allowSelect = true;
+                    if (rect != null && rect.exists && !rect.allowDestroy)
+                        rect.allowSelect = true;
                 });
                 rect.startTarY = bg.height + fixHeight / 10 + rect.id * DiffRect.fixHeight * 1.05;
             }
@@ -342,7 +355,8 @@ class SongRect extends FlxSpriteGroup {
 
         diffAdded = true;
         FlxTimer.wait(0.001, () -> {
-            FreeplayState.instance.updateSongLayerOrder();
+            if (exists && FreeplayState.instance != null && openRect == this)
+                FreeplayState.instance.updateSongLayerOrder();
         });
     }
     
@@ -363,8 +377,16 @@ class SongRect extends FlxSpriteGroup {
         }
     }
 
+    public function requestDestroyDiff():Void {
+        destroyDiffRequested = true;
+    }
+
     public function destroyDiff() {
-        for (member in diffRectGroup.members)
+        destroyDiffRequested = false;
+        // remove(..., true) splices the live group array. Iterate a snapshot so
+        // every difficulty is removed instead of skipping every second member.
+        var members = diffRectGroup.members.copy();
+        for (member in members)
         {
             if (member == null)
                 continue;

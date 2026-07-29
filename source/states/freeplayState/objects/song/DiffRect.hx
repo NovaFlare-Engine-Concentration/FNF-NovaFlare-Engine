@@ -104,7 +104,8 @@ class DiffRect extends FlxSpriteGroup {
         super.update(elapsed);
 
         if (allowDestroy && startY == 0) {
-            follow.destroyDiff();
+            allowDestroy = false;
+            follow.requestDestroyDiff();
         }
     }
 
