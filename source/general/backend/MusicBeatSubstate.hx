@@ -19,7 +19,9 @@ class MusicBeatSubstate extends FlxSubState
 	override function create()
 	{
 		super.create();
-		controls.isInSubstate = true;
+		var currentControls = controls;
+		if (currentControls != null)
+			currentControls.isInSubstate = true;
 		ColorblindFilter.UpdateColors();
 	}
 
@@ -123,7 +125,9 @@ class MusicBeatSubstate extends FlxSubState
 	{
 		super.destroy();
 
-		controls.isInSubstate = false;
+		var currentControls = controls;
+		if (currentControls != null)
+			currentControls.isInSubstate = false;
 		if (virtualPad != null)
 		{
 			virtualPad = FlxDestroyUtil.destroy(virtualPad);

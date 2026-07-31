@@ -2,6 +2,7 @@ package options.groupData;
 
 import developer.console.Console;
 import developer.console.ConsoleToggleButton;
+import lime.system.System as LimeSystem;
 
 class MaintenanceGroup extends OptionCata
 {
@@ -64,6 +65,18 @@ class MaintenanceGroup extends OptionCata
 		addOption(option);
 		#end
 
+		#if sys
+		originfunkin.OriginFunkinConfig.load();
+		if (originfunkin.OriginFunkinConfig.hasEnteredOrigin)
+		{
+			var option:Option = new Option(this, 'enterOriginFunkin', STATE);
+			option.setLanguageOverride('ENTER ORIGIN FUNKIN',
+				'Exit NovaFlare Engine and start Origin Funkin on the next launch.');
+			option.onChange = enterOriginFunkin;
+			addOption(option);
+		}
+		#end
+
 		changeHeight(0); //初始化真正的height
 	}
 	
@@ -76,6 +89,32 @@ class MaintenanceGroup extends OptionCata
 	        Console.consoleInstance.updateScale(ClientPrefs.data.devConScale);
 	    }
 	}
+
+	#if sys
+	function enterOriginFunkin():Void
+	{
+		if (!originfunkin.OriginFunkinMode.canEnterOrigin())
+		{
+			trace('[originFunkin] Switch cancelled: ${originfunkin.OriginFunkinMode.preparationError}');
+			return;
+		}
+
+		if (!originfunkin.OriginFunkinConfig.requestOrigin())
+		{
+			trace('[originFunkin] Switch cancelled: could not save the Origin Funkin startup request.');
+			return;
+		}
+		try
+		{
+			ClientPrefs.saveSettings();
+		}
+		catch (error:Dynamic)
+		{
+			trace('[originFunkin] Could not save NovaFlare preferences before entering Origin Funkin: $error');
+		}
+		LimeSystem.exit(0);
+	}
+	#end
  
 
 	#if android

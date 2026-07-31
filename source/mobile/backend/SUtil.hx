@@ -3,6 +3,7 @@ package mobile.backend;
 import lime.system.System as LimeSystem;
 
 #if android
+import android.jni.JNICache;
 import android.os.Build.VERSION as AndroidVersion;
 import android.os.Build.VERSION_CODES as AndroidVersionCode;
 #end
@@ -128,7 +129,12 @@ class SUtil
 	public static function showPopUp(message:String, title:String):Void
 	{
 		#if android
-		AndroidTools.showAlertDialog(title, message, {name: "OK", func: null}, null);
+		// AndroidTools wraps even a null callback in a temporary HaxeObject.
+		// The Java dialog can outlive that wrapper and call an invalid native
+		// object when OK is pressed. Pass null callback objects to Java instead.
+		JNICache.createStaticMethod('org/haxe/extension/Tools', 'showAlertDialog',
+			'(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lorg/haxe/lime/HaxeObject;Ljava/lang/String;Lorg/haxe/lime/HaxeObject;)V')(title,
+				message, 'OK', null, null, null);
 		#else
 		FlxG.stage.window.alert(message, title);
 		#end

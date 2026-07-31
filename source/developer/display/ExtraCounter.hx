@@ -86,9 +86,9 @@ class ExtraCounter extends Sprite
 
 		var outputText:String = '';
 		var showTime:Float = Math.floor((DataCalc.updateFrameTime) * 100) / 100;
-		outputText += DataCalc.updateFPS + " / " + ClientPrefs.data.framerate + "tps (" + Display.fix(showTime, 2) + " ms, low " + DataCalc.updateLowFPS + " / " + Display.fix(DataCalc.updateWorstFrameTime, 2) + " ms) \n";
+		outputText += DataCalc.updateFPS + " / " + ClientPrefs.data.framerate + "tps (" + Display.fix(showTime, 2) + " ms) \n";
 		showTime = Math.floor((DataCalc.drawFrameTime) * 100) / 100;
-		outputText += DataCalc.drawFPS + " / " + (ClientPrefs.data.lockRender ? ClientPrefs.data.drawFramerate : ClientPrefs.data.framerate) + "fps (" + Display.fix(showTime, 2) + " ms, low " + DataCalc.drawLowFPS + " / " + Display.fix(DataCalc.drawWorstFrameTime, 2) + " ms) \n";
+		outputText += DataCalc.drawFPS + " / " + (ClientPrefs.data.lockRender ? ClientPrefs.data.drawFramerate : ClientPrefs.data.framerate) + "fps (" + Display.fix(showTime, 2) + " ms) \n";
 		outputText += "APP:" + Display.fix(DataCalc.appMem, 2) + " GC:" + Display.fix(DataCalc.gcMem, 2) + " MB \n";
 		this.typeData.text = outputText;
 		typeData.width = typeData.textWidth;

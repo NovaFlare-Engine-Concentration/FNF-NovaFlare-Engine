@@ -9,6 +9,7 @@ import openfl.display.Sprite;
 import openfl.events.Event;
 import openfl.display.StageScaleMode;
 import openfl.events.KeyboardEvent;
+import openfl.utils.Assets;
 
 import lime.system.System as LimeSystem;
 import lime.app.Application;
@@ -16,7 +17,12 @@ import lime.app.Application;
 
 import flixel.graphics.FlxGraphic;
 import flixel.FlxGame;
+import flixel.FlxState;
 import flixel.util.FlxSave;
+
+import originfunkin.OriginFunkinErrorState;
+import originfunkin.OriginFunkinIntroState;
+import originfunkin.OriginFunkinMode;
 
 import developer.display.FPSViewer;
 import developer.display.Graphics;
@@ -67,6 +73,10 @@ class Main extends Sprite
 	public static var watermark:Watermark;
 	private static var replayOverlay:ReplayOverlay;
 
+	#if android
+	private var mobileViewportGame:FlxGame;
+	#end
+
 	public static function getReplayOverlay():ReplayOverlay
 	{
 		return replayOverlay;
@@ -82,9 +92,14 @@ class Main extends Sprite
 
 	public static function main():Void
 	{
+		OriginFunkinMode.detect();
+
 		#if (cpp && windows)
-		general.backend.device.Native.fixScaling();
-		general.backend.device.Native.setWindowDarkMode(true, true);
+		if (!OriginFunkinMode.active)
+		{
+			general.backend.device.Native.fixScaling();
+			general.backend.device.Native.setWindowDarkMode(true, true);
+		}
 		#end
 		
 		Lib.current.addChild(new Main());
@@ -125,7 +140,10 @@ class Main extends Sprite
 		setupGame();
 
 		#if (cpp && windows)
-		general.backend.device.Native.applyStartupDarkMode();
+		if (!OriginFunkinMode.active)
+		{
+			general.backend.device.Native.applyStartupDarkMode();
+		}
 		#end
 	}
 
@@ -143,37 +161,25 @@ class Main extends Sprite
 			gameConfig.height = Math.ceil(stageHeight / gameConfig.zoom);
 		}
 
+		#if mobile
+		setupMobileStorage();
+		mobile.backend.CrashHandler.refreshNativeCrashDirectory();
+		// Android cannot inspect its player-visible external storage until cwd
+		// has been initialized. Desktop detection already ran in main(), but a
+		// second read is harmless and also honors a folder created mid-startup.
+		OriginFunkinMode.detect();
+		#end
+
+		if (OriginFunkinMode.active)
+		{
+			setupOriginFunkinGame();
+			return;
+		}
+
 		Toolkit.init();
 
 		#if LUA_ALLOWED llua.Lua.set_callbacks_function(cpp.Callable.fromStaticFunction(scripts.lua.CallbackHandler.call)); #end
 		Controls.instance = new Controls();
-
-		#if mobile
-		#if android
-		var defaultFolder:String = Application.current.meta.get('file');
-		var storageFolder:String = defaultFolder;
-
-		// Read saved storage folder preference from config file
-		var configFile:String = AndroidEnvironment.getExternalStorageDirectory() + '/.novaflare_storage_config';
-		try {
-			if (FileSystem.exists(configFile))
-			{
-				var savedFolder:String = sys.io.File.getContent(configFile).trim();
-				if (savedFolder != '' && savedFolder != null)
-					storageFolder = savedFolder;
-			}
-		} catch (e:Dynamic) {
-			trace('Failed to read storage config: $e');
-		}
-
-		#end
-
-		var storageDirectory:String = SUtil.getStorageDirectory(
-			#if android EXTERNAL, storageFolder #else EXTERNAL #end
-		);
-		SUtil.mkDirs(storageDirectory);
-		Sys.setCwd(storageDirectory);
-		#end
 
 		#if android
 			if (AppData.getVersionName() != Application.current.meta.get('version')
@@ -252,6 +258,92 @@ class Main extends Sprite
 		#if !debug
 			//cpp.NativeGc.enterGCFreeZone();
 		#end
+	}
+
+	#if mobile
+	private function setupMobileStorage():Void
+	{
+		#if android
+		var defaultFolder:String = Application.current.meta.get('file');
+		var storageFolder:String = defaultFolder;
+
+		// Read saved storage folder preference from config file.
+		var configFile:String = AndroidEnvironment.getExternalStorageDirectory() + '/.novaflare_storage_config';
+		try
+		{
+			if (FileSystem.exists(configFile))
+			{
+				var savedFolder:String = sys.io.File.getContent(configFile).trim();
+				if (savedFolder != null && savedFolder != '')
+				{
+					storageFolder = savedFolder;
+				}
+			}
+		}
+		catch (error:Dynamic)
+		{
+			trace('Failed to read storage config: $error');
+		}
+		#end
+
+		var storageDirectory:String = SUtil.getStorageDirectory(
+			#if android EXTERNAL, storageFolder #else EXTERNAL #end
+		);
+		SUtil.mkDirs(storageDirectory);
+		Sys.setCwd(storageDirectory);
+		// Origin's startup choice lives in the selected engine runtime folder,
+		// so reload it only after the legacy mobile storage setup has set cwd.
+		originfunkin.OriginFunkinConfig.load(true);
+	}
+
+	#end
+
+	private function setupOriginFunkinGame():Void
+	{
+		fpsVar = new FPSViewer(0, 0);
+		var effect = new MouseEffect(
+			Assets.getBitmapData('assets/shared/images/menuExtend/Others/click.png').clone(),
+			Assets.getBitmapData('assets/shared/images/menuExtend/Others/circle.png').clone(),
+			Assets.getBitmapData('assets/shared/images/menuExtend/Others/star.png').clone());
+		effect.mouseEnabled = false;
+		effect.mouseChildren = false;
+		var originWatermarkBitmap = Assets.getBitmapData('assets/shared/images/menuExtend/Others/watermark.png').clone();
+
+		var prepared:Bool = OriginFunkinMode.prepare();
+		var initialState:Class<FlxState> = OriginFunkinIntroState;
+		var framerate:Int = prepared && funkin.Preferences.unlockedFramerate ? 0 : (prepared ? funkin.Preferences.framerate : 60);
+		var startFullscreen:Bool = prepared
+			&& (Lib.current.stage.window.fullscreen || funkin.Preferences.autoFullscreen);
+
+		var flxGame:FlxGame = new FlxGame(1280, 720, initialState, framerate, framerate, true, startFullscreen);
+
+		if (prepared)
+		{
+			@:privateAccess
+			flxGame._customSoundTray = funkin.ui.options.FunkinSoundTray;
+		}
+
+		addChild(flxGame);
+		FlxG.addChildBelowMouse(fpsVar);
+		FlxG.spriteBelowMouse.push(fpsVar);
+
+		if (watermark != null && watermark.parent == this) removeChild(watermark);
+		watermark = new Watermark(5, Lib.current.stage.stageHeight - 5, 0.4, originWatermarkBitmap);
+		addChild(watermark);
+		watermark.scaleX = watermark.scaleY = ClientPrefs.data.watermarkScale;
+		watermark.visible = ClientPrefs.data.showWatermark;
+		watermark.y = Lib.current.stage.stageHeight - 5 - watermark.scaleY * watermark.bitmapData.height;
+
+		addChild(effect);
+
+		Lib.current.stage.align = "tl";
+		Lib.current.stage.scaleMode = StageScaleMode.NO_SCALE;
+		Lib.current.stage.window.title = OriginFunkinMode.getWindowTitle();
+
+		if (prepared)
+		{
+			FlxG.scaleMode = new funkin.ui.FullScreenScaleMode();
+		}
 	}
 
 	@:allow(states.backend.initState.InitState)

@@ -9,6 +9,7 @@ class TankmenBG extends FlxSprite
 	private var tankSpeed:Float;
 	private var endingOffset:Float;
 	private var goingRight:Bool;
+	private var assetReady:Bool = false;
 
 	public var strumTime:Float;
 
@@ -20,11 +21,24 @@ class TankmenBG extends FlxSprite
 		goingRight = facingRight;
 		super(x, y);
 
-		frames = Paths.getSparrowAtlas('tankmanKilled1');
-		animation.addByPrefix('run', 'tankman running', 24, true);
-		animation.addByPrefix('shot', 'John Shot ' + FlxG.random.int(1, 2), 24, false);
-		animation.play('run');
-		animation.curAnim.curFrame = FlxG.random.int(0, animation.curAnim.frames.length - 1);
+		try
+		{
+			frames = Paths.getSparrowAtlas('tankmanKilled1');
+			animation.addByPrefix('run', 'tankman running', 24, true);
+			animation.addByPrefix('shot', 'John Shot ' + FlxG.random.int(1, 2), 24, false);
+			var runAnimation = animation.getByName('run');
+			assetReady = runAnimation != null && runAnimation.frames != null && runAnimation.frames.length > 0;
+			if (assetReady)
+			{
+				animation.play('run');
+				animation.curAnim.curFrame = FlxG.random.int(0, animation.curAnim.frames.length - 1);
+			}
+		}
+		catch (error:Dynamic)
+		{
+			trace('Could not create TankmenBG: $error');
+			assetReady = false;
+		}
 		antialiasing = ClientPrefs.data.antialiasing;
 
 		scale.set(0.8, 0.8);
@@ -43,6 +57,12 @@ class TankmenBG extends FlxSprite
 
 	override function update(elapsed:Float)
 	{
+		if (!assetReady)
+		{
+			visible = false;
+			return;
+		}
+
 		super.update(elapsed);
 
 		visible = (x > -0.5 * FlxG.width && x < 1.2 * FlxG.width);

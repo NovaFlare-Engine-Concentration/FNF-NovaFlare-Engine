@@ -21,16 +21,10 @@ import lime.system.Display;
 	public var performanceDefaultsVersion:Int = 8;
 
 	// General
-	public var framerate:Int = #if desktop 240 #elseif mobile 1000 #else 1000 #end;
-	public var drawFramerate:Int = #if desktop 1200 #elseif mobile 240 #else 1000 #end;
-	// Keep simulation responsive without spending the whole main thread on
-	// redundant updates; the independent render clock can use the remaining
-	// time to submit frames to the bounded GL worker.
+	public var framerate:Int = 1000;
+	public var drawFramerate:Int = 1000;
 	public var lockRender:Bool = true;
 	public var renderThread:Bool = true;
-	// Match the engine's 1280x720 design/window size by default. "Native" on a
-	// 1080p/4K desktop renders millions of invisible extra pixels before the
-	// window compositor scales them back down.
 	public var resolution:String = '720P';
 	public var colorblindMode:String = 'None';
 	public var lowQuality:Bool = false;

@@ -276,9 +276,15 @@ class InitState extends MusicBeatState
 		var requestedDifficulty:String = Sys.getEnv('NOVAFLARE_DIAGNOSTIC_DIFFICULTY');
 		if (requestedDifficulty != null && requestedDifficulty.trim().length > 0)
 		{
-			var parsedDifficulty:Null<Int> = Std.parseInt(requestedDifficulty.trim());
+			var requestedDifficultyValue:String = requestedDifficulty.trim();
+			var parsedDifficulty:Null<Int> = Std.parseInt(requestedDifficultyValue);
 			if (parsedDifficulty != null)
 				difficulty = parsedDifficulty;
+			else
+			{
+				Difficulty.copyFrom([requestedDifficultyValue]);
+				difficulty = 0;
+			}
 		}
 		difficulty = Std.int(Math.max(0, Math.min(Difficulty.list.length - 1, difficulty)));
 

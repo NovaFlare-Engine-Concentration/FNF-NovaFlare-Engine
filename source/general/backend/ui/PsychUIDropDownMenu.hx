@@ -1,5 +1,7 @@
 package general.backend.ui;
 
+import general.backend.ui.PsychUIBox.UIStyleData;
+
 class PsychUIDropDownMenu extends PsychUIInputText
 {
 	public static final CLICK_EVENT = "dropdown_click";

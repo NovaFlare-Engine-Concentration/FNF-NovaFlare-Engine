@@ -9,6 +9,10 @@ import general.backend.PsychCamera;
 import general.shaders.ColorblindFilter;
 import gameanalytics.GABridge;
 
+#if hxvlc
+import VideoHandler;
+#end
+
 class MusicBeatState extends FlxUIState
 {
 	public static var instance:MusicBeatState;
@@ -133,6 +137,31 @@ class MusicBeatState extends FlxUIState
 	override function destroy()
 	{
 		super.destroy();
+
+		// Script-created VideoHandlers live below the mouse in FlxG.game rather
+		// than inside this state's member list. A number of hxcodec-era mods
+		// call stop() from onDestroy(), but hxvlc's stop() only halts playback:
+		// it does not release VLC, its buffers, or the display-tree reference.
+		#if hxvlc
+		if (variables != null)
+		{
+			for (value in variables)
+			{
+				if (Std.isOfType(value, VideoHandler))
+				try
+				{
+					cast(value, VideoHandler).finishVideo();
+				}
+				catch (e:Dynamic)
+				{
+					FlxG.log.warn('Could not dispose script video: $e');
+				}
+			}
+		}
+		#end
+
+		if (variables != null)
+			variables.clear();
 
 		if (virtualPad != null)
 		{

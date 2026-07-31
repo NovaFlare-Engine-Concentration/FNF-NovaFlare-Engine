@@ -254,7 +254,11 @@ class DataCalc
 
 	static public function getAppMem():Float
 	{
+		#if hxcpp_zgc
 		return FlxMath.roundDecimal(Gc.memInfo64(8) / 1024 / 1024, 2);
+		#else
+		return FlxMath.roundDecimal(Gc.memInfo64(4) / 1024 / 1024, 2);
+		#end
 	}
 
 	static function getCommittedGcMem():Float

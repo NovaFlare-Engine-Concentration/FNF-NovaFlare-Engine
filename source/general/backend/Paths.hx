@@ -671,7 +671,10 @@ class Paths
 				if (thread) soundMutex.release();
 			}
 			if (thread) soundMutex.acquire();
-			Cache.localTrackedAssets.push(key);
+			// currentTrackedSounds is keyed by the resolved mod file path. Track
+			// that same key so clearStoredMemory() does not evict and decode the
+			// song again on every state restart.
+			Cache.localTrackedAssets.push(file);
 			if (thread) soundMutex.release();
 			return Cache.currentTrackedSounds.get(file);
 		}

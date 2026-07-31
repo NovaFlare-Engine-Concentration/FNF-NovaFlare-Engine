@@ -27,6 +27,17 @@
 	<define name="PSYCH_WATERMARKS"/> <!-- DELETE THIS TO REMOVE WATERMARKS/DEV NAMES ON TITLE SCREEN -->
 	<define name="VIDEOS_ALLOWED" if="desktop || mobile" unless="32bits || hl || NOVIDEO || rpi"/> <!-- i'll keep this cuz it makes vscode think i don't use videos -->
     <define name="CUSTOM_SHADERS_ALLOWED" if="LUA_ALLOWED"/>
+	<!-- FNF 0.8.4 compatibility features. Origin scripts remain enabled. -->
+	<define name="ORIGIN_FUNKIN_COMPAT"/>
+	<define name="NO_FEATURE_TOUCH_CONTROLS" unless="mobile"/>
+	<define name="FEATURE_TOUCH_CONTROLS" if="mobile"/>
+	<define name="FEATURE_FUNKVIS"/>
+	<define name="FEATURE_LAG_ADJUSTMENT" unless="web"/>
+	<define name="FEATURE_LOST_FOCUS_VOLUME" if="desktop"/>
+	<define name="FEATURE_NAUGHTYNESS"/>
+	<define name="FEATURE_OPEN_URL"/>
+	<define name="FEATURE_VIDEO_PLAYBACK" if="VIDEOS_ALLOWED"/>
+	<define name="FEATURE_VIDEO_SUBTITLES" if="FEATURE_VIDEO_PLAYBACK"/>
 
 	<!--Add Tracy profiler-->
 	<!--define name="TRACY_ALLOWED" if="desktop"/-->
@@ -68,6 +79,7 @@
 	<set name="BUILD_DIR" value="export/32bit" if="32bits" />
         <set name="BUILD_DIR" value="export/rpi" if="rpi" />
 	<classpath name="source" />
+	<classpath name="source-originFunkin" />
 
 	<!-- __________________________ Game Assets & Etc. __________________________ -->
 
@@ -134,6 +146,14 @@
 	<haxelib name="flxanimate" unless="html5"/>
 	<haxelib name="tjson"/>
 	<haxelib name="json2object"/>
+	<!-- FNF 0.8.4 dependencies; NF's existing core libraries stay selected. -->
+	<haxelib name="polymod"/>
+	<haxelib name="FlxPartialSound"/>
+	<haxelib name="format"/>
+	<haxelib name="jsonpatch"/>
+	<haxelib name="jsonpath"/>
+	<haxelib name="thx.core"/>
+	<haxelib name="thx.semver"/>
 
     <haxelib name="funkin.vis"/>
 	<haxelib name="grig.audio" />
@@ -145,6 +165,11 @@
 	
 	<!-- Mobile Specific-->
 	<haxelib name="extension-androidtools" if="android" />
+	<java path="source/mobile/android/java" if="android" />
+	<java path="source-originFunkin/funkin/external/android/java" if="android" />
+	<config:android extension="funkin.extensions.CallbackUtil" if="android" />
+	<config:android extension="funkin.extensions.FNFCExtension" if="android" />
+	<config:android extension="funkin.extensions.AudioSession" if="android" />
 
 	<!-- ModChart Specific-->
 	<haxedef name="FM_ENGINE" value="PSYCH"/>
@@ -260,6 +285,15 @@
 
 	<!--Macro fixes-->
 	<haxeflag name="--macro" value="allowPackage('flash')" />
+
+	<haxeflag name="--macro" value="include('funkin.modding.base')" />
+	<haxeflag name="--macro" value="include('funkin.play.event')" />
+	<haxeflag name="--macro" value="include('funkin.play.notes.notekind')" />
+	<haxeflag name="--macro" value="include('funkin.ui.debug', false, ['funkin.ui.debug.FunkinDebugDisplay', 'funkin.ui.debug.GraphicCursorCross', 'funkin.ui.debug.WaveformTestState'])" />
+	<haxeflag name="--macro" value="addMetadata('@:build(originfunkin.macro.OriginFlixelCompatMacro.addZIndex())', 'flixel.FlxBasic')" />
+	<haxeflag name="--macro" value="addMetadata('@:build(originfunkin.macro.OriginFlixelCompatMacro.addContainsExact())', 'thx.Arrays')" />
+	<haxeflag name="--macro" value="addMetadata('@:build(originfunkin.macro.OriginFlixelCompatMacro.addTouchCompatibility())', 'flixel.input.touch.FlxTouch')" if="mobile" />
+	<haxeflag name="--macro" value="addMetadata('@:build(originfunkin.macro.OriginFlixelCompatMacro.addTouchManagerCompatibility())', 'flixel.input.touch.FlxTouchManager')" if="mobile" />
 	<!-- Preserve every class and field that enters the Haxe type system so
 	     HScript/Type.resolveClass can reach it by name at runtime. -->
 	<haxeflag name="-dce" value="no" if="windows" unless="debug" />
@@ -286,7 +320,7 @@
     	<icon path="art/iconOG-PC.png"/>
     </section>
 
-	<!--<architecture name="arm64" exclude="armv7" if="android" />-->
+	<architecture name="arm64" exclude="armv7" if="android" />
 
 <config>
     <ios deployment="13.6"/>

@@ -15,3 +15,4 @@ screensaver => Phone will sleep after going inactive for few seconds
 filesCheck => Check game whether miss files
 filesCheckNew => Check game whether questionable files
 storageFolder => Choose a folder to store game data. The game will restart after switching.
+enterOriginFunkin => Exit NovaFlare Engine and start the Origin Funkin frontend on the next launch.

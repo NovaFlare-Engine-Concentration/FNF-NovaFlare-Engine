@@ -1251,19 +1251,27 @@ class FunkinLua
 		set("playAnim", function(obj:String, name:String, forced:Bool = false, ?reverse:Bool = false, ?startFrame:Int = 0)
 		{
 			var obj:Dynamic = LuaUtils.getObjectDirectly(obj, false);
+			if (obj == null)
+				return false;
+
 			if (obj.playAnim != null)
 			{
 				obj.playAnim(name, forced, reverse, startFrame);
 				return true;
 			}
-			else
+
+			if (obj.anim != null)
 			{
-				if (obj.anim != null)
-					obj.anim.play(name, forced, reverse, startFrame); // FlxAnimate
-				else
-					obj.animation.play(name, forced, reverse, startFrame);
+				obj.anim.play(name, forced, reverse, startFrame); // FlxAnimate
 				return true;
 			}
+
+			if (obj.animation != null)
+			{
+				obj.animation.play(name, forced, reverse, startFrame);
+				return true;
+			}
+
 			return false;
 		});
 		set("addOffset", function(obj:String, anim:String, x:Float, y:Float)
@@ -1941,6 +1949,10 @@ class FunkinLua
 
 	{
 		closed = true;
+		if (lastCalledScript == this)
+			lastCalledScript = null;
+		if (callbacks != null)
+			callbacks.clear();
 
 		if (lua == null)
 		{

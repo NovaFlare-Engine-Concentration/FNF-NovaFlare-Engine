@@ -5,13 +5,19 @@ class Watermark extends Bitmap
 	private var lastStageHeight:Int = -1;
 	private var lastScale:Float = -1;
 
-	public function new(x:Float = 10, y:Float = 10, Alpha:Float = 0.5)
+	public function new(x:Float = 10, y:Float = 10, Alpha:Float = 0.5, ?sourceBitmapData:BitmapData)
 	{
 		super();
 
-		var image:String = Paths.modFolders('images/menuExtend/Others/watermark.png');
-
-		bitmapData = BitmapData.fromFile(image);
+		if (sourceBitmapData != null)
+		{
+			bitmapData = sourceBitmapData;
+		}
+		else
+		{
+			var image:String = Paths.modFolders('images/menuExtend/Others/watermark.png');
+			bitmapData = BitmapData.fromFile(image);
+		}
 
 		this.x = x;
 		this.y = y;

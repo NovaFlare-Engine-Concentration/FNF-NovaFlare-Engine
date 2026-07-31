@@ -2,10 +2,6 @@ package mobile.states;
 
 import haxe.io.Path;
 
-#if (target.threaded)
-import sys.thread.Thread;
-#end
-
 import lime.utils.Assets as LimeAssets;
 
 import openfl.utils.Assets as OpenflAssets;
@@ -78,18 +74,15 @@ class CopyState extends MusicBeatState
 			loadedText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, CENTER);
 			add(loadedText);
 
-			#if (target.threaded)
-			Thread.create(() -> {
-			#end
-				var ticks:Int = 15;
-				if (maxLoopTimes <= 15)
-					ticks = 1;
-				copyLoop = new FlxAsyncLoop(maxLoopTimes, copyAsset, ticks);
-				add(copyLoop);
-				copyLoop.start();
-			#if (target.threaded)
-			});
-			#end
+			// FlxAsyncLoop already spreads the work across updates. Creating it
+			// and adding it from a worker thread races Flixel's state/display
+			// lists and can crash hxcpp on Android.
+			var ticks:Int = 15;
+			if (maxLoopTimes <= 15)
+				ticks = 1;
+			copyLoop = new FlxAsyncLoop(maxLoopTimes, copyAsset, ticks);
+			add(copyLoop);
+			copyLoop.start();
 		}
 		else
 		{
@@ -159,6 +152,7 @@ class CopyState extends MusicBeatState
 	{
 		var file = locatedFiles[loopTimes];
 		var toFile = Path.join([to, file]);
+		var assetId = getFile(file);
 		loopTimes++;
 		if (!FileSystem.exists(toFile))
 		{
@@ -167,34 +161,61 @@ class CopyState extends MusicBeatState
 				SUtil.mkDirs(directory);
 			try
 			{
-				if (OpenflAssets.exists(getFile(file)))
+				if (OpenflAssets.exists(assetId))
 				{
 					if (textFilesExtensions.contains(Path.extension(file)))
 						createContentFromInternal(file);
 					else
-						File.saveBytes(toFile, getFileBytes(getFile(file)));
+					{
+						var assetBytes:ByteArray = getFileBytes(assetId);
+						if (assetBytes == null)
+						{
+							failedFiles.push('$assetId (Asset bytes are null)');
+							return;
+						}
+
+						var outputBytes:haxe.io.Bytes = assetBytes;
+						if (outputBytes == null)
+						{
+							failedFiles.push('$assetId (Could not convert asset bytes)');
+							return;
+						}
+						File.saveBytes(toFile, outputBytes);
+					}
 				}
 				else
 				{
-					failedFiles.push(getFile(file) + " (File Dosen't Exist)");
+					failedFiles.push(assetId + " (File Doesn't Exist)");
 				}
 			}
 			catch (err:Dynamic)
 			{
-				failedFiles.push('${getFile(file)} ($err)');
+				failedFiles.push('$assetId ($err)');
 			}
 		}
 	}
 
 	public static function getFileBytes(file:String):ByteArray
 	{
-		switch (Path.extension(file))
+		// Assets.getBytes() only accepts assets declared as BINARY. Images,
+		// sounds and fonts have other manifest types even though their original
+		// packaged files still need to be copied byte-for-byte. Read through the
+		// owning Lime library without imposing an AssetType.
+		var colonIndex = file.indexOf(':');
+		var libraryName = colonIndex == -1 ? '' : file.substring(0, colonIndex);
+		var symbolName = colonIndex == -1 ? file : file.substring(colonIndex + 1);
+		var library = LimeAssets.getLibrary(libraryName);
+		if (library != null)
 		{
-			case 'otf' | 'ttf':
-				return ByteArray.fromFile(file);
-			default:
-				return OpenflAssets.getBytes(file);
+			var bytes:haxe.io.Bytes = library.getBytes(symbolName);
+			if (bytes != null)
+				return ByteArray.fromBytes(bytes);
 		}
+
+		// Keep a path fallback for custom libraries whose getBytes
+		// implementation does not expose non-binary asset types.
+		var path = OpenflAssets.getPath(file);
+		return path == null ? null : ByteArray.fromFile(path);
 	}
 
 	public static function getFile(file:String):String
@@ -273,7 +294,10 @@ class CopyState extends MusicBeatState
 			{
 				var internalBytes:ByteArray = getFileBytes(getFile(file));
 				var externalBytes:haxe.io.Bytes = File.getBytes(toFile);
-				if (internalBytes.length == externalBytes.length)
+				// If the installed asset library cannot expose bytes for an
+				// existing external file, preserve that file instead of
+				// dereferencing null or repeatedly re-entering CopyState.
+				if (internalBytes == null || internalBytes.length == externalBytes.length)
 				{
 					filesToRemove.push(file);
 				}

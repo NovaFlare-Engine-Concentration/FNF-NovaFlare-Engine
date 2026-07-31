@@ -13,11 +13,11 @@ class GeneralGroup extends OptionCata
 		var option:Option = new Option(this, 'General', TITLE);
 		addOption(option);
 
-		var option:Option = new Option(this, 'framerate', INT, [24, #if mobile 1000 #else 2000 #end, 'TPS']);
+		var option:Option = new Option(this, 'framerate', INT, [24, 2000, 'TPS']);
 		addOption(option);
 		option.onChange = onChangeFramerate;
 
-		var option:Option = new Option(this, 'drawFramerate', INT, [24, #if mobile 240 #else 2000 #end, 'FPS']);
+		var option:Option = new Option(this, 'drawFramerate', INT, [24, 2000, 'FPS']);
 		addOption(option);
 		option.onChange = onChangeDrawFramerate;
 

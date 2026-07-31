@@ -2,12 +2,10 @@ package states.freeplayState.objects.song;
 
 import games.objects.HealthIcon;
 import flixel.graphics.FlxGraphic;
-import openfl.display.BitmapData;
-import openfl.display.BitmapDataChannel;
-import openfl.filters.BlurFilter;
-import openfl.geom.Matrix;
-import openfl.geom.Point;
-import openfl.geom.Rectangle;
+import lime._internal.graphics.ImageDataUtil;
+import lime.graphics.Image as LimeImage;
+import lime.math.Rectangle as LimeRectangle;
+import lime.math.Vector2;
 
 class SongRect extends FlxSpriteGroup {
 
@@ -35,6 +33,9 @@ class SongRect extends FlxSpriteGroup {
 
     public var searchMatch:Bool = true;
     public var searchOffset:Float = 0;
+
+    static var openRectRequestId:Int = 0;
+    var destroyDiffRequested:Bool = false;
 
     public var selectShow:Rect;
     private var bg:FlxSprite;
@@ -135,80 +136,88 @@ class SongRect extends FlxSpriteGroup {
 			musican.visible = true;
 	}
 
-    public static function createBackgroundBitmap(file:String, width:Int, height:Int):BitmapData {
-        var source:BitmapData = null;
+    /**
+     * Decodes and prepares a selected background without touching OpenFL
+     * display objects. This function is safe to run on BackendThread because
+     * every operation below owns its Lime pixel buffer; OpenFL's renderer
+     * object pools are intentionally confined to the main thread.
+     */
+    public static function createBackgroundImages(file:String, viewportWidth:Int, viewportHeight:Int):{
+        background:LimeImage,
+        thumbnail:LimeImage
+    } {
         try {
-            if (FileSystem.exists(file))
-                source = BitmapData.fromFile(file);
-            else if (openfl.utils.Assets.exists(file, openfl.utils.AssetType.IMAGE))
-                source = openfl.utils.Assets.getBitmapData(file).clone();
+            if (!FileSystem.exists(file))
+                return null;
 
+            var source:LimeImage = LimeImage.fromFile(file);
             if (source == null || source.width <= 0 || source.height <= 0)
                 return null;
 
-            var result = resizeBackgroundBitmap(source, width, height);
-            source.dispose();
-            source = null;
-            return result;
+            // Take ownership of the decoded buffer and shrink it before making
+            // any copies. This keeps even an 8K mod background from being cloned
+            // at full resolution.
+            var resizedBackground:LimeImage = coverBackgroundImage(
+                source, viewportWidth, viewportHeight);
+            if (resizedBackground == null)
+                return null;
+
+            // Song rows intentionally use a centered cover crop. Their aspect
+            // ratio is much wider than the source, so displaying the whole image
+            // here would squash it instead of filling the available card area.
+            var thumbnail:LimeImage = coverBackgroundImage(
+                resizedBackground.clone(), fixWidth, fixHeight);
+
+            var backgroundWidth:Int = Std.int(Math.max(1, viewportWidth / 4));
+            var backgroundHeight:Int = Std.int(Math.max(1, viewportHeight / 4));
+            resizedBackground.resize(backgroundWidth, backgroundHeight);
+
+            // This is the same Lime blur implementation used by OpenFL's
+            // BlurFilter, but it runs directly on private Lime images instead
+            // of sharing BitmapData/Matrix pools with the renderer.
+            var blurredBackground:LimeImage = new LimeImage(
+                null, 0, 0, backgroundWidth, backgroundHeight, 0x00000000);
+            ImageDataUtil.gaussianBlur(
+                blurredBackground,
+                resizedBackground,
+                new LimeRectangle(0, 0, backgroundWidth, backgroundHeight),
+                new Vector2(),
+                6,
+                6,
+                2);
+
+            return {
+                background: blurredBackground,
+                thumbnail: thumbnail
+            };
         } catch (e:Dynamic) {
-            if (source != null)
-                source.dispose();
-            trace('FREEPLAY BG: failed to decode $file because $e');
+            trace('FREEPLAY BG: failed to prepare $file because $e');
             return null;
         }
     }
 
-    /** Makes a cover-cropped copy without taking ownership of source. */
-    public static function resizeBackgroundBitmap(source:BitmapData, width:Int, height:Int):BitmapData {
+    static function coverBackgroundImage(source:LimeImage, width:Int, height:Int):LimeImage {
         if (source == null || source.width <= 0 || source.height <= 0 || width <= 0 || height <= 0)
             return null;
 
-        try {
-            var matrix:Matrix = new Matrix();
-            var scale:Float = width / source.width;
-            if (height / source.height > scale)
-                scale = height / source.height;
-            matrix.scale(scale, scale);
-            matrix.translate(-(source.width * scale - width) / 2, -(source.height * scale - height) / 2);
+        var scale:Float = Math.max(width / source.width, height / source.height);
+        var scaledWidth:Int = Std.int(Math.ceil(source.width * scale));
+        var scaledHeight:Int = Std.int(Math.ceil(source.height * scale));
+        source.resize(scaledWidth, scaledHeight);
 
-            var result = new BitmapData(width, height, true, 0x00000000);
-            result.draw(source, matrix, null, null, null, true);
-            return result;
-        } catch (e:Dynamic) {
-            trace('FREEPLAY BG: failed to resize bitmap because $e');
-            return null;
-        }
-    }
+        if (scaledWidth == width && scaledHeight == height)
+            return source;
 
-    /**
-     * Produces a persistent, genuinely blurred menu texture once, off the
-     * render path. The caller keeps ownership of source and the returned
-     * bitmap. Working at quarter resolution makes the one-time filter cheap;
-     * MoveSprite scales it back with bilinear filtering.
-     */
-    public static function createBlurredBackgroundBitmap(source:BitmapData, width:Int, height:Int):BitmapData {
-        if (source == null)
-            return null;
-
-        var result:BitmapData = resizeBackgroundBitmap(source, width, height);
-        if (result == null)
-            return null;
-
-		try {
-			// Six pixels at quarter resolution is roughly a 24-pixel radius
-			// at 1280x720, close to the former Freeplay intensity without
-			// sparse samples that look like overlapping copies.
-			// BitmapData.applyFilter does not guarantee correct in-place sampling;
-			// use a snapshot so the Gaussian cannot collapse into a solid tint.
-			var filterSource:BitmapData = result.clone();
-			result.applyFilter(filterSource, filterSource.rect, new Point(), new BlurFilter(6, 6, 2));
-			filterSource.dispose();
-			return result;
-        } catch (e:Dynamic) {
-            result.dispose();
-            trace('FREEPLAY BG: failed to blur bitmap because $e');
-            return null;
-        }
+        var result:LimeImage = new LimeImage(null, 0, 0, width, height, 0x00000000);
+        result.copyPixels(
+            source,
+            new LimeRectangle(
+                Std.int((scaledWidth - width) * 0.5),
+                Std.int((scaledHeight - height) * 0.5),
+                width,
+                height),
+            new Vector2());
+        return result;
     }
 
     public function applyThumbnailGraphic(graphic:FlxGraphic):Void {
@@ -250,6 +259,11 @@ class SongRect extends FlxSpriteGroup {
 
         super.update(elapsed);
 
+        if (destroyDiffRequested) {
+            destroyDiffRequested = false;
+            destroyDiff();
+        }
+
         if (light.alpha > 0) {
             light.alpha -= elapsed / (Conductor.crochet * 2 / 1000);
         }
@@ -265,6 +279,7 @@ class SongRect extends FlxSpriteGroup {
 
     public function changeSelectAll(imme:Bool = false) {
         openRect = this;
+        var requestId:Int = ++openRectRequestId;
         selectLight.alpha = 0.6;
 	    FreeplayState.curSelected = this.id;
         FreeplayState.instance.changeSelection();
@@ -273,7 +288,9 @@ class SongRect extends FlxSpriteGroup {
         FreeplayState.curDifficulty = 0;
 
         FlxTimer.wait(0.001, () -> {
-            createDiff(imme);
+            if (exists && FreeplayState.instance != null && openRect == this
+                && requestId == openRectRequestId)
+                createDiff(imme);
         });
         FreeplayState.instance.songsMove.tweenData = FlxG.height * 0.5 - SongRect.fixHeight * 0.5 - FreeplayState.instance.getEffectiveId(FreeplayState.curSelected) * SongRect.fixHeight * FreeplayState.instance.rectInter - (FreeplayState.curDifficulty+1) * DiffRect.fixHeight * 1.05;
         FreeplayState.instance.initSongsData();
@@ -322,7 +339,8 @@ class SongRect extends FlxSpriteGroup {
                     rect.allowSelect = true;
                 } else {
                     FlxTimer.wait(0.1, () -> {
-                        rect.allowSelect = true;
+                        if (rect != null && rect.exists && !rect.allowDestroy)
+                            rect.allowSelect = true;
                     });
                 }
             }
@@ -333,7 +351,8 @@ class SongRect extends FlxSpriteGroup {
                 var rect = cast(member, DiffRect);
                 rect.allowDestroy = false;
                 FlxTimer.wait(0.1, () -> {
-                    rect.allowSelect = true;
+                    if (rect != null && rect.exists && !rect.allowDestroy)
+                        rect.allowSelect = true;
                 });
                 rect.startTarY = bg.height + fixHeight / 10 + rect.id * DiffRect.fixHeight * 1.05;
             }
@@ -342,7 +361,8 @@ class SongRect extends FlxSpriteGroup {
 
         diffAdded = true;
         FlxTimer.wait(0.001, () -> {
-            FreeplayState.instance.updateSongLayerOrder();
+            if (exists && FreeplayState.instance != null && openRect == this)
+                FreeplayState.instance.updateSongLayerOrder();
         });
     }
     
@@ -363,8 +383,16 @@ class SongRect extends FlxSpriteGroup {
         }
     }
 
+    public function requestDestroyDiff():Void {
+        destroyDiffRequested = true;
+    }
+
     public function destroyDiff() {
-        for (member in diffRectGroup.members)
+        destroyDiffRequested = false;
+        // remove(..., true) splices the live group array. Iterate a snapshot so
+        // every difficulty is removed instead of skipping every second member.
+        var members = diffRectGroup.members.copy();
+        for (member in members)
         {
             if (member == null)
                 continue;

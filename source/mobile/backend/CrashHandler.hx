@@ -30,11 +30,22 @@ class CrashHandler
 {
 	public static function init():Void
 	{
+		#if (cpp && (windows || android))
+		general.backend.NativeCrashHandler.init(
+			states.mainMenuState.MainMenuState.novaFlareEngineCommit);
+		#end
 		openfl.Lib.current.loaderInfo.uncaughtErrorEvents.addEventListener(UncaughtErrorEvent.UNCAUGHT_ERROR, onUncaughtError);
 		#if cpp
 		untyped __global__.__hxcpp_set_critical_error_handler(onError);
 		#elseif hl
 		hl.Api.setErrorHandler(onError);
+		#end
+	}
+
+	public static function refreshNativeCrashDirectory():Void
+	{
+		#if (cpp && (windows || android))
+		general.backend.NativeCrashHandler.refreshDirectory();
 		#end
 	}
 
@@ -104,10 +115,17 @@ class CrashHandler
 			#if cpp
 			try
 			{
+				#if hxcpp_zgc
 				heapSnapshot =
 					'used_bytes=${Gc.memInfo64(2)}\n' +
 					'committed_bytes=${Gc.memInfo64(4)}\n' +
 					'application_bytes=${Gc.memInfo64(8)}';
+				#else
+				heapSnapshot =
+					'used_bytes=${Gc.memInfo64(2)}\n' +
+					'committed_bytes=${Gc.memInfo64(1)}\n' +
+					'application_bytes=${Gc.memInfo64(4)}';
+				#end
 			}
 			catch (_:Dynamic) {}
 			#end
@@ -128,6 +146,12 @@ class CrashHandler
 			Sys.println('haxe:uncaught_error message=$m');
 			Sys.println(saveError);
 			errorText = Std.string(saveError);
+			if (originfunkin.OriginFunkinMode.active)
+			{
+				originfunkin.OriginFunkinMode.reportRuntimeError(errorText);
+				FlxG.switchState(new originfunkin.OriginFunkinErrorState());
+				return;
+			}
 			FlxG.state.openSubState(new ErrorSubState(errorText));
 		}
 		catch (e:haxe.Exception)

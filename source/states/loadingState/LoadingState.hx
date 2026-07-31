@@ -51,7 +51,28 @@ class LoadingState extends MusicBeatState
 	var prepareMutex:Mutex = new Mutex(); //准备资源锁，这是为了防止数据提前被主线程接收
 
 	static var isPlayState:Bool = false; //如果是要进入playstate
-	static var lastSongLoaded:String = null; //最后一次加载的歌曲
+	static var lastSongLoaded:String = null; //最后一次加载的歌曲/模组缓存上下文
+
+	static function prepareSongCache():Void
+	{
+		if (PlayState.SONG == null)
+			return;
+
+		var modDirectory:String = Mods.currentModDirectory;
+		if (modDirectory == null)
+			modDirectory = '';
+		var level:String = Paths.currentLevel;
+		if (level == null)
+			level = '';
+		var cacheKey:String = '$modDirectory|$level|${PlayState.SONG.song}';
+
+		if (lastSongLoaded != cacheKey)
+		{
+			lastSongLoaded = cacheKey;
+			Paths.clearStoredMemory();
+			Paths.clearUnusedMemory();
+		}
+	}
 
 	function new(target:FlxState, stopMusic:Bool)
 	{
@@ -119,6 +140,9 @@ class LoadingState extends MusicBeatState
 		Paths.setCurrentLevel(directory);
 		trace('Setting asset folder to ' + directory);
 
+		if (Std.isOfType(target, PlayState))
+			prepareSongCache();
+
 		var doPrecache:Bool = false; //建议别去动这个
 		if (ClientPrefs.data.loadingScreen)
 		{
@@ -175,11 +199,7 @@ class LoadingState extends MusicBeatState
 
 	override function create()
 	{
-		if (LoadingState.lastSongLoaded != PlayState.SONG.song) {
-			LoadingState.lastSongLoaded = PlayState.SONG.song;
-			Paths.clearStoredMemory();
-			Paths.clearUnusedMemory();
-		}
+		prepareSongCache();
 
 		instance = this;
 

@@ -85,7 +85,6 @@ class FreeplayState extends MusicBeatState
 	var backgroundRequestId:Int = 0;
 	var backgroundLoadTimer:FlxTimer;
 	var selectedBackgroundGraphic:FlxGraphic;
-	var retiredBackgroundGraphics:Array<FlxGraphic> = [];
 	var detailRequestId:Int = 0;
 	var detailLoadTimer:FlxTimer;
 	var stateDestroyed:Bool = false;
@@ -482,6 +481,8 @@ class FreeplayState extends MusicBeatState
 		backRect = new BackButton(0, FlxG.height - 65, 195, 65);
 		add(backRect);
 		backRect.cameras = [camAfter];
+
+		detailRate.camera = camAfter;
 
 		for (data in 0...funcData.length)
 		{
@@ -1162,8 +1163,15 @@ class FreeplayState extends MusicBeatState
 		#end
 		if (PlayState.SONG != null && Song.loadedSongName == songFolder
 			&& Song.chartPath == expectedPath)
+		{
+			// StageData.forceNextDirectory is consumed by LoadingState. Refresh
+			// it even when the chart stays cached, otherwise replaying the same
+			// song falls back to shared and loses its week-specific assets.
+			StageData.loadDirectory(PlayState.SONG);
 			return;
+		}
 		PlayState.SONG = Song.loadFromJson(jsonInput, songFolder);
+		StageData.loadDirectory(PlayState.SONG);
 	}
 
 	public function openReplayResults(rsdPath:String)
@@ -1405,65 +1413,64 @@ class FreeplayState extends MusicBeatState
 			if (stateDestroyed || instance != this || requestId != backgroundRequestId) return;
 			BackendThread.run(function():Void
 			{
-				var sourceBitmap:BitmapData = SongRect.createBackgroundBitmap(
-					path, targetWidth, targetHeight);
-				var thumbnail:BitmapData = SongRect.resizeBackgroundBitmap(
-					sourceBitmap, SongRect.fixWidth, SongRect.fixHeight);
-				// A quarter-size Gaussian result scales smoothly to the viewport and
-				// turns the steady-state background back into one ordinary texture
-				// sample per pixel. Keep the thumbnail sharp by deriving it first.
-				var bitmap:BitmapData = SongRect.createBlurredBackgroundBitmap(
-					sourceBitmap, Std.int(Math.max(1, targetWidth / 4)),
-					Std.int(Math.max(1, targetHeight / 4)));
-				if (sourceBitmap != null)
-					sourceBitmap.dispose();
+				// Lime images own their pixel buffers and do not use OpenFL's
+				// unsynchronised Matrix/Point object pools. Keep every worker-side
+				// decode, resize and blur in that representation.
+				var prepared = SongRect.createBackgroundImages(
+					path,
+					targetWidth,
+					targetHeight);
 				MainLoop.runInMainThread(function():Void
 				{
-					if (bitmap == null)
-					{
-						if (thumbnail != null) thumbnail.dispose();
-						return;
-					}
 					if (stateDestroyed || instance != this || requestId != backgroundRequestId || background == null)
-					{
-						bitmap.dispose();
-						if (thumbnail != null) thumbnail.dispose();
 						return;
-					}
+					if (prepared == null || prepared.background == null)
+						return;
 
-					var nextGraphic:FlxGraphic = FlxGraphic.fromBitmapData(bitmap);
-					if (thumbnail != null)
+					var bitmap:BitmapData = null;
+					var thumbnail:BitmapData = null;
+					try
 					{
-						// The selected full decode is already in memory, so derive the
-						// list thumbnail from it instead of decoding the PNG a second time.
-						var maskSource:SongRect = selected >= 0 && selected < songGroup.length
-							? songGroup[selected] : null;
-						if (maskSource != null && maskSource.selectShow != null)
-							thumbnail.copyChannel(maskSource.selectShow.pixels,
-								new Rectangle(0, 0, SongRect.fixWidth, SongRect.fixHeight),
-								new Point(), BitmapDataChannel.ALPHA, BitmapDataChannel.ALPHA);
-						var thumbnailGraphic:FlxGraphic = FlxGraphic.fromBitmapData(thumbnail);
-						Cache.setFrame(path, {graphic: thumbnailGraphic, frame: null});
-						for (rect in songGroup)
-							if (rect != null && rect.bgPath == path)
-								rect.applyThumbnailGraphic(thumbnailGraphic);
-					}
-					var previous:FlxGraphic = selectedBackgroundGraphic;
-					selectedBackgroundGraphic = nextGraphic;
-					background.changeSprite(nextGraphic.imageFrame);
+						// OpenFL wrappers and FlxGraphics are created only on the
+						// render thread. This is the boundary that prevents the
+						// OpenGLRenderer.__getMatrix access violation.
+						bitmap = BitmapData.fromImage(prepared.background);
+						if (prepared.thumbnail != null)
+							thumbnail = BitmapData.fromImage(prepared.thumbnail);
 
-					if (previous != null && previous != nextGraphic)
-					{
-						retiredBackgroundGraphics.push(previous);
-						FlxTimer.wait(1.0, function():Void
+						if (thumbnail != null)
 						{
-							if (stateDestroyed) return;
-							if (previous != selectedBackgroundGraphic)
-							{
-								retiredBackgroundGraphics.remove(previous);
-								previous.destroy();
-							}
-						});
+							// The selected full decode is already in memory, so derive the
+							// list thumbnail from it instead of decoding the PNG a second time.
+							var maskSource:SongRect = selected >= 0 && selected < songGroup.length
+								? songGroup[selected] : null;
+							if (maskSource != null && maskSource.selectShow != null)
+								thumbnail.copyChannel(maskSource.selectShow.pixels,
+									new Rectangle(0, 0, SongRect.fixWidth, SongRect.fixHeight),
+									new Point(), BitmapDataChannel.ALPHA, BitmapDataChannel.ALPHA);
+							var thumbnailGraphic:FlxGraphic = FlxGraphic.fromBitmapData(thumbnail);
+							thumbnail = null;
+							Cache.setFrame(path, {graphic: thumbnailGraphic, frame: null});
+							for (rect in songGroup)
+								if (rect != null && rect.bgPath == path)
+									rect.applyThumbnailGraphic(thumbnailGraphic);
+						}
+
+						// Full-screen backgrounds are transient. Do not leave every
+						// selected song in FlxG.bitmap after its cross-fade releases it.
+						var nextGraphic:FlxGraphic = FlxGraphic.fromBitmapData(bitmap, false, null, false);
+						bitmap = null;
+						// bg1/bg2 keep FlxGraphic.useCount accurate throughout an
+						// interrupted cross-fade. Let their frame setters release
+						// the old graphic only after neither sprite references it.
+						selectedBackgroundGraphic = nextGraphic;
+						background.changeSprite(nextGraphic.imageFrame);
+					}
+					catch (e:Dynamic)
+					{
+						if (bitmap != null) bitmap.dispose();
+						if (thumbnail != null) thumbnail.dispose();
+						trace('FREEPLAY BG: failed to install $path because $e');
 					}
 				});
 			});
@@ -1487,10 +1494,6 @@ class FreeplayState extends MusicBeatState
 			backgroundLoadTimer.cancel();
 			backgroundLoadTimer = null;
 		}
-		for (graphic in retiredBackgroundGraphics)
-			if (graphic != null)
-				graphic.destroy();
-		retiredBackgroundGraphics = [];
 		if (instance == this) instance = null;
 		super.destroy();
 		selectedBackgroundGraphic = null;

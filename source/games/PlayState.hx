@@ -364,10 +364,9 @@ class PlayState extends MusicBeatState
 		if (ClientPrefs.data.deepDebug && !DeepDebugTracker.active && SONG != null)
 			DeepDebugTracker.begin(SONG.song, Mods.currentModDirectory, Difficulty.getString());
 
-		// LoadingState deliberately keeps the previous song cached for a replay.
-		// Clearing it here defeated that reuse and rebuilt every frame/animation.
-		if (!replayMode)
-			Paths.clearStoredMemory();
+		// LoadingState clears caches when the song/mod context changes. A restart
+		// bypasses LoadingState intentionally so the same decoded audio, frames,
+		// and animations can be reused instead of rebuilt synchronously.
 		GCManager.enable(false);
 		
 		startCallback = startCountdown;
@@ -4980,15 +4979,10 @@ class PlayState extends MusicBeatState
 		}
 
 		#if HSCRIPT_ALLOWED
-		for (script in hscriptArray)
-			if(script != null)
-			{
-				if(script.exists('onDestroy')) script.call('onDestroy');
-				script.destroy();
-			}
-
+		if (hscriptGrp != null)
+			hscriptGrp.destroy(true);
 		hscriptArray = null;
-		hscriptGrp.destroy(true);
+		hscriptGrp = null;
 		#end
 
 		#if LUA_ALLOWED

@@ -11,11 +11,15 @@ import flixel.FlxObject;
 import flixel.addons.display.FlxBackdrop;
 import flixel.addons.display.FlxGridOverlay;
 import flixel.math.FlxRect;
+import flixel.util.FlxAxes;
 
 import general.backend.PsychCamera;
+import general.backend.ui.PsychUIEventHandler;
 
-import scripts.LuaUtils;
-import scripts.ModchartSprite;
+import mobile.flixel.FlxButton as MobileButton;
+
+import scripts.lua.LuaUtils;
+import scripts.lua.ModchartSprite;
 
 import games.objects.Character;
 import games.backend.StageData;
@@ -109,7 +113,7 @@ class StageEditorState extends MusicBeatState implements PsychUIEventHandler.Psy
 		destroySubStates = false;
 		animationEditor = new StageEditorAnimationSubstate();
 
-		addVirtualPad('LEFT_FULL', 'CHARACTER_EDITOR');
+		addVirtualPad(LEFT_FULL, CHARACTER_EDITOR);
 		addVirtualPadCamera(false);
 
 		super.create();
@@ -1386,7 +1390,7 @@ class StageEditorState extends MusicBeatState implements PsychUIEventHandler.Psy
 		{
 			if (controls.mobileC)
 			{
-				virtualPad.forEachAlive(function(button:TouchPadButton)
+				virtualPad.forEachAlive(function(button:MobileButton)
 				{
 					if (button.tag != 'F')
 						button.visible = !button.visible;
@@ -1404,7 +1408,7 @@ class StageEditorState extends MusicBeatState implements PsychUIEventHandler.Psy
 
 			if (controls.mobileC)
 			{
-				virtualPad.forEachAlive(function(button:TouchPadButton)
+				virtualPad.forEachAlive(function(button:MobileButton)
 				{
 					if (button.tag != 'S')
 						button.visible = !button.visible;

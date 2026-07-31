@@ -168,6 +168,47 @@
       "dir": "src",
       "ref": "main",
       "url": "https://github.com/NovaFlare-Engine-haxelib/grig.audio-0.0.5.git"
+    },
+    {
+      "name": "polymod",
+      "type": "git",
+      "dir": null,
+      "ref": "fb123758b90127f5647727727f273d27e93cabdb",
+      "url": "https://github.com/FunkinCrew/polymod"
+    },
+    {
+      "name": "FlxPartialSound",
+      "type": "git",
+      "dir": null,
+      "ref": "2f984e244f1544ca98c0e03b9b21ae570f07ac55",
+      "url": "https://github.com/FunkinCrew/FlxPartialSound.git"
+    },
+    {
+      "name": "format",
+      "type": "haxelib",
+      "version": "3.5.0"
+    },
+    {
+      "name": "jsonpatch",
+      "type": "haxelib",
+      "version": "1.1.0"
+    },
+    {
+      "name": "jsonpath",
+      "type": "haxelib",
+      "version": "1.1.0"
+    },
+    {
+      "name": "thx.core",
+      "type": "haxelib",
+      "version": "0.44.0"
+    },
+    {
+      "name": "thx.semver",
+      "type": "git",
+      "dir": null,
+      "ref": "bdb191fe7cf745c02a980749906dbf22719e200b",
+      "url": "https://github.com/fponticelli/thx.semver"
     }
   ]
 }

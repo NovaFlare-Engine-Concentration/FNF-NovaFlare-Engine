@@ -46,6 +46,8 @@ class Option extends FlxSpriteGroup
 	public var resetValue:Dynamic = null; //重置时候赋予的数值（脚本专用）
 	public var description:String = ''; //简短的描述
 	public var tips:String; //真正的解释
+	var languageDescriptionOverride:Null<String>;
+	var languageTipsOverride:Null<String>;
 
 	public var saveHeight:Float = 0; //仅仅用作最开始设置的时候使用
 	public var inter:Float = 10; //设置与设置间的y轴间隔
@@ -516,9 +518,15 @@ class Option extends FlxSpriteGroup
 
 	////////////////////////////////////////////////////////////////////////////
 
+	public function setLanguageOverride(description:String, tips:String):Void {
+		languageDescriptionOverride = description;
+		languageTipsOverride = tips;
+		changeLanguage();
+	}
+
 	public function changeLanguage() {
-		this.description = Language.get(variable, 'options');
-		this.tips = Language.get(variable, 'optionTips');
+		this.description = languageDescriptionOverride ?? Language.get(variable, 'options');
+		this.tips = languageTipsOverride ?? Language.get(variable, 'optionTips');
 		alreadyShowTip = false;
 		switch (type)
 		{

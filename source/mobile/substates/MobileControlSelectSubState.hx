@@ -8,6 +8,8 @@ import flixel.util.FlxSave;
 import flixel.input.touch.FlxTouch;
 import flixel.ui.FlxButton as UIButton;
 import flixel.FlxCamera;
+import flixel.graphics.FlxGraphic;
+import flixel.graphics.frames.FlxAtlasFrames;
 
 import mobile.flixel.FlxButton;
 
@@ -15,6 +17,11 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 {
 	public var controlsItems:Array<String> = ['Pad-Right', 'Pad-Left', 'Pad-Custom', 'Pad-Duo', 'Hitbox', 'Keyboard'];
 
+	var initialSelection:Null<Int>;
+	var saveSelection:String->Array<Array<Float>>->Void;
+	var closeSelection:Void->Void;
+	var externalCustomPositions:Array<Array<Float>>;
+	var usesExternalPreferences:Bool = false;
 	var camControls:FlxCamera;
 	var virtualPadd:FlxVirtualPad;
 	var hitbox:FlxHitbox;
@@ -40,6 +47,21 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 	var buttonUpColor:Array<FlxColor>;
 	var buttonRightColor:Array<FlxColor>;
 
+	public function new(?items:Array<String>, ?selected:Int, ?onSave:String->Array<Array<Float>>->Void, ?onClose:Void->Void,
+			?customPositions:Array<Array<Float>>)
+	{
+		super();
+
+		if (items != null && items.length > 0)
+			controlsItems = items.copy();
+
+		initialSelection = selected;
+		saveSelection = onSave;
+		closeSelection = onClose;
+		externalCustomPositions = customPositions;
+		usesExternalPreferences = onSave != null;
+	}
+
 	override function create()
 	{
 		if (ClientPrefs.data.dynamicColors)
@@ -57,7 +79,9 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 			buttonRightColor = ClientPrefs.defaultData.arrowRGB[3];
 		}
 
-		curSelected = MobileControls.get_mode();
+		curSelected = initialSelection != null ? initialSelection : MobileControls.get_mode();
+		if (curSelected < 0 || curSelected >= controlsItems.length)
+			curSelected = 0;
 
 		var bg:FlxSprite = new FlxSprite(0, 0).makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
 		bg.scrollFactor.set();
@@ -88,18 +112,34 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 
 		var exit = new UIButton(FlxG.width - 300, 50, "Exit & Save", () ->
 		{
-			MobileControls.set_mode(curSelected);
+			final choice:String = controlsItems[Math.floor(curSelected)];
 
-			if (controlsItems[Math.floor(curSelected)] == 'Pad-Custom')
-				MobileControls.setCustomMode(virtualPadd);
+			if (saveSelection != null)
+			{
+				saveSelection(choice, getCustomPositions());
+			}
+			else
+			{
+				MobileControls.set_mode(curSelected);
 
-			if (virtualPadd.visible == true)
-				MobileControls.setExtraCustomMode(virtualPadd);
+				if (choice == 'Pad-Custom')
+					MobileControls.setCustomMode(virtualPadd);
+
+				if (virtualPadd.visible == true)
+					MobileControls.setExtraCustomMode(virtualPadd);
+			}
 
 			FlxG.sound.play(Paths.sound('cancelMenu'));
-			FlxTransitionableState.skipNextTransIn = true;
-			FlxTransitionableState.skipNextTransOut = true;
-			MusicBeatState.switchState(new options.OptionsState());
+			if (closeSelection != null)
+			{
+				closeSelection();
+			}
+			else
+			{
+				FlxTransitionableState.skipNextTransIn = true;
+				FlxTransitionableState.skipNextTransOut = true;
+				MusicBeatState.switchState(new options.OptionsState());
+			}
 		});
 		exit.color = FlxColor.LIME;
 		exit.setGraphicSize(Std.int(exit.width) * 3);
@@ -177,14 +217,14 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 		add(inputvari);
 
 		leftArrow = new FlxSprite(inputvari.x - 60, inputvari.y - 25);
-		leftArrow.frames = Paths.getSparrowAtlas('campaign_menu_UI_assets');
+		leftArrow.frames = getCampaignMenuFrames();
 		leftArrow.animation.addByPrefix('idle', 'arrow left');
 		leftArrow.animation.addByPrefix('press', "arrow push left");
 		leftArrow.animation.play('idle');
 		add(leftArrow);
 
 		rightArrow = new FlxSprite(inputvari.x + inputvari.width + 10, inputvari.y - 25);
-		rightArrow.frames = Paths.getSparrowAtlas('campaign_menu_UI_assets');
+		rightArrow.frames = getCampaignMenuFrames();
 		rightArrow.animation.addByPrefix('idle', 'arrow right');
 		rightArrow.animation.addByPrefix('press', "arrow push right", 24, false);
 		rightArrow.animation.play('idle');
@@ -368,9 +408,24 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 		}
 	}
 
+	function destroyVirtualPad():Void
+	{
+		if (virtualPadd == null)
+			return;
+
+		// A destroyed FlxTypedSpriteGroup must not remain in this SubState's
+		// members, otherwise FlxState.update() will visit it on the next frame.
+		remove(virtualPadd, true);
+		virtualPadd.destroy();
+		virtualPadd = null;
+	}
+
 	function changeSelection(change:Int = 0):Void
 	{
-		if (change != 0 && virtualPadd.visible == true)
+		if (usesExternalPreferences && change != 0 && controlsItems[Math.floor(curSelected)] == 'Pad-Custom')
+			externalCustomPositions = getCustomPositions();
+
+		if (!usesExternalPreferences && change != 0 && virtualPadd.visible == true)
 			MobileControls.setExtraCustomMode(virtualPadd);
 
 		curSelected += change;
@@ -391,9 +446,10 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 			case 'Pad-Right':
 				hitbox.visible = false;
 
-				virtualPadd.destroy();
+				destroyVirtualPad();
 				virtualPadd = new FlxVirtualPad(RIGHT_FULL, controlExtend);
-				virtualPadd = MobileControls.getExtraCustomMode(virtualPadd);
+				if (!usesExternalPreferences)
+					virtualPadd = MobileControls.getExtraCustomMode(virtualPadd);
 				virtualPadd.alpha = ClientPrefs.data.playControlsAlpha;
 				virtualPadd.cameras = [camControls];
 				add(virtualPadd);
@@ -404,9 +460,10 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 			case 'Pad-Left':
 				hitbox.visible = false;
 
-				virtualPadd.destroy();
+				destroyVirtualPad();
 				virtualPadd = new FlxVirtualPad(LEFT_FULL, controlExtend);
-				virtualPadd = MobileControls.getExtraCustomMode(virtualPadd);
+				if (!usesExternalPreferences)
+					virtualPadd = MobileControls.getExtraCustomMode(virtualPadd);
 				virtualPadd.alpha = ClientPrefs.data.playControlsAlpha;
 				virtualPadd.cameras = [camControls];
 				add(virtualPadd);
@@ -417,9 +474,15 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 			case 'Pad-Custom':
 				hitbox.visible = false;
 
-				virtualPadd.destroy();
-				virtualPadd = MobileControls.getCustomMode(new FlxVirtualPad(RIGHT_FULL, controlExtend));
-				virtualPadd = MobileControls.getExtraCustomMode(virtualPadd);
+				destroyVirtualPad();
+				virtualPadd = new FlxVirtualPad(RIGHT_FULL, controlExtend);
+				if (usesExternalPreferences)
+					applyCustomPositions(virtualPadd);
+				else
+				{
+					virtualPadd = MobileControls.getCustomMode(virtualPadd);
+					virtualPadd = MobileControls.getExtraCustomMode(virtualPadd);
+				}
 				virtualPadd.alpha = ClientPrefs.data.playControlsAlpha;
 				virtualPadd.cameras = [camControls];
 				add(virtualPadd);
@@ -430,9 +493,10 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 			case 'Pad-Duo':
 				hitbox.visible = false;
 
-				virtualPadd.destroy();
+				destroyVirtualPad();
 				virtualPadd = new FlxVirtualPad(BOTH, controlExtend);
-				virtualPadd = MobileControls.getExtraCustomMode(virtualPadd);
+				if (!usesExternalPreferences)
+					virtualPadd = MobileControls.getExtraCustomMode(virtualPadd);
 				virtualPadd.alpha = ClientPrefs.data.playControlsAlpha;
 				virtualPadd.cameras = [camControls];
 				add(virtualPadd);
@@ -454,6 +518,28 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 			case 'Keyboard':
 				hitbox.visible = false;
 				virtualPadd.visible = false;
+
+			case 'Origin':
+				hitbox.visible = false;
+
+				destroyVirtualPad();
+				virtualPadd = new FlxVirtualPad(RIGHT_FULL, controlExtend);
+				virtualPadd.alpha = ClientPrefs.data.playControlsAlpha;
+				virtualPadd.cameras = [camControls];
+				add(virtualPadd);
+
+				final buttonWidth:Float = virtualPadd.buttonLeft.width;
+				final spacing:Float = 16;
+				final startX:Float = (FlxG.width - buttonWidth * 4 - spacing * 3) * 0.5;
+				final buttonY:Float = FlxG.height - virtualPadd.buttonLeft.height - 24;
+				virtualPadd.buttonLeft.setPosition(startX, buttonY);
+				virtualPadd.buttonDown.setPosition(startX + (buttonWidth + spacing), buttonY);
+				virtualPadd.buttonUp.setPosition(startX + (buttonWidth + spacing) * 2, buttonY);
+				virtualPadd.buttonRight.setPosition(startX + (buttonWidth + spacing) * 3, buttonY);
+				virtualPadd.buttonLeft.color = buttonLeftColor[0];
+				virtualPadd.buttonDown.color = buttonDownColor[0];
+				virtualPadd.buttonUp.color = buttonUpColor[0];
+				virtualPadd.buttonRight.color = buttonRightColor[0];
 		}
 
 		funitext.visible = daChoice == 'Keyboard';
@@ -472,6 +558,51 @@ class MobileControlSelectSubState extends MusicBeatSubstate
 		extra2Pozition.visible = showExtras;
 		extra3Pozition.visible = showExtras;
 		extra4Pozition.visible = showExtras;
+	}
+
+	function applyCustomPositions(pad:FlxVirtualPad):Void
+	{
+		if (externalCustomPositions == null || externalCustomPositions.length < 4)
+			return;
+
+		final buttons:Array<FlxButton> = [pad.buttonLeft, pad.buttonDown, pad.buttonUp, pad.buttonRight];
+		for (i in 0...buttons.length)
+		{
+			final position = externalCustomPositions[i];
+			if (position != null && position.length >= 2)
+				buttons[i].setPosition(position[0], position[1]);
+		}
+	}
+
+	function getCustomPositions():Array<Array<Float>>
+	{
+		if (virtualPadd == null || controlsItems[Math.floor(curSelected)] != 'Pad-Custom')
+			return externalCustomPositions == null ? [] : externalCustomPositions.copy();
+
+		return [
+			[virtualPadd.buttonLeft.x, virtualPadd.buttonLeft.y],
+			[virtualPadd.buttonDown.x, virtualPadd.buttonDown.y],
+			[virtualPadd.buttonUp.x, virtualPadd.buttonUp.y],
+			[virtualPadd.buttonRight.x, virtualPadd.buttonRight.y]
+		];
+	}
+
+	function getCampaignMenuFrames():FlxAtlasFrames
+	{
+		#if sys
+		if (originfunkin.OriginFunkinMode.active)
+		{
+			final imagePath:String = haxe.io.Path.join([Sys.getCwd(), 'assets/shared/images/campaign_menu_UI_assets.png']);
+			final atlasPath:String = haxe.io.Path.join([Sys.getCwd(), 'assets/shared/images/campaign_menu_UI_assets.xml']);
+			if (FileSystem.exists(imagePath) && FileSystem.exists(atlasPath))
+			{
+				final graphic = FlxGraphic.fromBitmapData(openfl.display.BitmapData.fromFile(imagePath), false, imagePath);
+				return FlxAtlasFrames.fromSparrow(graphic, File.getContent(atlasPath));
+			}
+		}
+		#end
+
+		return Paths.getSparrowAtlas('campaign_menu_UI_assets');
 	}
 
 	function moveButton(touch:FlxTouch, button:FlxButton):Void

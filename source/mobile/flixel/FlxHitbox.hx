@@ -154,29 +154,41 @@ class FlxHitbox extends FlxMobileInputManager
 	 */
 	private function getColor(index:Int, mania:Int):Int
 	{
-		// 动态颜色设置优先
-		if (ClientPrefs.data.dynamicColors)
-		{
-			var keyMode = ExtraKeysHandler.instance.data.keys[mania];
-			if (keyMode != null)
-			{
-				var noteIndex = keyMode.notes[index];
-				if (ClientPrefs.data.arrowRGB != null && noteIndex < ClientPrefs.data.arrowRGB.length)
-				{
-					return ClientPrefs.data.arrowRGB[noteIndex][0];
-				}
-			}
-		}
-		
-		// 使用extrakeys.json中的默认颜色
-		var keyMode = ExtraKeysHandler.instance.data.keys[mania];
-		if (keyMode != null)
+		// Origin mode does not initialize NovaFlare's ExtraKeysHandler. The
+		// mobile controls selector still creates a FlxHitbox for its preview,
+		// so treat the extra-keys palette as optional and use the built-in
+		// four-colour fallback when it is unavailable.
+		var extraKeysData = ExtraKeysHandler.instance == null ? null : ExtraKeysHandler.instance.data;
+		var keyMode = extraKeysData != null
+			&& extraKeysData.keys != null
+			&& mania >= 0
+			&& mania < extraKeysData.keys.length ? extraKeysData.keys[mania] : null;
+
+		if (keyMode != null && keyMode.notes != null && index >= 0 && index < keyMode.notes.length)
 		{
 			var noteIndex = keyMode.notes[index];
-			if (noteIndex < ExtraKeysHandler.instance.data.colors.length)
+
+			// 动态颜色设置优先
+			if (ClientPrefs.data.dynamicColors
+				&& ClientPrefs.data.arrowRGB != null
+				&& noteIndex >= 0
+				&& noteIndex < ClientPrefs.data.arrowRGB.length)
 			{
-				var colorObj = ExtraKeysHandler.instance.data.colors[noteIndex];
-				return FlxColor.fromString('#' + colorObj.inner);
+				var rgb = ClientPrefs.data.arrowRGB[noteIndex];
+				if (rgb != null && rgb.length > 0)
+					return rgb[0];
+			}
+
+			// 使用extrakeys.json中的默认颜色
+			if (extraKeysData.colors != null && noteIndex >= 0 && noteIndex < extraKeysData.colors.length)
+			{
+				var colorObj = extraKeysData.colors[noteIndex];
+				if (colorObj != null && colorObj.inner != null)
+				{
+					var parsedColor = FlxColor.fromString('#' + colorObj.inner);
+					if (parsedColor != null)
+						return parsedColor;
+				}
 			}
 		}
 

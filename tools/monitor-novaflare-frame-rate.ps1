@@ -149,6 +149,10 @@ namespace NovaFlareFrameMonitor {
             return 0;
         }
 
+        public static long CounterBaseFromDrawTarget(long drawTarget) {
+            return drawTarget + DrawFrameDelta;
+        }
+
         private static bool CounterValuesPlausible(
                 double drawFrame, double drawFps,
                 double updateFrame, double updateFps) {
@@ -216,6 +220,64 @@ namespace NovaFlareFrameMonitor {
                     PlausibleCounterBlock(process, upper)) {
                     return upper;
                 }
+            }
+            return 0;
+        }
+
+        public static long ResolveCounterBaseFast(
+                IntPtr process, long moduleBase, long moduleSize) {
+            long moduleEnd = moduleBase + moduleSize;
+            long cursor = moduleBase;
+            int mbiSize = Marshal.SizeOf(typeof(MEMORY_BASIC_INFORMATION));
+            byte[] buffer = new byte[1024 * 1024 + 47];
+            while (cursor < moduleEnd) {
+                MEMORY_BASIC_INFORMATION mbi;
+                UIntPtr queried = VirtualQueryEx(
+                    process, new IntPtr(cursor), out mbi,
+                    new UIntPtr((uint)mbiSize));
+                if (queried == UIntPtr.Zero) break;
+                long regionStart = Math.Max(cursor, mbi.BaseAddress.ToInt64());
+                long regionEnd = Math.Min(
+                    moduleEnd, mbi.BaseAddress.ToInt64() +
+                    unchecked((long)mbi.RegionSize.ToUInt64()));
+                bool committed = mbi.State == 0x1000;
+                bool inaccessible = (mbi.Protect & 0x01) != 0 ||
+                                    (mbi.Protect & 0x100) != 0;
+                if (committed && !inaccessible) {
+                    long chunk = regionStart;
+                    while (chunk < regionEnd) {
+                        int count = (int)Math.Min(
+                            1024 * 1024, regionEnd - chunk);
+                        byte[] current = count == 1024 * 1024
+                            ? buffer : new byte[count];
+                        IntPtr read;
+                        if (ReadProcessMemory(process, new IntPtr(chunk),
+                                              current, count, out read)) {
+                            int actual = (int)read.ToInt64();
+                            int alignment = (int)((8 - (chunk & 7)) & 7);
+                            for (int i = alignment; i + 48 <= actual; i += 8) {
+                                double drawFrame = BitConverter.ToDouble(current, i);
+                                double drawFps = BitConverter.ToDouble(current, i + 8);
+                                double gcMem = BitConverter.ToDouble(current, i + 16);
+                                double appMem = BitConverter.ToDouble(current, i + 24);
+                                double updateFrame = BitConverter.ToDouble(current, i + 32);
+                                double updateFps = BitConverter.ToDouble(current, i + 40);
+                                if (!CounterValuesPlausible(
+                                        drawFrame, drawFps,
+                                        updateFrame, updateFps)) continue;
+                                if (double.IsNaN(gcMem) || double.IsInfinity(gcMem) ||
+                                    double.IsNaN(appMem) || double.IsInfinity(appMem) ||
+                                    gcMem < 1 || gcMem > 100000 ||
+                                    appMem < 1 || appMem > 100000) continue;
+                                long candidate = chunk + i;
+                                if (PlausibleCounterBlock(process, candidate))
+                                    return candidate;
+                            }
+                        }
+                        chunk += count;
+                    }
+                }
+                cursor = Math.Max(cursor + 4096, regionEnd);
             }
             return 0;
         }
@@ -290,10 +352,24 @@ try {
     # publication instead of giving up before the title screen exists.
     $resolveDeadline = [DateTime]::UtcNow.AddSeconds(240)
     do {
-        foreach ($radius in @(256KB, 2MB, 16MB)) {
-            $counterBase = [NovaFlareFrameMonitor.Native]::ResolveCounterBase(
-                $handle, $moduleBase, $moduleSize, $CounterBaseRvaHint, $radius)
-            if ($counterBase -ne 0) { break }
+        $counterBase = [NovaFlareFrameMonitor.Native]::ResolveCounterBaseFast(
+            $handle, $moduleBase, $moduleSize)
+        if ($counterBase -eq 0) {
+            # Generated hxcpp static RVAs move whenever compiled classes change.
+            # Scan committed module pages in large blocks for the adjacent
+            # draw/update target-FPS fields, then derive DataCalc's counter
+            # block using the stable generated-data layout.
+            $drawTarget = [NovaFlareFrameMonitor.Native]::ResolveDrawTarget(
+                $handle, $moduleBase, $moduleSize,
+                [int64]($moduleSize / 2), [int64]$moduleSize)
+            if ($drawTarget -ne 0) {
+                $candidate = [NovaFlareFrameMonitor.Native]::CounterBaseFromDrawTarget(
+                    $drawTarget)
+                if ([NovaFlareFrameMonitor.Native]::PlausibleCounterBlock(
+                        $handle, $candidate)) {
+                    $counterBase = $candidate
+                }
+            }
         }
         if ($counterBase -eq 0) { Start-Sleep -Milliseconds 250 }
     } while ($counterBase -eq 0 -and [DateTime]::UtcNow -lt $resolveDeadline)

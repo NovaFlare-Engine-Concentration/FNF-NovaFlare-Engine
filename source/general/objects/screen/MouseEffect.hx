@@ -70,25 +70,28 @@ class MouseEffect extends Sprite {
     private var updating:Bool = false;
 	private var lastEffectUpdate:Float = 0;
 	private static inline var EFFECT_UPDATE_INTERVAL:Float = 1 / 120;
+    private var clickBitmapData:BitmapData;
+    private var circleBitmapData:BitmapData;
+    private var trailBitmapData:BitmapData;
     
     // 路径记录
     private var lastTrailPosition:Point = new Point();
 
-    public function new() {
+    public function new(?clickBitmapData:BitmapData, ?circleBitmapData:BitmapData, ?trailBitmapData:BitmapData) {
         super();
 
         // 预加载资源
-        var clickBitmapData = BitmapData.fromFile(Paths.modFolders(clickImagePath));
-        var circleBitmapData = BitmapData.fromFile(Paths.modFolders(circleImagePath));
-        var trailBitmapData = BitmapData.fromFile(Paths.modFolders(trailImagePath));
+        this.clickBitmapData = clickBitmapData ?? BitmapData.fromFile(Paths.modFolders(clickImagePath));
+        this.circleBitmapData = circleBitmapData ?? BitmapData.fromFile(Paths.modFolders(circleImagePath));
+        this.trailBitmapData = trailBitmapData ?? BitmapData.fromFile(Paths.modFolders(trailImagePath));
 
         // 初始化对象池
         for (i in 0...10) {
-            clickEffects.push(new ClickEffect(clickBitmapData, circleBitmapData));
+            clickEffects.push(new ClickEffect(this.clickBitmapData, this.circleBitmapData));
         }
         
         for (i in 0...trailMaxCount) {
-            trailEffects.push(new TrailEffect(trailBitmapData));
+            trailEffects.push(new TrailEffect(this.trailBitmapData));
         }
 
         // 添加事件监听
@@ -111,8 +114,6 @@ class MouseEffect extends Sprite {
             effect = clickEffects.pop();
         } else {
             // 如果对象池空了，创建一个新的
-            var clickBitmapData = BitmapData.fromFile(Paths.modFolders(clickImagePath));
-            var circleBitmapData = BitmapData.fromFile(Paths.modFolders(circleImagePath));
             effect = new ClickEffect(clickBitmapData, circleBitmapData);
         }
         
@@ -152,7 +153,6 @@ class MouseEffect extends Sprite {
                 effect = trailEffects.pop();
             } else {
                 // 如果还是空的，创建一个新的
-                var trailBitmapData = BitmapData.fromFile(Paths.modFolders(trailImagePath));
                 effect = new TrailEffect(trailBitmapData);
             }
         }
