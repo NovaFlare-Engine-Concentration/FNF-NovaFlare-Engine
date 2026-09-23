@@ -95,7 +95,7 @@ The `private` directory in this repository is used for integrating NovaFlare wit
 | ![](https://raw.githubusercontent.com/NovaFlare-Engine-Concentration/FNF-NovaFlare-Engine/refs/heads/main/assets/shared/images/credits/bigIcon/beneyre.png) |[Ben Eyre](https://x.com/hngstngxng83905?t=GDKWYMRZsCMUMXYs0cmYrw&s=09) | Credits menu artist for NF (NovaFlare) Engine.
 | ![](https://raw.githubusercontent.com/NovaFlare-Engine-Concentration/FNF-NovaFlare-Engine/refs/heads/main/assets/shared/images/credits/als.png) |[Als](https://b23.tv/mNNX8R8) | Init intro artist for NF (NovaFlare) Engine.
 | ![](https://raw.githubusercontent.com/NovaFlare-Engine-Concentration/FNF-NovaFlare-Engine/refs/heads/main/assets/shared/images/credits/bigIcon/ddd.png) |[blockDDDdark](https://space.bilibili.com/401733211) | Engine sound effort helper for NF (NovaFlare) Engine.
-| ![](https://avatars.githubusercontent.com/u/281948254?v=4) | ![D.C.LushiFu](https://space.bilibili.com/3461571971910090?spm_id_from=333.40164.0.0) | 新NF程序员兼UI设计。解决了一大把有关于旧版本的遗留问题。\n到底是谁在喜欢用Haxe语言啊，老老实实的用Python不好吗 |
+| ![](https://avatars.githubusercontent.com/u/281948254?v=4) | [D.C.LushiFu](https://space.bilibili.com/3461571971910090?spm_id_from=333.40164.0.0) | 新NF程序员兼UI设计。解决了一大把有关于旧版本的遗留问题。**到底是谁在喜欢用Haxe语言啊，老老实实的用Python不好吗** |
 
 # Psych Engine credits
 | Avatar | Username | Involvement |
