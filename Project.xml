@@ -14,7 +14,7 @@
 	     1.2.2 修改版包含 Hotfix 的全部修复，必须严格大于 35260811，故取数据版本 3.5 + 260921 (35260921)。
 	     以后改动这里时，请先用 aapt 实测官方最新发布包的 versionCode 再定值，
 	     否则 Android 会拒绝覆盖安装（弹「降级安装」提示）。 -->
-	<app title="NovaFlare Engine" file="NovaFlare Engine" packageName="com.NovaFlareEngineNew" package="com.NovaFlareEngineNew" main="Main" version="1.2.2" build-number="35260921" company="NF crew" />
+	<app title="NovaFlare Engine" file="NovaFlare Engine" packageName="com.NovaFlareEngineNew" package="com.NovaFlareEngineNew" main="Main" version="1.2.2" build-number="35260923" company="NF crew" />
 	<!--Switch Export with Unique ApplicationID and Icon-->
 	<set name="APP_ID" value="0x0100f6c013bbc000" />
 	

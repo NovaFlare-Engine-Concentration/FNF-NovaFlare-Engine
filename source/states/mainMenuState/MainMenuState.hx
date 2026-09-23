@@ -46,7 +46,7 @@ class MainMenuState extends MusicBeatState
 	// 改动，故取 3.4 —— 让它同时满足两个目的：既在 Hotfix 发布包之上（versionCode
 	// 34260921 > 33260811，不会被 Android 判为降级），也让仍在旧数据版本的用户
 	// 能正确收到更新提示。改这里必须同步改 gitVersion.txt 第 2 行。
-	public static var novaFlareEngineDataVersion:Float = 3.4;
+	public static var novaFlareEngineDataVersion:Float = 3.5;
 	public static var novaFlareEngineVersion:String = '1.2.2';
 	public static var novaFlareEngineCommit:String = 
 	    #if commit_sha
