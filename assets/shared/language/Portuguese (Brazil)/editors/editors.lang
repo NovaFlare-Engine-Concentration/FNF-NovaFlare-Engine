@@ -1,0 +1,13 @@
+# ===== Menu principal de editores (tecla 7 no menu principal) =====
+chartEditor => Editor de Chart
+characterEditor => Editor de Personagem
+stageEditor => Editor de Palco
+weekEditor => Editor de Semana
+menuCharEditor => Editor de Personagem do Menu
+dialogueEditor => Editor de Diálogo
+dialoguePortraitEditor => Editor de Retratos de Diálogo
+noteSplashDebug => Depuração de Splash de Nota
+
+# ===== Aviso de diretório de mod (barra de status inferior) =====
+noModDirectory => < Nenhum Diretório de Mod Carregado >
+loadedModDirectory => < Diretório de Mod Carregado:

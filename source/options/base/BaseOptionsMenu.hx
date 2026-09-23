@@ -35,9 +35,9 @@ class BaseOptionsMenu extends MusicBeatSubstate
 		super();
 
 		if (title == null)
-			title = 'Options';
+			title = Language.get('optionsTitle', 'main');
 		if (rpcTitle == null)
-			rpcTitle = 'Options Menu';
+			rpcTitle = Language.get('optionsMenuTitle', 'main');
 
 		#if DISCORD_ALLOWED
 		DiscordClient.changePresence(rpcTitle, null);
@@ -69,7 +69,7 @@ class BaseOptionsMenu extends MusicBeatSubstate
 		add(titleText);
 
 		descText = new FlxText(50, 600, 1180, "", 32);
-		descText.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		descText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		descText.scrollFactor.set();
 		descText.borderSize = 2.4;
 		add(descText);
@@ -181,7 +181,7 @@ class BaseOptionsMenu extends MusicBeatSubstate
 						FlxTween.tween(bindingBlack, {alpha: 0.6}, 0.35, {ease: FlxEase.linear});
 						add(bindingBlack);
 
-						bindingText = new Alphabet(FlxG.width / 2, 160, "Rebinding " + curOption.name, false);
+						bindingText = new Alphabet(FlxG.width / 2, 160, Language.get('rebinding', 'main') + ' ' + curOption.name, false);
 						bindingText.alignment = CENTERED;
 						add(bindingText);
 
@@ -189,11 +189,11 @@ class BaseOptionsMenu extends MusicBeatSubstate
 
 						if (controls.mobileC)
 						{
-							funnyText = "Hold B to Cancel\nHold C to Delete";
+							funnyText = Language.get('holdBCancel', 'main') + '\n' + Language.get('holdCDelete', 'main');
 						}
 						else
 						{
-							funnyText = "Hold ESC to Cancel\nHold Backspace to Delete";
+							funnyText = Language.get('holdEscCancel', 'main') + '\n' + Language.get('holdBackspaceDelete', 'main');
 						}
 
 						bindingText2 = new Alphabet(FlxG.width / 2, 340, funnyText, true);
@@ -452,7 +452,6 @@ class BaseOptionsMenu extends MusicBeatSubstate
 		attach.sprTracker = bind.sprTracker;
 		attach.copyAlpha = true;
 		attach.ID = bind.ID;
-		playstationCheck(attach);
 		attach.scaleX = Math.min(1, MAX_KEYBIND_WIDTH / attach.width);
 		attach.x = bind.x;
 		attach.y = bind.y;
@@ -461,28 +460,6 @@ class BaseOptionsMenu extends MusicBeatSubstate
 		grpTexts.insert(grpTexts.members.indexOf(bind), attach);
 		grpTexts.remove(bind);
 		bind.destroy();
-	}
-
-	function playstationCheck(alpha:Alphabet)
-	{
-		if (!controls.controllerMode)
-			return;
-
-		var gamepad:FlxGamepad = FlxG.gamepads.firstActive;
-		var model:FlxGamepadModel = gamepad != null ? gamepad.detectedModel : UNKNOWN;
-		var letter = alpha.letters[0];
-		if (model == PS4)
-		{
-			switch (alpha.text)
-			{
-				case '[', ']': // Square and Triangle respectively
-					letter.image = 'alphabet_playstation';
-					letter.updateHitbox();
-
-					letter.offset.x += 4;
-					letter.offset.y -= 5;
-			}
-		}
 	}
 
 	function closeBinding()

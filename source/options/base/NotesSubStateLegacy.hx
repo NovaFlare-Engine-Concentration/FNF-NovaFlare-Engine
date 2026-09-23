@@ -1,4 +1,4 @@
-﻿package options.base;
+package options.base;
 
 import haxe.Json;
 
@@ -245,7 +245,7 @@ class NotesSubStateLegacy extends MusicBeatSubstate
 
 		var item = grpNumbers.members[(selected * 3) + type];
 		item.text = '0';
-		item.offset.x = (40 * (item.letters.length - 1)) / 2;
+		item.alignment = CENTERED;
 	}
 	function updateValue(change:Float = 0) {
 		curValue += change;
@@ -271,7 +271,6 @@ class NotesSubStateLegacy extends MusicBeatSubstate
 
 		var item = grpNumbers.members[(curSelected * 3) + typeSelected];
 		item.text = Std.string(roundedValue);
-		item.offset.x = (40 * (item.letters.length - 1)) / 2;
-		if(roundedValue < 0) item.offset.x += 10;
+		item.alignment = CENTERED;
 	}
 }

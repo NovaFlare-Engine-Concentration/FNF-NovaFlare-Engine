@@ -1,0 +1,162 @@
+# ===== 角色编辑器顶栏菜单（Adobe 风格）=====
+# ===== 菜单标题 =====
+menu_char => 角色
+menu_anim => 动画
+menu_settings => 设置
+menu_ghost => 外观
+menu_file => 文件
+menu_help => 帮助
+
+# ===== 状态栏 =====
+status_character => 角色:
+status_anim => 动画:
+status_offset => 偏移:
+status_frame => 帧:
+status_zoom => 缩放:
+
+# ===== 项目: 角色菜单 =====
+item_char_select => 角色
+item_image => 图像文件
+item_reload_image => 重新加载图像
+item_health_icon => 血条图标
+item_get_icon_color => 获取图标颜色
+item_vocals => 人声文件后缀
+
+# ===== 项目: 动画菜单 =====
+item_anim_select => 动画
+item_anim_name => 动画名称
+item_anim_symbol => 动画符号名/标签
+item_anim_fps => 帧率
+item_anim_loop => 是否循环播放?
+item_anim_indices => 高级 - 动画帧索引
+item_anim_add_update => 添加/更新
+item_anim_remove => 删除
+
+# ===== 项目: 设置菜单 =====
+item_playable => 可游玩角色
+item_flip_x => 水平翻转
+item_no_aa => 关闭抗锯齿
+item_scale => 缩放
+item_sing_duration => 唱歌动画时长
+item_pos_x => 位置 X
+item_pos_y => 位置 Y
+item_cam_x => 相机 X
+item_cam_y => 相机 Y
+
+# ===== 项目: 外观菜单 =====
+item_make_ghost => 生成 Ghost 帧
+item_highlight_ghost => 高亮 Ghost 帧
+
+# ===== 项目: 文件菜单 =====
+item_save => 保存角色
+item_load_template => 加载模板
+item_reload_char => 重新加载角色
+
+# ===== 标签（LabelWidget 左侧标签）=====
+label_char_select => 角色:
+label_image => 图像:
+label_health_icon => 图标:
+label_vocals => 人声:
+label_anim_select => 动画:
+label_anim_name => 名称:
+label_anim_symbol => 符号:
+label_anim_fps => 帧率:
+label_anim_indices => 索引:
+label_scale => 缩放:
+label_sing_duration => 唱歌时长:
+label_pos_x => 位置 X:
+label_pos_y => 位置 Y:
+label_cam_x => 相机 X:
+label_cam_y => 相机 Y:
+label_ghost_alpha => 不透明度:
+label_health_r => 血条 R:
+label_health_g => 血条 G:
+label_health_b => 血条 B:
+
+# ===== 帮助标题 =====
+help_camera => 相机
+help_char => 角色
+help_other => 其他
+item_help_camera => 相机
+item_help_char => 角色
+item_help_other => 其他
+
+# ===== 帮助行（菜单 + F1 帮助屏）=====
+item_help_cam_zoom => E/Q - 相机放大/缩小
+item_help_cam_move => J/K/L/I - 移动相机
+item_help_cam_reset => R - 重置相机缩放
+item_help_char_ctrl_r => Ctrl + R - 重置当前偏移
+item_help_char_ctrl_c => Ctrl + C - 复制当前偏移
+item_help_char_ctrl_v => Ctrl + V - 粘贴偏移到当前动画
+item_help_char_ctrl_z => Ctrl + Z - 撤销上次粘贴或重置
+item_help_char_anim => W/S - 上一个/下一个动画
+item_help_char_replay => 空格 - 重播动画
+item_help_char_offset => 方向键 / 鼠标右键拖拽 - 移动偏移
+item_help_char_offset_keys => Ctrl+C/V/R/Z/Y - 复制 / 粘贴 / 重置 / 撤销 / 重做偏移，Ctrl+S - 保存角色
+item_help_char_frame => A/D - 逐帧前进/后退
+item_help_other_sil => F12 - 显示/隐藏剪影
+item_help_other_shift => 按住 Shift - 偏移移动速度 x10，相机速度 x4
+item_help_other_ctrl => 按住 Control - 相机移动速度 x0.25
+item_help_other_help => F1 - 切换帮助屏幕
+item_help_other_exit => ESC - 退出角色编辑器
+
+# ===== 帮助行（移动端）=====
+item_help_m_cam_zoom => X/Y - 相机放大/缩小
+item_help_m_cam_reset => Z - 重置相机缩放
+item_help_m_char_reset => A - 重置当前偏移
+item_help_m_char_anim => V/D - 上一个/下一个动画
+item_help_m_char_offset => 方向按钮 - 移动偏移
+item_help_m_other_sil => S - 显示/隐藏剪影
+item_help_m_other_shift => 按住 C - 偏移移动速度 x10，相机速度 x4
+
+# ===== 提示 =====
+tip_help_f1 => 按 F1 查看帮助
+tip_help_f => 按 F 查看帮助
+
+# ===== 描述（悬停提示）=====
+desc_char_select => 选择要编辑的角色文件。列表来自 data/characterList.txt 以及已加载模组中的所有 characters/*.json。
+desc_image => 该角色使用的图像/精灵表文件（例如 characters/BOYFRIEND）。重新加载图像会从磁盘重新读取。
+desc_reload_image => 从磁盘重新读取当前图像文件并重建所有动画。在编辑器外修改过精灵表后使用。
+desc_health_icon => 游戏内血条上显示的血条图标（例如 bf、dad、gf）。
+desc_get_icon_color => 提取血条图标的主色，并写入血条 RGB 值。
+desc_vocals => 角色人声轨文件的可选后缀。留空则使用默认人声文件。
+desc_anim_select => 选择要编辑的动画，可修改其名称、符号/标签、帧率、循环标志和偏移。
+desc_anim_name => 游戏逻辑中使用的动画名称（例如 singLEFT），必须与游戏请求的名称一致。
+desc_anim_symbol => 精灵表中该动画的标签/前缀（例如 BF NOTE LEFT0），Animate 图集则填符号名。
+desc_anim_fps => 动画的播放速度（帧/秒）。
+desc_anim_loop => 动画是无限循环，还是播放一次后停在最后一帧。
+desc_anim_indices => 高级：逗号分隔的帧序号列表，指定该动画使用的具体帧。留空则使用整个符号。
+desc_anim_add_update => 用上方数值添加新动画；若名称相同则更新现有动画。更新时保留偏移。
+desc_anim_remove => 删除"动画名称"字段中当前名称对应的动画。
+desc_playable => 该角色由玩家（BF 侧）还是对手（Dad 侧）控制。会切换翻转与默认站位。
+desc_flip_x => 水平镜像角色精灵。在 JSON 中保存为 flip_x。
+desc_healthbar_colors => 血条颜色（角色 JSON 中的 healthbar_colors，各分量 0-255）：R = 红色分量，G = 绿色分量，B = 蓝色分量。决定血条与血条图标的颜色，也可在【角色】菜单用"获取图标颜色"从图标自动提取。
+desc_no_aa => 为该角色关闭抗锯齿（像素风）。在 JSON 中保存为 no_antialiasing。
+desc_scale => 应用于角色精灵的全局缩放倍率。
+desc_sing_duration => 角色在音符后保持唱歌姿态多久（拍），然后回到 idle。
+desc_pos_x => 在默认对手/玩家站位基础上叠加的舞台位置 X 偏移。
+desc_pos_y => 在默认对手/玩家站位基础上叠加的舞台位置 Y 偏移。
+desc_cam_x => 相机跟随点相对角色的 X 位置。
+desc_cam_y => 相机跟随点相对角色的 Y 位置。
+desc_make_ghost => 将当前动画帧冻结为半透明 Ghost 叠加层，方便编辑偏移时对比姿态。
+desc_highlight_ghost => 给 Ghost 叠加层添加红色偏移色调，使其与真实角色区分开。
+desc_ghost_alpha => Ghost 叠加层的不透明度（0 = 完全透明，1 = 完全不透明）。
+desc_save => 将当前角色数据写入 JSON 文件（弹出系统保存对话框）。
+desc_load_template => 用默认 BF 模板（idle + 4 个唱歌动画）替换全部内容，重新开始。
+desc_reload_char => 从 JSON 文件重新加载当前角色，丢弃未保存的修改。
+desc_help_camera => 相机控制。
+desc_help_cam_zoom => 相机放大/缩小。
+desc_help_cam_move => 在舞台上平移相机。
+desc_help_cam_reset => 将相机缩放重置为 1 倍。
+desc_help_char => 角色控制。
+desc_help_char_anim => 切换动画。
+desc_help_char_offset => 微调当前动画的偏移。
+desc_help_char_offset_keys => Ctrl+C 复制、Ctrl+V 粘贴、Ctrl+R 重置、Ctrl+Z 撤销、Ctrl+Y 重做当前偏移；Ctrl+S 保存角色。
+desc_help_char_replay => 从第 0 帧重播当前动画。
+desc_help_char_frame => 逐帧步进动画。
+desc_help_other => 其他控制。
+desc_help_other_sil => 显示/隐藏舞台剪影。
+desc_help_other_shift => 加速偏移与相机移动。
+desc_help_other_ctrl => 降低相机移动速度。
+desc_help_other_help => 切换帮助屏幕。
+desc_help_other_exit => 退出角色编辑器。

@@ -1,4 +1,4 @@
-﻿package games.objects;
+package games.objects;
 
 /*
 	it optimized better than just use a FlxText to display
@@ -23,7 +23,7 @@ class JudgementCounter extends FlxSpriteGroup
 		for (num in 0...runTime + 1)
 		{
 			var numText = new FlxText(0, 0, 0, "0", 20);
-			numText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, FlxTextAlign.LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+			numText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 20, FlxColor.WHITE, FlxTextAlign.LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 			numText.scrollFactor.set();
 			numText.borderSize = 1.25;
 			numText.text = judgeName[num] + ': ';
@@ -35,7 +35,7 @@ class JudgementCounter extends FlxSpriteGroup
 		for (num in 0...runTime + 1)
 		{
 			var numText = new FlxText(0, 0, 0, "0", 20);
-			numText.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, FlxTextAlign.LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+			numText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 20, FlxColor.WHITE, FlxTextAlign.LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 			numText.scrollFactor.set();
 			numText.borderSize = 1.25;
 			add(numText);

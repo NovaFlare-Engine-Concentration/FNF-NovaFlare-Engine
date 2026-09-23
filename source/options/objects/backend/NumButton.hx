@@ -16,6 +16,13 @@ class NumButton extends FlxSpriteGroup {
     public var moveBG:Rect;
     public var moveDis:Rect;
     public var rod:Rect;
+
+    /**
+     * 条的**满宽**（= 底槽宽度）。
+     * ★ 计算填充宽度/杆位置一律用它，不要用 `moveDis.width` / `moveBG.width` 反推
+     *   （`moveDis` 是靠 scale.x 缩着显示的，`.width` 不反映"亮到哪"）。
+     */
+    var barFullW:Float = 0;
 	
     var max:Float;
     var min:Float;
@@ -42,9 +49,13 @@ class NumButton extends FlxSpriteGroup {
         addButton.y += (height - addButton.height) / 2;
         add(addButton);
 
-        moveBG = new Rect(deleteButton.width * 1.2, 
+        /** 条的起点（相对本组）与满宽 —— 底槽和填充共用同一份几何 */
+        var barX:Float = deleteButton.width * 1.2;
+        barFullW = width - (deleteButton.width + addButton.width) * 1.2;
+
+        moveBG = new Rect(barX, 
                          0, 
-                         width - (deleteButton.width + addButton.width) * 1.2, 
+                         barFullW, 
                          deleteButton.height * 0.5, 
                          deleteButton.height * 0.5 * 0.5, 
                          deleteButton.height * 0.5 * 0.5,
@@ -54,16 +65,27 @@ class NumButton extends FlxSpriteGroup {
         moveBG.y += (height - moveBG.height) / 2;
         add(moveBG);
 
-        moveDis = new Rect(deleteButton.width * 1.2, 
+        moveDis = new Rect(barX, 
                          0, 
-                         width - (deleteButton.width + addButton.width) * 1.2, 
+                         barFullW, 
                          deleteButton.height * 0.5, 
                          deleteButton.height * 0.5 * 0.5, 
                          deleteButton.height * 0.5 * 0.5,
                          EngineSet.mainColor,
-                         1.0
+                         1.0,
+                         0,
+                         0xFFFFFFFF,
+                         // ★ noCache = true 是【必需】的：rectUpdate 会改这张帧的宽度来
+                         //   取"左边一段"当填充，绝不能用 Cache 里那份被所有同尺寸条
+                         //   共用的帧（否则一条改宽、全都跟着变 —— 详见 Rect 构造函数注释）
+                         true
                          );
         moveDis.y += (height - moveDis.height) / 2;
+        // ★ flixel 的 `origin` 默认是【中心】（见 FlxSprite.hx 里 centerOrigin 的注释），
+        //   所以直接改 scale.x 是"绕中心缩" —— 左边缘会右移 origin.x*(1-scale)，
+        //   填充会飘到条的中间去（实测 p=1/3 时落在 887~998，而不是 769~884）。
+        //   → 把原点挪到左上角，缩放才会从左边缘起算。
+        moveDis.origin.set(0, 0);
         add(moveDis);
 
         rod = new Rect(deleteButton.width * 1.2, 
@@ -226,10 +248,28 @@ class NumButton extends FlxSpriteGroup {
 
     function rectUpdate(percent:Float, ?outputData)
 	{
-		moveDis._frame.frame.width = moveDis.width * percent;
-		if (moveDis._frame.frame.width < 1)
-			moveDis._frame.frame.width = 1;
-		rod.x = follow.followX + follow.innerX + innerX + deleteButton.width * 1.2 + (moveBG.width - rod.width) * percent;
+		if (percent < 0) percent = 0;
+		if (percent > 1) percent = 1;
+
+		// ★★ 踩坑记录（下面两条都是实测踩出来的，别再走回头路）：
+		//   ① 只改 `_frame.frame.width` 不够：它管的是【源矩形】，而 Sprite 的
+		//      【目标宽】是建好时定死的整条宽（= frameWidth × scale.x，跟源无关），
+		//      于是"115px 的源"被横向【拉伸】回 345px，画面上依旧是一条满的 ——
+		//      这正是用户报的"显示的与实际上不符"（p=1/3 时整条全亮，只有杆在 1/3）。
+		//   ② 改用 clipRect 也不行：`clipRect.width` 只改、不重新赋值的话根本不生效
+		//      （setter 才干活，见 Bar.hx 那句 `// flixel is retarded`）；
+		//      而走了 setter 之后 `frame.clipTo()` 是在【原帧上累积】缩减的，
+		//      一旦被裁到 1px 就再也回不到满宽（实测滚到最大时整条反而全灭）。
+		//   → 正解：**源和目标按同一比例一起缩** —— 源只取纹理最左边 fillW，
+		//     同时用 scale.x 把目标宽也缩到 fillW，两者 1:1，既不拉伸也不累积。
+		// ★ 一律用 barFullW 算 —— 不能用 moveDis.width / moveBG.width 反推。
+		var fillW:Float = barFullW * percent;
+		if (fillW < 1)
+			fillW = 1;
+		moveDis._frame.frame.width = fillW;     // 源：只取纹理最左边 fillW
+		moveDis.scale.x = fillW / barFullW;     // 目标：跟着缩，否则会被拉伸回满宽
+		// 杆跨在填充右缘上（左右各半个杆宽）：percent=1 时杆的右缘正好贴住条的右缘
+		rod.x = follow.followX + follow.innerX + innerX + deleteButton.width * 1.2 + (barFullW - rod.width) * percent;
 
         if (outputData == null) return;
         follow.setValue(outputData);
@@ -237,7 +277,8 @@ class NumButton extends FlxSpriteGroup {
         follow.updateDisText();
 	}
     
-    private function createButton(size:Float, color:Int, symbol:String) {
+    /** 绘制圆角方块按钮位图（+/- 符号白线）。其它控件可复用同一样式。 */
+    public static function createButton(size:Float, color:Int, symbol:String) {
         // 绘制按钮背景
         var button = new Shape();
         button.graphics.beginFill(color);

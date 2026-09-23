@@ -1,5 +1,14 @@
 languageName => 中文
 fontName => Lang-ZH
+langPreview => 当你在设置中调整语言然后看这条消息的时候，你发现你成功设置了语言。于是你再次切换语言——哦不为什么看不懂了。
 justsayLang => Lang-ZH
 play => 游玩
 back => 返回
+optionsTitle => 选项
+optionsMenuTitle => 选项菜单
+rebinding => 重新绑定
+holdBCancel => 按住B取消
+holdCDelete => 按住C删除
+holdEscCancel => 按住ESC取消
+holdBackspaceDelete => 按住退格键删除modInfoEmpty => 这里什么也没有，你满意了吧
+modInfoEmptyDesc => 去 Mods 菜单里选一个 Mod，这里就会显示它的信息。

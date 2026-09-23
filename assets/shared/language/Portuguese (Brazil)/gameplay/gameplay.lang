@@ -1,0 +1,13 @@
+// Gameplay Changers Substate - Portuguese (Brazil)
+scrollType => Tipo de Rolagem
+scrollSpeed => Velocidade de Rolagem
+playbackRate => Taxa de Reprodução
+healthGain => Multiplicador de Ganho de Vida
+healthLoss => Multiplicador de Perda de Vida
+instakill => Morte Instantânea no Erro
+practice => Modo Prática
+botplay => Jogar Automaticamente
+
+// Scroll Type options
+multiplicative => multiplicativo
+constant => constante

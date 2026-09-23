@@ -1,0 +1,1849 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mods 菜单重做原型 v3 — NewModsMenuState · NovaFlare Engine</title>
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   字体：与游戏内一致（chillax = 拉丁主字体 / Lang-ZH = 中文）
+   ══════════════════════════════════════════════════════════════════════════ */
+@font-face{font-family:'NF-Latin';src:url("assets/fonts/chillax.ttf") format('truetype');font-display:swap}
+@font-face{font-family:'NF-ZH';src:url("assets/fonts/Lang-ZH.ttf") format('truetype');font-display:swap}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   设计令牌 —— 与 EngineSet / CharacterEditorMenuBar / 设置界面重做同源
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --accent:#96B5FF;            /* EngineSet.mainColor  */
+  --accent2:#FF90DC;           /* EngineSet.minorColor */
+  --text:#EDEFF7;
+  --dim:#9BA1B8;
+  --hint:#6F7690;
+  --ok:#22C55E;
+  --warn:#F59E0B;
+  --danger:#EF4444;
+  --chrome-close:#C42B1C;      /* WindowControlBar 的 × 悬停红 */
+  --line:rgba(255,255,255,.075);
+  --line-2:rgba(255,255,255,.13);
+  --bar-h:36px;                /* WindowControlBar.BAR_HEIGHT */
+  --win-btn-w:46px;            /* WindowControlBar.BTN_W */
+  --left-w:384px;              /* 30% × 1280 */
+  --e-io:cubic-bezier(.87,0,.13,1);   /* ≈ FlxEase.expoInOut */
+  --e-out:cubic-bezier(.16,1,.3,1);   /* ≈ FlxEase.expoOut  */
+  --mod:150,181,255;           /* 当前 mod 的 pack.color（运行期注入，仅用于染色） */
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#0B0A11;color:var(--text);
+  font-family:'NF-ZH','NF-Latin','Microsoft YaHei','PingFang SC',system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{padding:14px 14px 34px;display:flex;flex-direction:column;align-items:center;gap:12px}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input{font:inherit}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(150,181,255,.26);border-radius:99px}
+::-webkit-scrollbar-thumb:hover{background:rgba(150,181,255,.45)}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   演示控制条（原型专用，不属于游戏界面）
+   ══════════════════════════════════════════════════════════════════════════ */
+#demoBar{width:1280px;max-width:100%;display:flex;flex-wrap:wrap;gap:7px;align-items:center;
+  padding:9px 11px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07)}
+#demoBar .tag{font-size:11.5px;color:var(--hint);letter-spacing:.06em}
+#demoBar .sep{width:1px;height:18px;background:rgba(255,255,255,.12);margin:0 3px}
+.chip{padding:4px 10px;border-radius:999px;font-size:12px;color:var(--dim);text-decoration:none;
+  border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);transition:.18s}
+.chip:hover{color:#fff;border-color:rgba(150,181,255,.32)}
+.chip.on{color:#101223;background:linear-gradient(140deg,var(--accent),#6E8FE0);border-color:transparent;font-weight:600}
+#demoBar label.sw{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dim);cursor:pointer}
+#demoBar input[type=checkbox]{accent-color:#96B5FF}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   舞台：1280×720 逻辑像素，整体等比缩放适配窗口
+   ══════════════════════════════════════════════════════════════════════════ */
+#stageWrap{width:1280px;height:720px;position:relative;flex:0 0 auto}
+#stage{position:absolute;left:0;top:0;width:1280px;height:720px;overflow:hidden;
+  transform-origin:top left;box-shadow:0 26px 80px rgba(0,0,0,.62),0 0 0 1px rgba(255,255,255,.07);
+  user-select:none;touch-action:manipulation}
+
+/* 背景：menuDesat/menuBG + 选中 mod 的 pack.color 染色（沿用原逻辑：只染色，不动 pack 显示） */
+#bg{position:absolute;inset:0;background:url("assets/shared/images/menuBG.png") center/cover no-repeat;
+  transform:scale(1.04);filter:saturate(.75) brightness(.7)}
+#tint{position:absolute;inset:0;transition:background 700ms var(--e-io);
+  background:
+    radial-gradient(120% 90% at 80% 0%, rgba(var(--mod),.30) 0%, rgba(var(--mod),.09) 45%, rgba(0,0,0,0) 75%),
+    linear-gradient(180deg, rgba(9,9,14,.66) 0%, rgba(9,9,14,.46) 42%, rgba(9,9,14,.74) 100%)}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   自绘窗口条（WindowControlBar CONSTANT 观感：高 36、右侧按钮列宽 46）
+   左：标题块 ｜ 中：9 个工具按钮 + 提示 ｜ 右：[文件夹][搜索][退出] [−][□][×]
+   ══════════════════════════════════════════════════════════════════════════ */
+#chrome{position:absolute;left:0;top:0;width:1280px;height:var(--bar-h);display:flex;align-items:stretch;
+  background:linear-gradient(180deg,rgba(14,15,21,.86),rgba(10,11,16,.78));
+  -webkit-backdrop-filter:blur(14px) saturate(150%);backdrop-filter:blur(14px) saturate(150%);
+  border-bottom:1px solid var(--line);z-index:5}
+#chromeTitle{display:flex;align-items:center;gap:8px;padding:0 12px 0 12px;flex:0 0 auto}
+#chromeTitle .logo{width:19px;height:19px;border-radius:6px;display:grid;place-items:center;color:#14131A;
+  background:linear-gradient(140deg,var(--accent),#6E8FE0);flex:0 0 auto}
+#chromeTitle .name{font-size:12.5px;font-weight:700;letter-spacing:.01em;white-space:nowrap}
+.csep{width:1px;align-self:center;height:18px;background:var(--line-2);flex:0 0 auto}
+#screenLabel{display:flex;align-items:center;gap:9px;padding:0 12px;flex:0 0 auto;white-space:nowrap}
+#screenLabel b{font-size:12.5px;font-weight:700}
+#screenLabel .sub{font-size:11px;color:var(--hint)}
+
+/* 9 个工具按钮（原版 modsMenuButtons 帧 0,1,4,5,2,3,6,7,8） */
+#toolbar{display:flex;align-items:center;gap:3px;padding:0 8px;flex:0 0 auto}
+.tool{position:relative;width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:var(--dim);
+  background:transparent;transition:.15s}
+.tool:hover:not(:disabled){color:#fff;background:rgba(150,181,255,.20)}
+.tool:disabled{opacity:.28;cursor:not-allowed}
+#stage.focus-tool .tool.focus{color:#0D1017;background:linear-gradient(140deg,rgba(var(--mod),.95),rgba(var(--mod),.6))}
+.tsep{width:1px;height:16px;background:var(--line-2);margin:0 4px;flex:0 0 auto}
+.tool .tip{position:absolute;top:32px;left:50%;transform:translateX(-50%);white-space:nowrap;z-index:30;
+  padding:5px 9px;border-radius:8px;font-size:11px;color:var(--text);background:rgba(8,9,13,.97);
+  border:1px solid rgba(255,255,255,.14);box-shadow:0 8px 22px rgba(0,0,0,.5);
+  opacity:0;pointer-events:none;transition:.14s}
+.tool .tip kbd{font-family:inherit;color:var(--accent);margin-left:5px;font-size:10px}
+.tool:hover .tip{opacity:1}
+
+/* 窗口条中部的拖拽区（对应 WindowControlBar 的拖窗区）：只挂"待重启"徽章 */
+#dragZone{flex:1 1 auto;min-width:0;display:flex;align-items:center;justify-content:center;gap:10px;
+  cursor:default;padding:0 10px}
+#dirtyBadge{display:none;align-items:center;gap:6px;height:22px;padding:0 10px;border-radius:999px;font-size:11.5px;
+  font-weight:600;background:rgba(245,158,11,.16);color:#F4C46B;border:1px solid rgba(245,158,11,.34);white-space:nowrap}
+#dirtyBadge.on{display:inline-flex}
+#dragZone .dragHint{font-size:10.5px;color:rgba(111,118,144,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 窗口条右侧：[打开 mods 文件夹] [搜索框] [退出 mod 列表] */
+#chromeRight{display:flex;align-items:center;gap:6px;padding:0 8px;flex:0 0 auto}
+.barbtn{height:26px;display:inline-flex;align-items:center;gap:6px;padding:0 9px;border-radius:7px;font-size:12px;
+  color:var(--dim);background:rgba(255,255,255,.05);border:1px solid var(--line);transition:.16s;white-space:nowrap}
+.barbtn:hover{color:#fff;background:rgba(150,181,255,.18);border-color:rgba(150,181,255,.3)}
+.barbtn.danger:hover{color:#fff;background:var(--chrome-close);border-color:transparent}
+#searchWrap{display:flex;align-items:center;gap:7px;height:26px;width:196px;padding:0 9px;border-radius:7px;
+  background:rgba(6,7,11,.66);border:1px solid var(--line);transition:.16s}
+#searchWrap:focus-within{border-color:rgba(150,181,255,.45);box-shadow:0 0 0 3px rgba(150,181,255,.12)}
+#searchWrap svg{flex:0 0 auto;color:var(--hint)}
+#q{flex:1 1 auto;min-width:0;background:none;border:none;outline:none;color:var(--text);font-size:12px}
+#q::placeholder{color:var(--hint)}
+
+/* 窗口控制按钮列：[−][□][×]，每个 46×36，× 悬停变红（引擎同色） */
+#winCtl{display:flex;align-items:stretch;flex:0 0 auto}
+.wbtn{width:var(--win-btn-w);height:var(--bar-h);display:grid;place-items:center;color:#D6DAE4;transition:.13s}
+.wbtn:hover{background:rgba(255,255,255,.10)}
+.wbtn.close:hover{background:var(--chrome-close);color:#fff}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   主体：左 30%（384px）/ 右 70%（896px），全部贴屏幕边缘，无外边距、无缝隙
+   ══════════════════════════════════════════════════════════════════════════ */
+#body{position:absolute;left:0;top:var(--bar-h);width:1280px;height:calc(720px - var(--bar-h));display:flex}
+#left{width:var(--left-w);height:100%;display:flex;flex-direction:column;flex:0 0 auto;
+  border-right:1px solid var(--line);background:rgba(9,10,15,.42)}
+
+/* 列表顶部两个标签：【已启用】【已禁用】 */
+#tabs{display:flex;height:40px;flex:0 0 auto;border-bottom:1px solid var(--line)}
+.tab{flex:1 1 0;min-width:0;position:relative;display:flex;align-items:center;justify-content:center;gap:7px;
+  font-size:12.5px;color:var(--dim);transition:.16s}
+.tab:hover{color:#fff;background:rgba(255,255,255,.045)}
+.tab.on{color:#fff;font-weight:700;background:rgba(var(--mod),.12)}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--accent)}
+.tab .n{font-size:11px;padding:1px 7px;border-radius:999px;background:rgba(255,255,255,.09);color:var(--dim)}
+.tab.on .n{background:rgba(var(--mod),.28);color:#fff}
+.tab .dot{width:7px;height:7px;border-radius:9px;flex:0 0 auto}
+.tab.t-on .dot{background:var(--ok)}
+.tab.t-off .dot{background:var(--danger)}
+
+/* 列表（整行通铺到屏幕左右边缘，行间 1px 分隔） */
+#listScroll{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;position:relative;touch-action:pan-y;scroll-behavior:auto}
+#list{position:relative}
+.bl-row{position:relative;display:flex;align-items:center;gap:11px;height:56px;padding:0 12px;cursor:pointer;
+  border-bottom:1px solid rgba(255,255,255,.05);transition:background .14s;touch-action:pan-y}
+.bl-row:hover{background:rgba(150,181,255,.09)}
+.bl-row.sel{background:linear-gradient(90deg,rgba(var(--mod),.24),rgba(var(--mod),.05))}
+.bl-row.sel::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}
+#stage.focus-list .bl-row.sel{box-shadow:inset 0 0 0 1px rgba(var(--mod),.55)}
+.bl-row.off .bl-name{color:#8A8F9E}
+.bl-row.off .bl-icon{filter:grayscale(.85) brightness(.78)}
+.bl-row .grip{position:absolute;right:6px;top:50%;transform:translateY(-50%);color:var(--hint);opacity:0;transition:.15s}
+.bl-row:hover .grip{opacity:.75}
+/* 被长按拖起的那一行 */
+.bl-row.dragging{background:rgba(30,34,46,.96);box-shadow:0 12px 30px rgba(0,0,0,.55),inset 0 0 0 1px rgba(var(--mod),.6);
+  z-index:20;cursor:grabbing;border-bottom-color:transparent}
+/* pack 图标：显示逻辑与原版完全一致（pack.png → pack-pixel.png → unknownMod.png，150px 切帧） */
+.bl-icon{width:40px;height:40px;flex:0 0 auto;border-radius:9px;background:#0C0D12 center/cover no-repeat;
+  box-shadow:0 0 0 1px rgba(255,255,255,.14),0 3px 10px rgba(0,0,0,.4)}
+.bl-text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+/* 列表项版式：pack|ModName / pack|文件夹名
+   ★ 裁剪容器必须是 nowrap 的 flex：无缝走马灯会往里塞第二份文案，
+     若用默认的 block/inline-block，两个兄弟节点放不下就会折行成"两行同名"，
+   而容器高度自适应 → overflow:hidden 也裁不掉。flex + nowrap 只会横向溢出。 */
+.bl-name-clip,.bl-folder-clip{display:flex;flex-wrap:nowrap;align-items:center;overflow:hidden}
+.bl-name{flex:0 0 auto;font-size:13px;font-weight:600;white-space:nowrap;will-change:transform}
+.bl-folder{flex:0 0 auto;font-size:11px;color:var(--hint);font-family:ui-monospace,Consolas,monospace;
+  white-space:nowrap;will-change:transform}
+/* 关闭走马灯 → 退回省略号（两行都截断） */
+#stage.no-marquee .bl-name-clip,#stage.no-marquee .bl-folder-clip{display:block}
+#stage.no-marquee .bl-name,#stage.no-marquee .bl-folder{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+/* 长按 1 秒的进度条：贴行底部，随按住时长填满 */
+.bl-row.pressing::after{content:"";position:absolute;left:0;bottom:0;height:2px;background:var(--accent);
+  box-shadow:0 0 10px rgba(var(--mod),.85);width:0;animation:pressbar var(--press-ms,1000ms) linear forwards}
+@keyframes pressbar{from{width:0}to{width:100%}}
+.bl-mini{display:flex;gap:4px;flex:0 0 auto}
+.mini{display:inline-flex;align-items:center;height:15px;padding:0 5px;border-radius:4px;font-size:9.5px;
+  letter-spacing:.03em;background:rgba(255,255,255,.07);color:var(--dim)}
+.mini.g{background:rgba(34,197,94,.16);color:#7DE3A6}
+.mini.w{background:rgba(245,158,11,.16);color:#F4C46B}
+.mini.b{background:rgba(150,181,255,.18);color:#B9CEFF}
+.bl-empty{padding:26px 14px;text-align:center;font-size:12px;color:var(--hint);line-height:1.8}
+#dropLine{position:absolute;left:0;right:0;height:2px;background:var(--accent);opacity:0;pointer-events:none;
+  box-shadow:0 0 12px rgba(var(--mod),.95);transition:top .1s var(--e-out),opacity .1s;z-index:25}
+#dropLine.on{opacity:1}
+
+/* 左栏底部：[原] RELOAD / ENABLE ALL / DISABLE ALL */
+#listFooter{display:flex;height:40px;flex:0 0 auto;border-top:1px solid var(--line)}
+.btn{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;
+  font-weight:600;color:var(--text);background:transparent;transition:.16s;border-right:1px solid var(--line)}
+.btn:last-child{border-right:none}
+.btn:hover:not(:disabled){background:rgba(150,181,255,.16)}
+.btn:disabled{opacity:.32;cursor:not-allowed}
+.btn.ok:hover:not(:disabled){background:rgba(34,197,94,.20)}
+.btn.danger:hover:not(:disabled){background:rgba(239,68,68,.20)}
+
+/* ── 右栏 70%：mod 详细信息 ── */
+#right{flex:1 1 auto;min-width:0;height:100%;display:flex;flex-direction:column;position:relative;overflow:hidden}
+#dHead{display:flex;gap:16px;padding:18px 20px 16px;flex:0 0 auto;border-bottom:1px solid var(--line)}
+#dIconWrap{position:relative;width:96px;height:96px;flex:0 0 auto;border-radius:18px;
+  background:#0B0C11 center/cover no-repeat;box-shadow:0 0 0 1px rgba(255,255,255,.16),0 10px 26px rgba(0,0,0,.45)}
+#dMeta{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:8px;padding-top:2px}
+#dName{font-size:23px;font-weight:700;line-height:1.22;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;word-break:break-word;padding-right:8px}
+#dChips{display:flex;flex-wrap:wrap;gap:6px}
+.mchip{display:inline-flex;align-items:center;gap:6px;height:23px;padding:0 8px;border-radius:7px;font-size:11px;
+  background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--dim)}
+.mchip b{color:var(--text);font-weight:600}
+.mchip .mono{font-family:ui-monospace,Consolas,monospace}
+.swatch{width:11px;height:11px;border-radius:3px;box-shadow:0 0 0 1px rgba(255,255,255,.28)}
+#dBadges{display:flex;flex-wrap:wrap;gap:6px}
+.badge{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:999px;font-size:11px;font-weight:600}
+.badge.g{background:rgba(34,197,94,.16);color:#7DE3A6;border:1px solid rgba(34,197,94,.3)}
+.badge.w{background:rgba(245,158,11,.16);color:#F4C46B;border:1px solid rgba(245,158,11,.32)}
+.badge.b{background:rgba(150,181,255,.18);color:#B9CEFF;border:1px solid rgba(150,181,255,.32)}
+.badge.r{background:rgba(239,68,68,.15);color:#F79A9A;border:1px solid rgba(239,68,68,.3)}
+/* 右下角 → 详情右上角：【启用 / 禁用】 */
+#dTopRight{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+#dToggle{display:inline-flex;align-items:center;gap:9px;height:38px;padding:0 14px 0 10px;border-radius:11px;
+  font-size:13px;font-weight:700;transition:.18s;border:1px solid transparent}
+#dToggle.on{color:#7DE3A6;background:rgba(34,197,94,.14);border-color:rgba(34,197,94,.34)}
+#dToggle.off{color:#F79A9A;background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.32)}
+#dToggle:hover{filter:brightness(1.18)}
+#dToggle .sw{width:34px;height:19px;border-radius:99px;position:relative;background:rgba(255,255,255,.2);flex:0 0 auto;transition:.2s var(--e-out)}
+#dToggle .sw i{position:absolute;top:2.5px;left:2.5px;width:14px;height:14px;border-radius:99px;background:#fff;transition:.2s var(--e-out)}
+#dToggle.on .sw{background:rgba(34,197,94,.85)}
+#dToggle.on .sw i{left:17.5px}
+#dToggleHint{font-size:10.5px;color:var(--hint)}
+
+#dBody{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;padding:16px 20px 0}
+#dDescLabel{font-size:10.5px;letter-spacing:.16em;color:var(--hint);margin-bottom:8px;flex:0 0 auto}
+#dDescWrap{flex:1 1 auto;min-height:0;position:relative}
+#dDesc{position:absolute;inset:0;overflow-y:auto;padding-right:12px;font-size:13.5px;line-height:1.8;color:#D7DBE6;
+  white-space:pre-wrap;word-break:break-word}
+#dDesc::-webkit-scrollbar{width:6px}
+/* [原] modRestartText：* Moving or Toggling On/Off this Mod will restart the game. */
+#dFoot{flex:0 0 auto;display:flex;align-items:center;gap:10px;height:40px;border-top:1px solid var(--line);margin-top:12px}
+#restartHint{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#F4C46B}
+#restartHint.hide{visibility:hidden}
+#dFoot .grow{flex:1 1 auto}
+#dFoot .folderNote{font-size:11px;color:var(--hint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   空状态（[原] NO MODS INSTALLED + 每秒轮询）
+   ══════════════════════════════════════════════════════════════════════════ */
+#empty{position:absolute;left:0;top:var(--bar-h);width:1280px;height:calc(720px - var(--bar-h));display:none;
+  align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center;padding:40px;
+  background:rgba(9,10,15,.5)}
+#empty.on{display:flex}
+#empty .eico{width:84px;height:84px;border-radius:24px;display:grid;place-items:center;color:var(--accent);
+  background:rgba(150,181,255,.10);border:1px dashed rgba(150,181,255,.4)}
+#empty h2{font-size:23px;font-weight:700}
+#empty p{font-size:13px;color:var(--dim);max-width:640px;line-height:1.85}
+#empty .path{font-family:ui-monospace,Consolas,monospace;color:var(--text);background:rgba(255,255,255,.06);padding:2px 7px;border-radius:6px}
+#empty .row{display:flex;gap:10px;margin-top:4px}
+#empty .bigbtn{height:40px;padding:0 16px;border-radius:10px;display:inline-flex;align-items:center;gap:7px;font-size:12.5px;
+  font-weight:600;color:var(--text);background:rgba(255,255,255,.07);border:1px solid var(--line-2)}
+#empty .bigbtn:hover{background:rgba(150,181,255,.2)}
+#empty .scan{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--hint)}
+#empty .beat{display:flex;gap:4px}
+#empty .beat i{width:5px;height:5px;border-radius:9px;background:var(--accent);opacity:.35;animation:beat 1.2s infinite}
+#empty .beat i:nth-child(2){animation-delay:.2s}
+#empty .beat i:nth-child(3){animation-delay:.4s}
+@keyframes beat{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+#empty .egg{font-size:13px;color:var(--accent2);font-weight:700;letter-spacing:.06em}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   设置抽屉（原 settings 按钮 → ModSettingsSubState）：从右侧贴边滑出
+   ══════════════════════════════════════════════════════════════════════════ */
+#drawer{position:absolute;right:0;top:var(--bar-h);width:440px;height:calc(720px - var(--bar-h));padding:16px 18px;
+  display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(22,22,30,.96),rgba(14,14,20,.97));
+  border-left:1px solid var(--line-2);transform:translateX(100%);transition:transform 320ms var(--e-out);z-index:12;
+  box-shadow:-24px 0 60px rgba(0,0,0,.5)}
+#drawer.on{transform:translateX(0)}
+#drawer h3{font-size:16px;font-weight:700;flex:0 0 auto}
+#drawer .sub{font-size:11px;color:var(--hint);margin-top:5px;flex:0 0 auto;font-family:ui-monospace,Consolas,monospace}
+#drawerList{flex:1 1 auto;min-height:0;overflow-y:auto;margin-top:12px;padding-right:4px}
+.opt{padding:11px 12px;border-radius:11px;background:rgba(255,255,255,.04);border:1px solid var(--line);margin-bottom:8px}
+.opt .lbl{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px}
+.opt .val{font-size:12px;color:var(--accent);font-variant-numeric:tabular-nums}
+.opt .dsc{font-size:10.5px;color:var(--hint);margin-top:5px;line-height:1.6}
+.opt.topt{background:rgba(150,181,255,.12);border-color:rgba(150,181,255,.26);font-weight:700;font-size:11.5px;
+  letter-spacing:.08em;color:#B9CEFF}
+.opt input[type=range]{width:100%;margin-top:9px;accent-color:#96B5FF}
+.opt select{width:100%;margin-top:8px;height:30px;border-radius:8px;background:#12141A;color:var(--text);
+  border:1px solid var(--line-2);padding:0 8px;outline:none;font-size:12px}
+.opt .keycap{margin-top:8px;height:30px;border-radius:8px;display:grid;place-items:center;font-size:12px;
+  background:#12141A;border:1px solid var(--line-2);font-family:ui-monospace,Consolas,monospace}
+.mini-switch{width:44px;height:24px;border-radius:99px;background:rgba(255,255,255,.14);position:relative;transition:.2s;flex:0 0 auto}
+.mini-switch i{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:99px;background:#fff;transition:.2s}
+.mini-switch.on{background:#22C55E}.mini-switch.on i{left:23px}
+#drawer .dfoot{flex:0 0 auto;display:flex;height:40px;margin-top:12px;border-top:1px solid var(--line)}
+#drawer .dfoot .btn{border-right:1px solid var(--line)}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   退出确认 / 操作反馈
+   ══════════════════════════════════════════════════════════════════════════ */
+#mask{position:absolute;inset:0;background:rgba(5,5,9,.64);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
+  display:grid;place-items:center;opacity:0;pointer-events:none;transition:.2s;z-index:20}
+#mask.on{opacity:1;pointer-events:auto}
+#confirm{width:452px;padding:22px;text-align:center;border-radius:14px;background:linear-gradient(180deg,rgba(28,28,38,.98),rgba(17,17,23,.99));
+  border:1px solid var(--line-2);box-shadow:0 24px 60px rgba(0,0,0,.6)}
+#confirm .ci{width:52px;height:52px;border-radius:16px;margin:0 auto 12px;display:grid;place-items:center;
+  background:rgba(245,158,11,.16);color:#F4C46B}
+#confirm h3{font-size:18px;font-weight:700}
+#confirm p{font-size:12.5px;color:var(--dim);margin-top:9px;line-height:1.8}
+#confirm .row{display:flex;gap:10px;margin-top:18px;height:42px}
+#toast{position:absolute;left:50%;bottom:16px;transform:translate(-50%,10px);padding:9px 16px;border-radius:999px;
+  font-size:12.5px;background:rgba(8,9,13,.95);border:1px solid var(--line-2);opacity:0;transition:.2s;z-index:22;white-space:nowrap}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* 长按拖拽提示气泡 */
+#pressHint{position:absolute;padding:5px 10px;border-radius:8px;font-size:11px;background:rgba(8,9,13,.96);
+  border:1px solid rgba(var(--mod),.5);color:#fff;opacity:0;pointer-events:none;transition:.16s;z-index:26;white-space:nowrap}
+#pressHint.on{opacity:1}
+
+/* pack 多帧图标动画（与原版 icon.animation 等价：150px 切帧 + iconFramerate） */
+@keyframes iconframes{0%{background-position:0% 0}25%{background-position:33.333% 0}50%{background-position:66.667% 0}
+  75%{background-position:100% 0}100%{background-position:100% 0}}
+.bl-icon.anim,#dIconWrap.anim{animation:iconframes .4s steps(1,end) infinite}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   规格说明区（页面下方，非游戏界面）
+   ══════════════════════════════════════════════════════════════════════════ */
+#spec{width:1280px;max-width:100%;display:flex;flex-direction:column;gap:12px}
+.card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px 18px}
+.card h2{font-size:14.5px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.card h2 .n{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-size:11px;
+  background:linear-gradient(140deg,var(--accent),#6E8FE0);color:#101223}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid rgba(255,255,255,.07);vertical-align:top}
+th{color:var(--hint);font-weight:600;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+td code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#B9CEFF;background:rgba(150,181,255,.10);
+  padding:1px 5px;border-radius:5px}
+.tag-new{display:inline-block;font-size:9.5px;padding:1px 6px;border-radius:999px;background:rgba(255,144,220,.18);color:#FFB6E6}
+.tag-keep{display:inline-block;font-size:9.5px;padding:1px 6px;border-radius:999px;background:rgba(34,197,94,.16);color:#7DE3A6}
+ul.plain{font-size:12.5px;color:var(--dim);line-height:1.9;padding-left:18px}
+ul.plain b{color:var(--text)}
+a{color:var(--accent)}
+#selftest{display:none;white-space:pre-wrap;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+  color:#7DE3A6;background:#0A0C10;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:13px;line-height:1.7}
+#selftest.on{display:block}
+#selftest .fail{color:#F79A9A}
+</style>
+</head>
+<body>
+
+<!-- ══════════════ 演示控制条（原型专用） ══════════════ -->
+<div id="demoBar">
+  <span class="tag">原型控制</span>
+  <button class="chip on" data-lang="cn">中文</button>
+  <button class="chip" data-lang="en">English</button>
+  <span class="sep"></span>
+  <span class="tag">场景</span>
+  <button class="chip on" data-scene="many">22 个模组（滚动测试）</button>
+  <button class="chip" data-scene="few">6 个</button>
+  <button class="chip" data-scene="one">仅 1 个</button>
+  <button class="chip" data-scene="empty">无模组空状态</button>
+  <span class="sep"></span>
+  <span class="tag">长名字</span>
+  <button class="chip" data-mq="off">省略号</button>
+  <button class="chip" data-mq="once">单程 + 瞬回</button>
+  <button class="chip on" data-mq="loop">单向循环（默认）</button>
+  <span class="sep"></span>
+  <button class="chip" data-act="settings">设置抽屉</button>
+  <button class="chip" data-act="exit">模拟退出</button>
+  <button class="chip" data-act="reset">重置</button>
+  <span class="sep"></span>
+  <label class="sw"><input type="checkbox" id="cbFreeplay"> 从选歌进入（isFreePlay）</label>
+  <label class="sw"><input type="checkbox" id="cbEgg"> 空状态彩蛋</label>
+  <span class="sep"></span>
+  <a class="chip" href="?selftest=1">跑内置自检</a>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     游戏界面 1280×720（所有元素贴屏幕边缘，不留空隙）
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div id="stageWrap"><div id="stage" class="focus-list" data-role="stage">
+
+  <div id="bg"></div>
+  <div id="tint" data-role="tint"></div>
+
+  <!-- ═══ 自绘窗口条（原底部 9 个按钮全部上移到这里） ═══ -->
+  <div id="chrome" data-role="chrome">
+    <div id="chromeTitle">
+      <span class="logo" data-icon="spark" data-size="12"></span>
+      <span class="name">NovaFlare Engine</span>
+    </div>
+    <span class="csep"></span>
+    <div id="screenLabel">
+      <b data-i18n="title">模组管理</b>
+    </div>
+    <span class="csep"></span>
+    <!-- 9 个工具按钮：置顶/置底/上移/下移 | 上一个/下一个 | 设置/开关/退出 -->
+    <div id="toolbar" data-role="toolbar"></div>
+    <!-- 拖动区（对应 WindowControlBar 的拖窗区）：只放"待重启"徽章 -->
+    <div id="dragZone">
+      <span id="dirtyBadge" data-role="dirtyBadge"></span>
+    </div>
+    <!-- "-口X" 左边依次：[打开 mods 文件夹] [搜索框] [退出 mod 列表] -->
+    <div id="chromeRight">
+      <button class="barbtn" id="btnFolder" data-role="folder" data-i18n-title="openFolder">
+        <span data-icon="folder" data-size="15"></span><span data-i18n="openFolderShort">打开 mods 文件夹</span>
+      </button>
+      <label id="searchWrap">
+        <span data-icon="search" data-size="15"></span>
+        <input id="q" type="text" data-i18n-ph="search" placeholder="搜索模组…" autocomplete="off" spellcheck="false">
+      </label>
+      <button class="barbtn danger" id="btnExit" data-role="exitTop" data-i18n-title="exitList">
+        <span data-icon="exit" data-size="15"></span><span data-i18n="exitListShort">退出 mod 列表</span>
+      </button>
+    </div>
+    <div id="winCtl">
+      <button class="wbtn" id="wMin" data-role="winMin" data-i18n-title="winMin"><span data-icon="min" data-size="14"></span></button>
+      <button class="wbtn" id="wMax" data-role="winMax" data-i18n-title="winMax"><span data-icon="sq" data-size="12"></span></button>
+      <button class="wbtn close" id="wClose" data-role="winClose" data-i18n-title="winClose"><span data-icon="close" data-size="13"></span></button>
+    </div>
+  </div>
+
+  <!-- ═══ 主体：左 30% / 右 70% ═══ -->
+  <div id="body">
+    <!-- 左 30%：标签 + 列表 + 底部三个原版按钮 -->
+    <div id="left">
+      <div id="tabs" data-role="tabs">
+        <button class="tab t-on" id="tabOn" data-tab="on">
+          <span class="dot"></span><span data-i18n="tabEnabled">已启用</span><span class="n" data-role="nOn">0</span>
+        </button>
+        <button class="tab t-off" id="tabOff" data-tab="off">
+          <span class="dot"></span><span data-i18n="tabDisabled">已禁用</span><span class="n" data-role="nOff">0</span>
+        </button>
+      </div>
+      <div id="listScroll" data-role="listScroll">
+        <div id="list" data-role="list"></div>
+      </div>
+      <div id="listFooter">
+        <button class="btn" id="btnReload" data-role="reload"><span data-icon="reload" data-size="15"></span><span data-i18n="reload">重新加载</span></button>
+        <button class="btn ok" id="btnEnableAll" data-role="enableAll" data-i18n="enableAll">全部启用</button>
+        <button class="btn danger" id="btnDisableAll" data-role="disableAll" data-i18n="disableAll">全部禁用</button>
+      </div>
+    </div>
+
+    <!-- 右 70%：mod 详细信息（右上角【启用/禁用】） -->
+    <div id="right" data-role="right">
+      <div id="dHead">
+        <div id="dIconWrap" data-role="detailIcon"></div>
+        <div id="dMeta">
+          <div id="dName" data-role="detailName">—</div>
+          <div id="dChips" data-role="detailChips"></div>
+          <div id="dBadges" data-role="detailBadges"></div>
+        </div>
+        <div id="dTopRight">
+          <button id="dToggle" data-role="detailToggle" class="on">
+            <span class="sw"><i></i></span><span id="dToggleText" data-i18n="enabledLabel">已启用</span>
+          </button>
+          <span id="dToggleHint" data-i18n="toggleHint">点击切换启用状态</span>
+        </div>
+      </div>
+      <div id="dBody">
+        <div id="dDescLabel" data-i18n="descLabel">简介 · DESCRIPTION</div>
+        <div id="dDescWrap"><div id="dDesc" data-role="detailDesc"></div></div>
+        <div id="dFoot">
+          <div id="restartHint" data-role="restartHint"><span data-icon="warn" data-size="14"></span><span data-i18n="restartHint">移动或开关此模组会重启游戏</span></div>
+          <div class="grow"></div>
+          <span class="folderNote" data-i18n="hintBar">长按列表项可拖动排序 · ↑↓ 选择 · ←→ 切换区域 · Enter 确认 · Esc 返回</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 空状态 ═══ -->
+  <div id="empty" data-role="empty">
+    <div class="eico" data-icon="inbox" data-size="38"></div>
+    <h2 data-role="emptyTitle" data-i18n="emptyTitle">未安装任何模组</h2>
+    <p><span data-i18n="emptyBody1">把模组文件夹放进</span> <span class="path">mods/</span>
+       <span data-i18n="emptyBody2">即可；本界面每秒自动检测一次，放入后自动刷新。</span></p>
+    <div class="row">
+      <button class="bigbtn" id="btnEmptyFolder"><span data-icon="folder" data-size="15"></span><span data-i18n="openFolderShort">打开 mods 文件夹</span></button>
+      <button class="bigbtn" id="btnEmptyBack" data-i18n="exitListShort">退出 mod 列表</button>
+    </div>
+    <div class="scan"><span class="beat"><i></i><i></i><i></i></span><span data-i18n="scanning">正在自动检测 mods/ …</span></div>
+    <div class="egg" id="eggLine" style="display:none">BITCH.</div>
+  </div>
+
+  <!-- ═══ 设置抽屉（原 settings 按钮 → ModSettingsSubState） ═══ -->
+  <div id="drawer" data-role="drawer">
+    <h3 data-i18n="settingsTitle">模组设置</h3>
+    <div class="sub" id="drawerSub"></div>
+    <div id="drawerList"></div>
+    <div class="dfoot">
+      <button class="btn" id="btnDrawerSave" style="font-weight:700"><span data-icon="check" data-size="15"></span><span data-i18n="save">保存并关闭</span></button>
+      <button class="btn" id="btnDrawerClose" data-i18n="cancel">取消</button>
+    </div>
+  </div>
+
+  <!-- ═══ 退出确认 ═══ -->
+  <div id="mask" data-role="mask">
+    <div id="confirm">
+      <div class="ci" data-icon="restart" data-size="24"></div>
+      <h3 data-i18n="exitTitle">需要重启游戏才能生效</h3>
+      <p data-i18n="exitBody">你刚刚修改了模组的启用状态或加载顺序。是否现在重启游戏？</p>
+      <div class="row">
+        <button class="btn" id="btnRestartNow" style="background:linear-gradient(140deg,rgba(var(--mod),.9),rgba(var(--mod),.55));color:#0E1018" data-i18n="restartNow">立即重启</button>
+        <button class="btn" id="btnStayHere" data-i18n="stayHere">继续留在这里</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" data-role="toast"></div>
+  <div id="pressHint" data-role="pressHint"></div>
+</div></div>
+
+<!-- ══════════════════ 规格说明（非游戏界面） ══════════════════ -->
+<div id="spec">
+
+  <div class="card">
+    <h2><span class="n">1</span>本轮结构改动（按你的要求）</h2>
+    <table>
+      <thead><tr><th style="width:26%">项目</th><th style="width:37%">本轮做法</th><th>备注</th></tr></thead>
+      <tbody>
+        <tr><td>左右分栏</td><td>左 <code>0..384</code>（<b>30%</b>）/ 右 <code>384..1280</code>（<b>70%</b>）</td><td class="tag-keep">按 1280 宽精确 30/70</td></tr>
+        <tr><td>列表顶部标签</td><td><code>#tabs</code> 两项：<b>【已启用 n】【已禁用 n】</b>，默认停在「已启用」；<b>再次点击当前标签 = 取消筛选显示全部</b></td><td class="tag-keep">只有你要求的两个标签；点第二次退回全部，避免"永远看不全"</td></tr>
+        <tr><td>列表项版式</td><td><code>pack 图标 ｜ 第一行 ModName(pack.json) ／ 第二行 Mod 文件夹名</code></td><td class="tag-keep">pack 图标跨两行居中，即你写的 <code>pack|ModName</code> / <code>pack|文件夹名</code></td></tr>
+        <tr><td>排序方式</td><td><b>长按 1 秒</b>（1000ms）后整行"抬起"（浮起阴影 + 描边 + 抓取光标）进入拖拽，按住期间行底有 1 秒进度条；拖动显示插入指示线、贴上下缘自动滚动、松手提交。<b>不足 1 秒就松开 = 点击选中</b>；<b>不足 1 秒就移动 = 滑动列表</b>，都不会误触发排序</td><td class="tag-keep">长按 1 秒拖拽</td></tr>
+        <tr><td>滚动列表</td><td>鼠标滚轮直接上下滚动列表（原生滚动，长按判定不影响滚轮）；触屏为纵向拖动（<code>touch-action:pan-y</code>）；<kbd>Shift</kbd>+滚轮 = 快速切换选中</td><td class="tag-new">本轮新增（示例模组加到 22 个以便测滚动）</td></tr>
+        <tr><td>超长名字</td><td>列表里的名称/文件夹名超出列宽时改为<b>无缝单向循环走马灯</b>（默认）：文案复制两份首尾相接，整条轨道只往一个方向匀速向左，循环边界处第二份正好接上第一份 —— <b>永不回程、也不跳回</b>；起点处停 <code>0.9s</code> 让人看清名字，速度 <code>32px/s</code>（常量取自 <code>CharacterEditorMenuBar.TEXT_SCROLL_SPEED / TEXT_SCROLL_HOLD</code>）。演示控制条可切到 <b>省略号</b> / <b>单程+瞬回</b> 两种对照模式</td><td class="tag-new">本轮新增</td></tr>
+        <tr><td>9 个功能按钮</td><td>从界面底部<b>上移到自绘窗口条</b>，紧跟标题块左侧，按 <code>排序 4 ｜ 选择 2 ｜ 操作 3</code> 分组</td><td class="tag-keep">帧号对应关系见第 3 节</td></tr>
+        <tr><td>窗口条右侧</td><td><code>[打开 mods 文件夹] [搜索框] [退出 mod 列表]</code> 依次排在 <code>[−][□][×]</code> 左边</td><td class="tag-keep">按 <code>WindowControlBar.BTN_W=46</code> 与 <code>BAR_HEIGHT=36</code> 实现</td></tr>
+        <tr><td>屏幕边缘</td><td>全部<b>零外边距</b>：窗口条、左栏、右栏、列表行通铺到屏幕四边；行与行之间只用 1px 分隔线</td><td class="tag-keep">无空隙</td></tr>
+        <tr><td>启用/禁用位置</td><td>移到 <b>详细界面右上角</b>：一个带小开关的 <code>已启用 / 已禁用</code> 胶囊按钮，点击切换</td><td class="tag-keep">从原来详情卡底部移上来</td></tr>
+        <tr><td>pack 显示逻辑</td><td><b>一行没改</b>：<code>pack.png</code> → 缺失则 <code>pack-pixel.png</code>（关闭抗锯齿）→ 再缺 <code>unknownMod.png</code>；按 150×150 切帧，帧数 = <code>floor(w/150)*floor(h/150)</code>，fps = <code>pack.iconFramerate</code>（默认 10）；<code>pack.color</code> 仍用于整屏染色（近黑自动提亮到可见，色块里显示原始 RGB）</td><td class="tag-keep">保留</td></tr>
+        <tr><td>保留的旧元素</td><td><code>RELOAD</code> / <code>ENABLE ALL</code> / <code>DISABLE ALL</code> 三个按钮仍在左栏底部（通铺一行，不适用者置灰）</td><td class="tag-keep">你说"保留元素"，故未删</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">2</span>精确坐标（1280×720，可直接翻译成 Flixel 坐标）</h2>
+    <table>
+      <thead><tr><th style="width:30%">元素</th><th style="width:28%">矩形 (x, y, w, h)</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>自绘窗口条 <code>#chrome</code></td><td><code>0, 0, 1280, 36</code></td><td><code>WindowControlBar.BAR_HEIGHT=36</code></td></tr>
+        <tr><td>　标题块</td><td><code>0, 0, 156, 36</code></td><td>圆角图标 19px + "NovaFlare Engine"</td></tr>
+        <tr><td>　屏幕名</td><td><code>157, 0, 74, 36</code></td><td>「模组管理」（计数改由左栏标签承担，不占横向空间）</td></tr>
+        <tr><td>　9 个工具按钮</td><td><code>232, 5, 310×26</code>（26×26，间距 3，分隔线 1×16）</td><td>置顶/置底/上移/下移 ｜ 上一个/下一个 ｜ 设置/开关/退出</td></tr>
+        <tr><td>　拖拽区 <code>#dragZone</code></td><td><code>542, 0, ~113, 36</code></td><td>对应拖窗区；居中放「N 项待重启生效」徽章</td></tr>
+        <tr><td>　打开 mods 文件夹</td><td><code>~663, 5, ~139, 26</code></td><td>图标 + 文字</td></tr>
+        <tr><td>　搜索框</td><td><code>~808, 5, 196, 26</code></td><td>聚焦时高亮描边</td></tr>
+        <tr><td>　退出 mod 列表</td><td><code>~1010, 5, ~124, 26</code></td><td>悬停变红（<code>#C42B1C</code>，同 × 键）</td></tr>
+        <tr><td>　<code>−</code> <code>□</code> <code>×</code></td><td><code>1142 / 1188 / 1234, 0, 46, 36</code></td><td>右缘三个 46×36，× 悬停红底</td></tr>
+        <tr><td>主体 <code>#body</code></td><td><code>0, 36, 1280, 684</code></td><td>左 384 / 右 896，无缝隙</td></tr>
+        <tr><td>　标签栏 <code>#tabs</code></td><td><code>0, 36, 384, 40</code></td><td>两个各占一半</td></tr>
+        <tr><td>　列表 <code>#listScroll</code></td><td><code>0, 76, 384, 604</code></td><td>行高 56 → 一屏 10 行；演示场景 22 个模组，需要上下滚动</td></tr>
+        <tr><td>　底部按钮 <code>#listFooter</code></td><td><code>0, 680, 384, 40</code></td><td>三个等分</td></tr>
+        <tr><td>　详情头 <code>#dHead</code></td><td><code>384, 36, 896, 132</code></td><td>pack 图标 96px + 名称/chips/徽章 + 右上【启用/禁用】</td></tr>
+        <tr><td>　描述区</td><td><code>404, 184, 856, ~440</code></td><td>独立滚动</td></tr>
+        <tr><td>　重启提示条 <code>#dFoot</code></td><td><code>384, 680, 896, 40</code></td><td>贴屏幕底边</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">3</span>窗口条 9 键位映射（原帧号 → 新位置 → 快捷键）</h2>
+    <table>
+      <thead><tr><th style="width:12%">原帧号</th><th style="width:24%">功能</th><th style="width:20%">图标</th><th>触发</th></tr></thead>
+      <tbody>
+        <tr><td><code>0</code></td><td>移到顶部</td><td>double-arrow-up + 顶线</td><td>点击 / <code>Ctrl+↑</code></td></tr>
+        <tr><td><code>1</code></td><td>移到底部</td><td>double-arrow-down + 底线</td><td>点击 / <code>Ctrl+↓</code></td></tr>
+        <tr><td><code>4</code></td><td>上移一位</td><td>chevron-up</td><td>点击 / <code>Shift+↑</code></td></tr>
+        <tr><td><code>5</code></td><td>下移一位</td><td>chevron-down</td><td>点击 / <code>Shift+↓</code></td></tr>
+        <tr><td><code>2</code></td><td>选中上一个 mod</td><td>chevron-left</td><td>点击 / <code>←</code></td></tr>
+        <tr><td><code>3</code></td><td>选中下一个 mod</td><td>chevron-right</td><td>点击 / <code>→</code></td></tr>
+        <tr><td><code>6</code></td><td>打开该 mod 设置（无 <code>data/settings.json</code> 时禁用）</td><td>sliders</td><td>点击 / <code>Enter</code></td></tr>
+        <tr><td><code>7</code></td><td>启用 / 禁用该 mod</td><td>power</td><td>点击 / <code>Space</code></td></tr>
+        <tr><td><code>8</code></td><td>退出（有改动 → 重启；否则回主菜单 / 选歌）</td><td>exit-door</td><td>点击 / <code>Esc</code></td></tr>
+      </tbody>
+    </table>
+    <ul class="plain" style="margin-top:10px">
+      <li>9 个图标仍建议整套导出为 128×128 白色透明 PNG → <code>assets/shared/images/menuExtend/ModsMenuState/icons/</code>，游戏里用 <code>icon.color</code> 染色（和设置界面重做的做法一致）。</li>
+      <li>窗口条本身请复用 <code>general/objects/WindowControlBar.hx</code> 的 <code>CONSTANT</code> 模式（<code>EditorChromeUI</code> 就是它的子类），这样 <code>−/□/×</code>、拖窗、双击最大化都不用自己写。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">4</span>交互细则（本原型已实现，可在页面上直接试）</h2>
+    <ul class="plain">
+      <li><b>长按 1 秒拖拽</b>：按住列表项 1000ms 不动 → 该行抬起（浮起阴影 + 描边 + 抓取光标）并出现插入指示线；按住期间行底有一条 1 秒进度条作为反馈。拖动到列表上下边缘会以 8px/帧 自动滚动；松手提交排序并弹出「「名称」顺序 #旧 → #新」。</li>
+      <li><b>不足 1 秒的两种手势</b>：① 直接松开 = 点击选中该行；② 移动超过 8px = 视为滑动列表/浏览，长按计时被取消。<b>滚轮不受长按影响，随时可上下滚动列表。</b></li>
+      <li><b>超长名字走马灯（只往一个方向）</b>：默认「无缝单向循环」—— 名字复制两份首尾相隔 32px，整条轨道从右往左匀速 32px/s，起点停 0.9s 后再走；走到 <code>文本宽 + 间隔</code> 时第二份恰好接在第一份的位置上，所以循环处<b>看不出接缝、也不会往回滑</b>。演示控制条另有「单程 + 瞬回」（滑到底后 0.6ms 跳回起点，同样不反向）与「省略号」两种对照。</li>
+      <li><b>标签筛选</b>：点【已启用】只看启用中的；点【已禁用】只看禁用的；再点一次当前标签 = 取消筛选（两个标签都不点亮，显示全部）。计数实时更新。</li>
+      <li><b>右上角启用/禁用</b>：切换后若该 mod 不再属于当前筛选，选中项自动跳到相邻可见行；若该分类已空，列表区显示占位文案。</li>
+      <li><b>两焦点区状态机保留</b>：<code>hoveringOnMods</code> ↔ 按钮区；按钮区 <code>Esc</code> 只回列表、列表区 <code>Esc</code> 才退出（与原版一致）。</li>
+      <li><b>搜索</b>：匹配 mod 名称与文件夹名，配合标签筛选同时生效。</li>
+      <li><b>退出</b>：有改动 → 弹「需要重启游戏才能生效」（<code>waitingToRestart</code>）；无改动 → 回主菜单，若 <code>isFreePlay</code> 为真则回选歌界面并复位该标志。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">5</span>落地到 Haxe 的改动清单</h2>
+    <ul class="plain">
+      <li><b>重写</b> <code>source/states/modsMenuState/ModsMenuState.hx</code>：结构与坐标照第 2 节；保留 <code>parseList / saveTxt / reload / moveModToPosition / changeSelectedMod / changeSelectedButton / getButton / updateModDisplayData</code> 与 <code>isFreePlay</code>、<code>waitingToRestart</code> 语义。</li>
+      <li><b>窗口条</b>：<code>new WindowControlBar(WindowBarMode.CONSTANT)</code>，把 9 个工具按钮、打开文件夹、搜索框、退出按钮作为外部控件贴到条上（<code>EditorChromeUI</code> 已有 CONSTANT 布局代码可抄：标题块右对齐、按钮列钉右缘 <code>closeX = w − 46</code>）。</li>
+      <li><b>搜索框</b>：Flixel 无输入控件，按设置界面重做的老办法——用隐藏的原生 <code>FlxUIInputText</code> 作数据源，自绘外观与命中判定；或先只做「点击后进入输入态」的最简版本。</li>
+      <li><b>长按判定</b>：<code>FlxG.mouse.pressed</code> 计时 ≥<b>1.0s</b> 且位移 &lt;8px → 进入拖拽（期间在原位画一条 0→100% 的进度条作反馈）；位移 &gt;8px 或提前松开 → 视为浏览/点击，取消判定。滚轮滚动列表与此判定互不干扰。</li>
+      <li><b>走马灯</b>：名字宽度 &gt; 列宽时，<b>只往一个方向</b>平移 —— 建议照原型的「无缝循环」做：同一段文案放两个 <code>FlxText</code>（第二个 <code>x = 第一个.x + 文本宽 + 32</code>），用 <code>FlxTween.num</code> 把两者一起从 0 补间到 <code>-(文本宽+32)</code>，完成后瞬移回 0 重开（<code>onComplete</code>），起点用 <code>startDelay = 0.9s</code> 停留。速度 32px/s、停留 0.9s 直接复用 <code>CharacterEditorMenuBar</code> 的 <code>TEXT_SCROLL_*</code> 常量。</li>
+      <li><b>新增语言组</b>：<code>assets/shared/language/{English,Chinese}/mods/mods.lang</code>，键名见原型 JS 的 <code>L</code> 字典（<code>title / tabEnabled / tabDisabled / toggleHint / openFolderShort / exitListShort / winMin / winMax / winClose / dirty …</code>）。</li>
+      <li><b>顺手修的旧 bug</b>：<code>main.lang</code> 第 13 行缺换行导致 <code>modInfoEmpty</code> 键失效（中英两份都缺）。</li>
+    </ul>
+  </div>
+
+  <pre id="selftest"></pre>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   NewModsMenuState 原型 v2
+   命名沿用 ModsMenuState.hx：state.mods ≈ modsList.all（顺序=加载优先级），
+   state.sel ≈ curSelectedMod，state.zone ≈ hoveringOnMods，state.tool ≈ curSelectedButton，
+   state.dirty ≈ waitingToRestart 的改动计数，state.filter ≈ 新增的标签筛选。
+   ══════════════════════════════════════════════════════════════════════════ */
+'use strict';
+
+/* ---------- 图标（24×24 线性 SVG，stroke=currentColor） ---------- */
+const ICONS = {
+  search : '<circle cx="11" cy="11" r="6.4"/><path d="M15.8 15.8 21 21"/>',
+  folder : '<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17z"/>',
+  reload : '<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4.5V10h-5.2"/>',
+  top    : '<path d="M12 20V7"/><path d="M6.6 12.4 12 7l5.4 5.4"/><path d="M5 4h14"/>',
+  bottom : '<path d="M12 4v13"/><path d="M6.6 11.6 12 17l5.4-5.4"/><path d="M5 20h14"/>',
+  up     : '<path d="M12 19.5V5.5"/><path d="M6.5 11 12 5.5 17.5 11"/>',
+  down   : '<path d="M12 4.5v14"/><path d="M6.5 13 12 18.5 17.5 13"/>',
+  prev   : '<path d="M14.5 5.5 8 12l6.5 6.5"/>',
+  next   : '<path d="M9.5 5.5 16 12l-6.5 6.5"/>',
+  sliders: '<path d="M5 7h14M5 12h14M5 17h14"/><circle cx="9.5" cy="7" r="2.1" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2.1" fill="currentColor" stroke="none"/><circle cx="8" cy="17" r="2.1" fill="currentColor" stroke="none"/>',
+  power  : '<path d="M12 3.5v8"/><path d="M7.2 6.6a7.2 7.2 0 1 0 9.6 0"/>',
+  exit   : '<path d="M13.5 4.5H18A2 2 0 0 1 20 6.5v11a2 2 0 0 1-2 2h-4.5"/><path d="M11 8.5 7 12l4 3.5"/><path d="M7 12h8"/>',
+  check  : '<path d="M5 12.5 10 17.5 19 7"/>',
+  close  : '<path d="M6 6l12 12M18 6 6 18"/>',
+  min    : '<path d="M5 12h14"/>',
+  sq     : '<rect x="5.5" y="5.5" width="13" height="13" rx="1.6"/>',
+  warn   : '<path d="M12 4.5 21 19.5H3z"/><path d="M12 10v4.4"/><circle cx="12" cy="17" r=".9" fill="currentColor" stroke="none"/>',
+  globe  : '<circle cx="12" cy="12" r="8"/><path d="M4 12h16"/><path d="M12 4c2.4 2.4 2.4 13.6 0 16-2.4-2.4-2.4-13.6 0-16z"/>',
+  grip   : '<circle cx="9" cy="7" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="7" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="17" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="17" r="1.4" fill="currentColor" stroke="none"/>',
+  inbox  : '<path d="M3.5 13.5 6 5.5h12l2.5 8v4a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5z"/><path d="M3.5 13.5h5l1 2.2h5l1-2.2h5"/>',
+  restart: '<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4.5V10h-5.2"/>',
+  spark  : '<path d="M12 3v5M12 16v5M3 12h5M16 12h5M6.3 6.3l3 3M14.7 14.7l3 3M17.7 6.3l-3 3M9.3 14.7l-3 3"/>'
+};
+function svg(name, size){
+  const d = ICONS[name];
+  if (!d) return '';
+  size = size || 18;
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+       + 'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>';
+}
+
+/* ---------- 语言（对应 assets/shared/language/<Lang>/mods/mods.lang） ---------- */
+const L = {
+  cn:{ title:'模组管理',
+       tabEnabled:'已启用', tabDisabled:'已禁用',
+       statTotal:'共', statOn:'启用', statOff:'禁用',
+       hintBar:'滚轮上下滑动列表 · 长按 1 秒可拖动排序 · ↑↓ 选择 · ←→ 区域 · Enter 确认 · Esc 返回',
+       openFolder:'打开 mods 文件夹', openFolderShort:'打开 mods 文件夹', search:'搜索模组…',
+       exitList:'退出 mod 列表', exitListShort:'退出 mod 列表',
+       winMin:'最小化', winMax:'最大化 / 还原', winClose:'关闭',
+       reload:'重新加载', enableAll:'全部启用', disableAll:'全部禁用',
+       descLabel:'简介 · DESCRIPTION', enabledLabel:'已启用', disabledLabel:'已禁用',
+       toggleHint:'点击切换启用状态', restartHint:'移动或开关此模组会重启游戏',
+       badgeGlobal:'全局运行', badgeRestart:'需重启', badgeSettings:'含设置项', badgeDisabled:'当前已禁用',
+       chipFolder:'文件夹', chipOrder:'顺序', chipIcon:'图标', chipColor:'配色',
+       frames:'{n} 帧 @{fps}fps', noDesc:'该模组未提供简介。',
+       toolTop:'移到顶部', toolBottom:'移到底部', toolUp:'上移一位', toolDown:'下移一位',
+       toolPrev:'上一个模组', toolNext:'下一个模组', toolSettings:'打开模组设置', toolToggle:'启用 / 禁用', toolExit:'保存并退出',
+       emptyTitle:'未安装任何模组', emptyBody1:'把模组文件夹放进', emptyBody2:'即可；本界面每秒自动检测一次，放入后自动刷新。',
+       scanning:'正在自动检测 mods/ …',
+       settingsTitle:'模组设置', settingsSub:'{folder}/data/settings.json · 保存于存档数据',
+       save:'保存并关闭', cancel:'取消',
+       exitTitle:'需要重启游戏才能生效', exitBody:'你刚刚修改了模组的启用状态或加载顺序。是否现在重启游戏？',
+       restartNow:'立即重启', stayHere:'继续留在这里',
+       srcMain:'来源：主菜单', srcFreeplay:'来源：选歌界面',
+       dirty:'{n} 项改动待重启生效',
+       toastReload:'modsList.txt 已保存 · 界面已重新载入',
+       toastOn:'已启用「{name}」', toastOff:'已禁用「{name}」',
+       toastAllOn:'已启用全部模组（{n} 个）', toastAllOff:'已禁用全部模组（{n} 个）',
+       toastMove:'「{name}」顺序：#旧 {from} → #新 {to}',
+       pressHold:'继续按住 1 秒即可拖动排序', pressDrag:'松开鼠标放下 · 拖到列表上下边缘会自动滚动',
+       marqueeOn:'长名字走马灯',
+       toastSaved:'设置已保存到存档', toastExitMain:'已保存并返回主菜单', toastExitFp:'已保存并返回选歌界面',
+       toastRestart:'重启游戏…（模拟 FlxG.resetGame）', toastFolder:'打开文件夹：{path}',
+       filterNone:'当前标签下没有模组', searchNone:'没有匹配「{q}」的模组',
+       winNote:'窗口按钮：最小化 / 最大化还原 / 关闭（此处为原型模拟）'
+  },
+  en:{ title:'Mods',
+       tabEnabled:'Enabled', tabDisabled:'Disabled',
+       statTotal:'total', statOn:'on', statOff:'off',
+       hintBar:'Wheel scrolls the list · Hold 1s to reorder · ↑↓ select · ←→ zone · Enter confirm · Esc back',
+       openFolder:'Open mods folder', openFolderShort:'Open folder', search:'Search mods…',
+       exitList:'Exit mod list', exitListShort:'Exit',
+       winMin:'Minimize', winMax:'Maximize / Restore', winClose:'Close',
+       reload:'Reload', enableAll:'Enable All', disableAll:'Disable All',
+       descLabel:'DESCRIPTION', enabledLabel:'Enabled', disabledLabel:'Disabled',
+       toggleHint:'Click to toggle', restartHint:'Moving or toggling this mod will restart the game.',
+       badgeGlobal:'Runs globally', badgeRestart:'Needs restart', badgeSettings:'Has settings', badgeDisabled:'Disabled',
+       chipFolder:'Folder', chipOrder:'Order', chipIcon:'Icon', chipColor:'Color',
+       frames:'{n}f @{fps}fps', noDesc:'No description provided.',
+       toolTop:'Move to top', toolBottom:'Move to bottom', toolUp:'Move up', toolDown:'Move down',
+       toolPrev:'Previous mod', toolNext:'Next mod', toolSettings:'Mod settings', toolToggle:'Enable / Disable', toolExit:'Save and exit',
+       emptyTitle:'NO MODS INSTALLED', emptyBody1:'Drop a mod folder into', emptyBody2:'— this screen re-checks every second.',
+       scanning:'Auto-scanning mods/ …',
+       settingsTitle:'Mod settings', settingsSub:'{folder}/data/settings.json · stored in save data',
+       save:'Save & close', cancel:'Cancel',
+       exitTitle:'Restart required', exitBody:'You changed mod states or load order. Restart the game now?',
+       restartNow:'Restart now', stayHere:'Keep browsing',
+       srcMain:'From: Main Menu', srcFreeplay:'From: Freeplay',
+       dirty:'{n} pending change(s)',
+       toastReload:'modsList.txt saved · screen reloaded',
+       toastOn:'Enabled "{name}"', toastOff:'Disabled "{name}"',
+       toastAllOn:'Enabled all mods ({n})', toastAllOff:'Disabled all mods ({n})',
+       toastMove:'"{name}" order: #{from} → #{to}',
+       pressHold:'Keep holding 1s to reorder', pressDrag:'Release to drop · drag to an edge to auto-scroll',
+       marqueeOn:'Marquee long names',
+       toastSaved:'Settings saved to save data', toastExitMain:'Saved · back to Main Menu', toastExitFp:'Saved · back to Freeplay',
+       toastRestart:'Restarting… (simulated FlxG.resetGame)', toastFolder:'Opening folder: {path}',
+       filterNone:'Nothing in this tab', searchNone:'No mod matches "{q}"',
+       winNote:'Window buttons: minimize / maximize-restore / close (simulated in this prototype)'
+  }
+};
+function T(k, vars){
+  let s = (L[state.lang][k] != null) ? L[state.lang][k] : k;
+  if (vars) for (const key in vars) s = s.split('{' + key + '}').join(vars[key]);
+  return s;
+}
+
+/* ---------- pack 图标素材 ----------
+   真实环境：Paths.cacheBitmap(Paths.mods(folder + '/pack.png')) →
+             缺失再试 pack-pixel.png（关闭抗锯齿）→ 再缺 unknownMod.png；
+             帧数 = floor(bmp.width/150) * floor(bmp.height/150)，fps = pack.iconFramerate。
+   原型：wtf 用仓库里真实那张 150×150 pack.png（base64 内嵌），其余用生成的示例精灵条。 */
+const WTF_ICON = 'data:image/png;base64,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';
+
+function spriteIcon(frames, hue, letter){
+  let cells = '';
+  for (let i = 0; i < frames; i++){
+    const h = (hue + i * 12) % 360;
+    cells += "<rect x='" + (i*150) + "' y='0' width='150' height='150' fill='hsl(" + h + " 62% " + (22 + i*6) + "%)'/>"
+           + "<circle cx='" + (i*150+75) + "' cy='72' r='" + (30 + i*4) + "' fill='none' stroke='rgba(255,255,255,.85)' stroke-width='7'/>"
+           + "<text x='" + (i*150+75) + "' y='92' font-size='58' font-family='sans-serif' font-weight='700' text-anchor='middle' fill='#fff'>" + letter + "</text>";
+  }
+  return 'data:image/svg+xml;charset=utf-8,' +
+    encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='" + (frames*150) + "' height='150'>" + cells + "</svg>");
+}
+
+/* 示例模组表：22 个 —— 覆盖 启用/禁用、全局、需重启、含设置、无 pack.json、超长名字 等场景，
+   数量足够撑出滚动（一屏 10 行 → 需要上下滑动）。
+   字段与 pack.json / data/settings.json 对齐：
+   name / description / restart / runsGlobally / color[3] / iconFramerate / data/settings.json */
+const SETTINGS_SKIN = [
+  { t:'title', name:'外观' },
+  { t:'bool',  name:'覆盖默认音符皮肤', save:'overrideNotes', value:true,  desc:'关闭后只保留新增皮肤，不替换引擎默认皮肤。' },
+  { t:'string',name:'默认皮肤', save:'defaultSkin', value:'Glow', options:['Default','Pixel','Glow','Neon','Paper','Glass'], desc:'选项列表来自 data/settings.json 的 options 字段。' },
+  { t:'percent',name:'皮肤亮度', save:'skinBrightness', value:1, min:0.2, max:1.6, step:0.05, desc:'percent 类型在引擎里以百分比显示。' },
+  { t:'title', name:'判定线' },
+  { t:'int',   name:'判定线位置偏移', save:'strumOffset', value:0, min:-60, max:60, step:2, desc:'正值下移，负值上移。' },
+  { t:'keybind',name:'切换皮肤快捷键', save:'skinToggleKey', value:'F7', desc:'keybind 类型会区分键盘与手柄两套按键。' }
+];
+const LONG_DESC = Array.from({length:8}, (_,i)=>'第 ' + (i+1) + ' 段：描述很长时，描述区会独立滚动，不会像原版那样溢出面板；'
+  + '长名字在列表里改用「从右往左」走马灯显示，不再用省略号。').join('\n\n');
+const RAW = [
+  // [文件夹名, pack.name, 选项]
+  ['wtf', 'Shit night Fucking Vs LushiFu DEMO',
+    { real:true, color:[0,0,0], enabled:true, hue:210, letter:'W',
+      desc:'It\'s made by LushiFu and no fucking body can make it together!\n\n这个模组是陆师傅自己做的，并且没有别人和他一起做。\n\n'
+         + '图标用的是仓库里那张真实的 150×150 pack.png（内嵌 base64），其余模组用生成的示例精灵条。' }],
+
+  ['NovaFlare-SkinPack', 'NovaFlare 皮肤扩展包',
+    { color:[150,181,255], restart:true, frames:4, hue:212, letter:'S', enabled:true, settings:SETTINGS_SKIN,
+      desc:'为引擎追加 6 套音符皮肤、3 套判定线样式与 2 套结算界面皮肤，可在「选项 → 皮肤」中切换。\n\n'
+         + 'pack.json 声明了 restart = true：改动启用状态后必须重启游戏。' }],
+
+  ['Global-UI-Tweaks', '全局界面微调（Global）',
+    { color:[255,144,220], frames:2, hue:320, letter:'G', enabled:true, global:true,
+      desc:'runsGlobally = true 的全局模组：不需要被"选中"就会在整个游戏里生效 —— 主菜单、选歌、游戏内、结算都会读取它的资源。\n\n'
+         + '全局模组在 Mods.directoriesWithFile() 里优先级最高，会盖过普通模组。' }],
+
+  ['Old-Chart-Fixes', '旧谱面修正包',
+    { color:[239,68,68], enabled:false, hue:0, letter:'O',
+      desc:'修正早期版本谱面中的错音与漏音，同时补齐缺失的事件轨道。\n\n当前处于<b>禁用</b>状态：图标去饱和、名称变灰、行尾有红条与「已禁用」标签。' }],
+
+  ['Audio-Engine-Overhaul', '音频引擎重构（需重启）',
+    { color:[245,158,11], restart:true, frames:3, hue:38, letter:'A', enabled:true,
+      desc:'替换整条音频链路：自定义音轨预载、动态音频压缩与低延迟输出。pack.json 中声明 restart = true。' }],
+
+  ['pixel-pack-demo', 'pixel-pack-demo',
+    { color:[170,0,255], enabled:false, noPack:true, hue:276, letter:'P',
+      desc:'没有 pack.json 的模组走兜底逻辑：名称 = 文件夹名、描述 = 默认文案、配色 = 默认 0xFF665AFF。'
+         + '真实环境里缺少 pack.png 时会回退到 unknownMod.png。' }],
+
+  ['Very-Long-Name-Mod-That-Keeps-Going-And-Going-Until-It-Breaks-The-Layout',
+    '超长名称测试 · A Very Long Mod Name That Keeps Going And Going Until It Breaks The Layout',
+    { color:[34,197,94], enabled:true, hue:140, letter:'L', desc:LONG_DESC }],
+
+  ['Neo-City-Nights', 'Neo City Nights',
+    { color:[56,189,248], frames:5, hue:199, letter:'N', enabled:true,
+      desc:'霓虹都市主题周目：4 首原创曲、3 个自定义角色与 2 张舞台。图标是 5 帧序列帧（对应 pack.png 宽 750px）。' }],
+
+  ['Vs-Sonic-EXE-Rewrite', 'Vs. Sonic.EXE 重制版',
+    { color:[220,38,38], restart:true, hue:0, letter:'E', enabled:true,
+      desc:'经典恐怖周目的高清重制：重画全部立绘、重混全部音轨。因为替换了引擎级资源，需要重启才生效。' }],
+
+  ['B-Side-Remixes', 'B 面混音合集',
+    { color:[168,85,247], frames:2, hue:271, letter:'B', enabled:true,
+      desc:'把本体 20 首曲子换成 B 面混音版本，谱面同步重做。' }],
+
+  ['Mid-Fight-Masses-CN', 'Mid-Fight Masses 中文版',
+    { color:[244,114,182], enabled:false, hue:330, letter:'M',
+      desc:'剧情与 UI 全量中文化。（当前禁用，用于测试「已禁用」标签与筛选）' }],
+
+  ['Dave-and-Bambi-Retake', 'Dave and Bambi: Retake',
+    { color:[251,191,36], frames:3, hue:45, letter:'D', enabled:true,
+      desc:'3D 视角重制的 Dave and Bambi 周目，包含全新的过场动画。' }],
+
+  ['Hypnos-Lullaby-HD', 'Hypno\'s Lullaby HD',
+    { color:[99,102,241], hue:239, letter:'H', enabled:true, settings:SETTINGS_SKIN,
+      desc:'宝可梦都市传说主题周目，含 5 首完整歌曲与一套独立设置项（齿轮按钮可打开）。' }],
+
+  ['Mario-Madness-V2', 'Mario Madness V2',
+    { color:[16,185,129], enabled:false, hue:160, letter:'M',
+      desc:'马里奥疯狂系列第二版。（当前禁用）' }],
+
+  ['FNF-Neo-Mod-Engine', 'FNF Neo Mod Engine',
+    { color:[14,165,233], frames:4, hue:199, letter:'F', enabled:true, global:true, restart:true,
+      desc:'引擎级扩展：新增 6 种音符类型、自定义事件与脚本 API。runsGlobally + restart 都是 true。' }],
+
+  ['Custom-Noteskin-Pack', '自定义音符皮肤合集',
+    { color:[236,72,153], hue:330, letter:'C', enabled:true, settings:SETTINGS_SKIN,
+      desc:'12 套玩家投稿的音符皮肤，全部可在设置里单独开关。' }],
+
+  ['Week-7-Resolution', 'Week 7 高清重制',
+    { color:[249,115,22], hue:25, letter:'W', enabled:true,
+      desc:'Week 7 全部背景与角色贴图重绘到 2K。' }],
+
+  ['Tricky-Mod-Phase4', 'Tricky Mod Phase 4',
+    { color:[234,179,8], enabled:false, hue:48, letter:'T',
+      desc:'Tricky 第四阶段完整周目。（当前禁用）' }],
+
+  ['Shaggy-x-Matt-Full', 'Shaggy x Matt 完整版',
+    { color:[120,113,108], hue:20, letter:'S', enabled:true,
+      desc:'力量天花板对决的完整版周目，含隐藏曲目。' }],
+
+  ['Pibby-Corruption-Fanmade', 'Pibby: Corruption (Fanmade)',
+    { color:[147,51,234], enabled:false, hue:270, letter:'P',
+      desc:'腐化主题同人周目。（当前禁用）' }],
+
+  ['Kade-Engine-Ports', 'Kade Engine 关卡移植包',
+    { color:[5,150,105], hue:160, letter:'K', enabled:true,
+      desc:'把 Kade Engine 时代的经典关卡移植到本引擎，谱面保持不变。' }],
+
+  ['An-Extremely-Long-Mod-Name-For-Scrolling-Test-That-Just-Keeps-Going',
+    '一个特别特别长的模组名字用来测试从右往左滑动显示效果而不使用省略号的极端情况',
+    { color:[250,204,21], enabled:true, hue:50, letter:'X',
+      desc:'这一项的名字与文件夹名都远超列宽，用来验证走马灯（32px/s、两端各停 0.9s，与 CharacterEditorMenuBar 的 TEXT_SCROLL_SPEED / TEXT_SCROLL_HOLD 一致）。' }]
+];
+
+const DEMO = RAW.map(function(row){
+  const folder = row[0], name = row[1], o = row[2] || {};
+  const frames = o.frames || 1;
+  return {
+    folder:folder, name:name,
+    desc:o.desc || ('（示例）' + name + ' 的 pack.json description 字段内容。'),
+    color:o.color || [150,181,255],
+    restart:!!o.restart, runsGlobally:!!o.global,
+    iconFps:o.fps || 10, frames:frames,
+    icon:o.real ? WTF_ICON : spriteIcon(frames, o.hue == null ? 200 : o.hue, o.letter || folder.charAt(0).toUpperCase()),
+    enabled:o.enabled !== false,
+    settings:o.settings || null,
+    noPack:!!o.noPack
+  };
+});
+
+/* ---------- 运行时状态 ---------- */
+const LONG_PRESS_MS = 1000;        // 长按拖拽判定：按住 1 秒不动才进入排序；否则视为滑动列表/点击
+const MOVE_TOLERANCE = 8;          // 长按期间的位移容差（px）
+const MARQUEE_SPEED = 32;          // px/s —— 对齐 CharacterEditorMenuBar.TEXT_SCROLL_SPEED
+const MARQUEE_HOLD  = 0.9;         // 秒   —— 对齐 CharacterEditorMenuBar.TEXT_SCROLL_HOLD
+const MARQUEE_GAP   = 32;          // 无缝循环时两份文案之间的间隔（px）
+const state = {
+  lang:'cn',
+  mods:[],            // ≈ modsList.all（顺序 = 加载优先级）
+  sel:0,              // ≈ curSelectedMod
+  zone:'list',        // ≈ hoveringOnMods（list = true）
+  tool:0,             // ≈ curSelectedButton，0..8（对应原帧号顺序）
+  filter:'on',        // 'on' | 'off' | null（null = 显示全部）
+  query:'',
+  dirty:0,            // ≈ waitingToRestart 的改动计数
+  fromFreeplay:false, // ≈ ModsMenuState.isFreePlay
+  drawerOpen:false,
+  marqueeMode:'loop', // 长名字显示：'loop' 无缝单向循环 | 'once' 单程+瞬回 | 'off' 省略号
+  egg:false,
+  scene:'many'
+};
+
+const $  = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.prototype.slice.call((r || document).querySelectorAll(s));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* 运行时错误写进自检块，便于无头验收 */
+window.addEventListener('error', ev => {
+  const el = document.getElementById('selftest');
+  if (el){ el.classList.add('on'); el.textContent += '\n[JS ERROR] ' + ev.message + ' @' + ev.lineno + ':' + ev.colno; }
+  document.title = 'JSERROR ' + ev.message;
+});
+
+/* pack.color 近黑 → 提亮（仅用于染色/描边，色块仍显示原始 RGB） */
+function displayAccent(c){
+  const [r,g,b] = c;
+  const lum = (0.2126*r + 0.7152*g + 0.0722*b) / 255;
+  return lum >= 0.16 ? [r,g,b] : [150,181,255];
+}
+const rgb = c => c[0] + ',' + c[1] + ',' + c[2];
+const hex = c => '#' + c.map(v => ('0'+v.toString(16)).slice(-2)).join('').toUpperCase();
+
+/* ══════════════════════ 渲染 ══════════════════════ */
+function matchFilter(m){
+  if (state.filter === 'on')  return m.enabled;
+  if (state.filter === 'off') return !m.enabled;
+  return true;
+}
+function visibleMods(){
+  const q = state.query.trim().toLowerCase();
+  return state.mods.map((m,i) => ({m,i})).filter(o => matchFilter(o.m) &&
+    (!q || o.m.name.toLowerCase().includes(q) || o.m.folder.toLowerCase().includes(q)));
+}
+function curMod(){ return state.mods[state.sel] || null; }
+
+function renderStats(){
+  // 计数改由左栏两个标签承担（已启用 n / 已禁用 n），窗口条不再占用横向空间
+  const total = state.mods.length, on = state.mods.filter(m => m.enabled).length;
+  const db = $('#dirtyBadge');
+  db.classList.toggle('on', state.dirty > 0);
+  db.innerHTML = state.dirty > 0 ? svg('warn',12) + esc(T('dirty', {n:state.dirty})) : '';
+  db.title = total + ' ' + T('statTotal') + ' · ' + on + ' ' + T('statOn') + ' · ' + (total - on) + ' ' + T('statOff');
+}
+function renderTabs(){
+  const on = state.mods.filter(m=>m.enabled).length, off = state.mods.length - on;
+  $('#tabOn').classList.toggle('on', state.filter === 'on');
+  $('#tabOff').classList.toggle('on', state.filter === 'off');
+  $('[data-role=nOn]').textContent = on;
+  $('[data-role=nOff]').textContent = off;
+}
+function renderList(){
+  const list = $('#list'), vis = visibleMods();
+  // 指示线随 innerHTML 一起重建（它原本是 #list 的子节点，会被 innerHTML 清掉）
+  let html = '<div id="dropLine" data-role="dropline"></div>';
+  if (!state.mods.length){
+    html = '<div class="bl-empty">' + esc(T('emptyTitle')) + '<br><span style="opacity:.7">' + esc(T('emptyBody2')) + '</span></div>';
+  } else if (!vis.length){
+    html = '<div class="bl-empty">' + esc(state.query ? T('searchNone', {q:state.query}) : T('filterNone')) + '</div>';
+  } else {
+    vis.forEach(({m,i}) => {
+      const acc = displayAccent(m.color);
+      const iconStyle = 'background-image:url("' + m.icon + '");background-size:' +
+        (m.frames > 1 ? (m.frames*100) + '% 100%' : 'cover');
+      const minis =
+          (m.runsGlobally ? '<span class="mini g">' + esc(T('badgeGlobal')) + '</span>' : '')
+        + (m.restart ? '<span class="mini w">' + esc(T('badgeRestart')) + '</span>' : '')
+        + (m.settings ? '<span class="mini b">' + esc(T('badgeSettings')) + '</span>' : '');
+      html += '<div class="bl-row' + (i===state.sel?' sel':'') + (m.enabled?'':' off') + '" data-row="' + i + '" data-key="' + esc(m.folder) + '"'
+           +  ' style="--mod:' + rgb(acc) + '">'
+           +   '<span class="bl-icon' + (m.frames>1?' anim':'') + '" style="' + iconStyle + '"></span>'
+           +   '<span class="bl-text">'
+           +     '<span class="bl-name-clip"><span class="bl-name" data-marquee title="' + esc(m.name) + '">' + esc(m.name) + '</span></span>'
+           +     '<span class="bl-folder-clip"><span class="bl-folder" data-marquee title="' + esc(m.folder) + '">' + esc(m.folder) + '</span></span>'
+           +   '</span>'
+           +   (minis ? '<span class="bl-mini">' + minis + '</span>' : '')
+           +   '<span class="grip">' + svg('grip',14) + '</span>'
+           + '</div>';
+    });
+  }
+  stopMarquees();          // 先停掉旧元素上的动画（元素即将被 innerHTML 替换）
+  list.innerHTML = html;
+  applyMarquees();         // [新增] 超长名字从右往左滑动（不再用省略号）
+}
+/* ── 走马灯：长名字显示方式 ──
+   mode = 'loop'（默认）无缝单向循环：文案复制两份首尾相接，整条轨道匀速向左，
+           循环边界处第二份正好接上第一份的位置 —— 全程只往一个方向，永不跳回。
+   mode = 'once' 单程 + 瞬时跳回：停 0.9s → 单向滑到底 → 停 0.9s → 0.6ms 跳回起点（也不反向滑）。
+   mode = 'off'  退回省略号（CSS：#stage.no-marquee）。
+   速度/停留时长对齐 CharacterEditorMenuBar.TEXT_SCROLL_SPEED=32 / TEXT_SCROLL_HOLD=0.9。 */
+function stopMarquees(){
+  $$('#list [data-marquee], #list .mq-copy').forEach(el => { if (el._anim){ el._anim.cancel(); el._anim = null; } el.style.transform = ''; });
+  $$('#list .mq-copy').forEach(el => el.remove());
+}
+function startMarquee(el){
+  if (!el || state.marqueeMode === 'off') return;
+  const clip = el.parentElement;
+  if (!clip) return;
+  const w = el.getBoundingClientRect().width;
+  const clipW = clip.getBoundingClientRect().width;
+  if (w - clipW <= 2) return;                      // 放得下就不动
+  const hold = MARQUEE_HOLD * 1000;                // 起点停留 ms
+  const base = {speed:MARQUEE_SPEED, hold:MARQUEE_HOLD, mode:state.marqueeMode};
+
+  if (state.marqueeMode === 'loop'){
+    /* 无缝循环：追加第二份文案，轨道位移 = 文本宽 + 间隔 */
+    const copy = el.cloneNode(true);
+    copy.classList.add('mq-copy');
+    copy.removeAttribute('data-marquee');
+    copy.setAttribute('aria-hidden', 'true');
+    copy.style.marginLeft = MARQUEE_GAP + 'px';
+    clip.appendChild(copy);
+    const D = Math.ceil(w) + MARQUEE_GAP;
+    const travel = D / MARQUEE_SPEED * 1000;
+    const total = hold + travel;
+    [el, copy].forEach(node => {
+      node._anim = node.animate([
+        {transform:'translateX(0px)',  offset:0},
+        {transform:'translateX(0px)',  offset:hold / total},   // 起点停留（此时整条名字可读）
+        {transform:'translateX(' + (-D) + 'px)', offset:1}     // 一路向左；循环边界第二份正好接上
+      ], {duration:total, iterations:Infinity, easing:'linear', delay:250});
+      node._anim.marqueeInfo = Object.assign({d:D, w:Math.ceil(w), gap:MARQUEE_GAP,
+        total:Math.round(total), travelMs:Math.round(travel), seamless:true, copies:2}, base);
+    });
+    return;
+  }
+
+  /* 单程 + 瞬时跳回 */
+  const d = Math.ceil(w - clipW);
+  const travel = d / MARQUEE_SPEED * 1000;
+  const jump = 0.6;
+  const total = hold + travel + hold + jump;
+  const o1 = hold / total, o2 = (hold + travel) / total, o3 = (hold + travel + hold) / total;
+  el._anim = el.animate([
+    {transform:'translateX(0px)',            offset:0},
+    {transform:'translateX(0px)',            offset:o1},
+    {transform:'translateX(' + (-d) + 'px)', offset:o2},
+    {transform:'translateX(' + (-d) + 'px)', offset:o3},
+    {transform:'translateX(0px)',            offset:1}
+  ], {duration:total, iterations:Infinity, easing:'linear', delay:250});
+  el._anim.marqueeInfo = Object.assign({d:d, w:Math.ceil(w), total:Math.round(total),
+    travelMs:Math.round(travel), jumpMs:jump, seamless:false, copies:1}, base);
+}
+function applyMarquees(){
+  if (state.marqueeMode === 'off') return;
+  $$('#list [data-marquee]').forEach(startMarquee);
+}
+function setDropLine(y, show){
+  const line = $('#dropLine');
+  line.style.top = y + 'px';
+  line.classList.toggle('on', !!show);
+}
+function renderDetail(){
+  const m = curMod(), has = !!m;
+  $('#right').style.visibility = has ? 'visible' : 'hidden';
+  if (!has){ $('#dName').textContent = '—'; $('#dDesc').textContent = ''; $('#dChips').innerHTML = ''; $('#dBadges').innerHTML = ''; return; }
+  const acc = displayAccent(m.color);
+  $('#stage').style.setProperty('--mod', rgb(acc));
+  $('#tint').style.background =
+      'radial-gradient(120% 90% at 80% 0%, rgba(' + rgb(acc) + ',.30) 0%, rgba(' + rgb(acc) + ',.09) 45%, rgba(0,0,0,0) 75%),'
+    + 'linear-gradient(180deg, rgba(9,9,14,.66) 0%, rgba(9,9,14,.46) 42%, rgba(9,9,14,.74) 100%)';
+
+  const wrap = $('#dIconWrap');
+  wrap.classList.toggle('anim', m.frames > 1);
+  wrap.style.backgroundImage = 'url("' + m.icon + '")';
+  wrap.style.backgroundSize = m.frames > 1 ? (m.frames*100) + '% 100%' : 'cover';
+
+  $('#dName').textContent = m.name;
+  $('#dChips').innerHTML =
+      '<span class="mchip">' + esc(T('chipFolder')) + ' <b class="mono">' + esc(m.folder) + '</b></span>'
+    + '<span class="mchip">' + esc(T('chipOrder')) + ' <b>#' + ('0'+(state.sel+1)).slice(-2) + '</b></span>'
+    + '<span class="mchip">' + esc(T('chipIcon')) + ' <b>' + esc(T('frames',{n:m.frames,fps:m.iconFps})) + '</b></span>'
+    + '<span class="mchip">' + esc(T('chipColor')) + ' <span class="swatch" style="background:' + hex(m.color) + '"></span>'
+    +   '<b class="mono">' + hex(m.color) + '</b></span>';
+
+  const b = [];
+  if (m.runsGlobally) b.push('<span class="badge g">' + svg('globe',13) + esc(T('badgeGlobal')) + '</span>');
+  if (m.restart)      b.push('<span class="badge w">' + svg('warn',13) + esc(T('badgeRestart')) + '</span>');
+  if (m.settings)     b.push('<span class="badge b">' + svg('sliders',13) + esc(T('badgeSettings')) + ' · ' + m.settings.filter(o=>o.t!=='title').length + '</span>');
+  if (!m.enabled)     b.push('<span class="badge r">' + svg('power',13) + esc(T('badgeDisabled')) + '</span>');
+  $('#dBadges').innerHTML = b.join('');
+
+  $('#dDesc').textContent = (m.desc && m.desc.length) ? m.desc : T('noDesc');
+
+  // 右上角【启用 / 禁用】
+  const tg = $('#dToggle');
+  tg.classList.toggle('on', m.enabled);
+  tg.classList.toggle('off', !m.enabled);
+  $('#dToggleText').textContent = m.enabled ? T('enabledLabel') : T('disabledLabel');
+
+  $('#restartHint').classList.toggle('hide', !m.restart);
+}
+
+/* 工具条 9 键（顺序 = 原帧号顺序 0,1,4,5,2,3,6,7,8 的功能） */
+const TOOLS = [
+  {k:'top',      icon:'top',     act:()=>moveMod(state.sel, 0),                    kbd:'Ctrl+↑'},
+  {k:'bottom',   icon:'bottom',  act:()=>moveMod(state.sel, state.mods.length-1), kbd:'Ctrl+↓'},
+  {k:'up',       icon:'up',      act:()=>moveMod(state.sel, state.sel-1),          kbd:'Shift+↑', sep:true},
+  {k:'down',     icon:'down',    act:()=>moveMod(state.sel, state.sel+1),          kbd:'Shift+↓'},
+  {k:'prev',     icon:'prev',    act:()=>selectStep(-1),                           kbd:'←', sep:true},
+  {k:'next',     icon:'next',    act:()=>selectStep(1),                            kbd:'→'},
+  {k:'settings', icon:'sliders', act:()=>openDrawer(),                             kbd:'Enter', sep:true},
+  {k:'toggle',   icon:'power',   act:()=>toggleMod(state.sel),                      kbd:'Space'},
+  {k:'exit',     icon:'exit',    act:()=>exitMenu(),                                kbd:'Esc'}
+];
+function toolDisabled(t){
+  if (t.k === 'settings') return !(curMod() && curMod().settings);
+  if (t.k === 'exit') return false;
+  return state.mods.length < 2;
+}
+function renderToolbar(){
+  const tools = TOOLS.map((t,i) =>
+      (t.sep ? '<span class="tsep"></span>' : '')
+    + '<button class="tool' + (i===state.tool?' focus':'') + '" data-tool="' + i + '"' + (toolDisabled(t)?' disabled':'') + '>'
+    +   svg(t.icon,16)
+    +   '<span class="tip">' + esc(T('tool' + t.k.charAt(0).toUpperCase() + t.k.slice(1))) + '<kbd>' + t.kbd + '</kbd></span>'
+    + '</button>').join('');
+  $('#toolbar').innerHTML = tools;
+  $('#btnEnableAll').disabled  = state.mods.length === 0 || state.mods.every(m=>m.enabled);
+  $('#btnDisableAll').disabled = state.mods.length === 0 || state.mods.every(m=>!m.enabled);
+}
+function renderAll(){
+  document.documentElement.lang = state.lang === 'cn' ? 'zh-CN' : 'en';
+  $$('[data-i18n]').forEach(el => { el.textContent = T(el.dataset.i18n); });
+  $$('[data-i18n-ph]').forEach(el => { el.placeholder = T(el.dataset.i18nPh); });
+  $$('[data-i18n-title]').forEach(el => { el.title = T(el.dataset.i18nTitle); });
+  $('#eggLine').style.display = state.egg ? 'block' : 'none';
+  renderStats(); renderTabs(); renderList(); renderDetail(); renderToolbar();
+  $('#stage').classList.toggle('focus-list', state.zone === 'list');
+  $('#stage').classList.toggle('focus-tool', state.zone === 'tool');
+}
+function renderDrawer(){
+  const m = curMod();
+  $('#drawer').classList.toggle('on', state.drawerOpen);
+  if (!m || !m.settings){ $('#drawerList').innerHTML = ''; return; }
+  $('#drawerSub').textContent = T('settingsSub', {folder:m.folder});
+  $('#drawerList').innerHTML = m.settings.map((o,idx)=>{
+    if (o.t === 'title') return '<div class="opt topt">' + esc(o.name) + '</div>';
+    const head = '<div class="lbl"><span>' + esc(o.name) + '</span>'
+               + (o.t === 'bool' ? '' : '<span class="val">' + esc(o.t === 'percent' ? Math.round(o.value*100)+'%' : o.value) + '</span>') + '</div>';
+    let body = '';
+    if (o.t === 'bool')         body = '<div class="lbl" style="margin-top:7px"><span class="dsc" style="margin:0">' + esc(o.desc||'') + '</span>'
+                                      + '<button class="mini-switch' + (o.value?' on':'') + '" data-opt="' + idx + '"><i></i></button></div>';
+    else if (o.t === 'int' || o.t === 'float' || o.t === 'percent')
+                                body = '<input type="range" data-opt="' + idx + '" min="' + o.min + '" max="' + o.max + '" step="' + o.step + '" value="' + o.value + '">'
+                                     + '<div class="dsc">' + esc(o.desc||'') + '</div>';
+    else if (o.t === 'string')  body = '<select data-opt="' + idx + '">' + o.options.map(v=>'<option' + (v===o.value?' selected':'') + '>' + esc(v) + '</option>').join('') + '</select>'
+                                     + '<div class="dsc">' + esc(o.desc||'') + '</div>';
+    else if (o.t === 'keybind') body = '<div class="keycap">' + esc(o.value) + '</div><div class="dsc">' + esc(o.desc||'') + '</div>';
+    return '<div class="opt">' + head + body + '</div>';
+  }).join('');
+}
+
+/* ══════════════════════ 行为（对齐原版语义） ══════════════════════ */
+let toastTimer = null;
+function toast(msg){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('on'), 1900);
+}
+/* 选中项必须落在可见（符合筛选/搜索）的行上 */
+function firstVisibleIndex(){
+  const vis = visibleMods();
+  return vis.length ? vis[0].i : -1;
+}
+function selectMod(i){
+  if (!state.mods.length) return;
+  const n = state.mods.length;
+  state.sel = ((i % n) + n) % n;
+  state.zone = 'list';
+  renderAll();
+}
+function selectStep(step){
+  const vis = visibleMods();
+  if (!vis.length) return;
+  const at = vis.findIndex(o => o.i === state.sel);
+  const next = (at < 0) ? 0 : (at + step + vis.length) % vis.length;
+  selectMod(vis[next].i);
+}
+function toggleMod(i){
+  const m = state.mods[i];
+  if (!m) return;
+  m.enabled = !m.enabled;
+  state.dirty++;                                  // 原版：任何开关都置 waitingToRestart = true
+  toast(T(m.enabled ? 'toastOn' : 'toastOff', {name:m.name}));
+  // 若该行不再符合当前筛选，选中项顺移到相邻可见行
+  if (!matchFilter(m) || (state.query && !visibleMods().some(o=>o.i===i))){
+    const vis = visibleMods();
+    if (vis.length){
+      const next = vis.find(o => o.i > i) || vis[vis.length-1];
+      state.sel = next.i;
+    }
+  }
+  renderAll();
+}
+function setAll(enabled){
+  let changed = 0;
+  state.mods.forEach(m => { if (m.enabled !== enabled){ m.enabled = enabled; changed++; } });
+  if (changed){ state.dirty += changed; toast(T(enabled ? 'toastAllOn' : 'toastAllOff', {n:changed})); }
+  if (!visibleMods().length){ const f = firstVisibleIndex(); if (f >= 0) state.sel = f; }
+  renderAll();
+}
+/* FLIP：按 folder 配对（渲染后的 data-row 是新下标，不能用它配对） */
+function flip(mutate){
+  const before = new Map();
+  $$('.bl-row').forEach(r => before.set(r.dataset.key, r.getBoundingClientRect().top));
+  mutate();
+  renderAll();
+  $$('.bl-row').forEach(r => {
+    const b = before.get(r.dataset.key);
+    if (b == null) return;
+    const delta = b - r.getBoundingClientRect().top;
+    if (!delta) return;
+    r.style.transition = 'none';
+    r.style.transform = 'translateY(' + delta + 'px)';
+    requestAnimationFrame(()=>{
+      r.style.transition = 'transform .22s cubic-bezier(.16,1,.3,1)';
+      r.style.transform = '';
+    });
+  });
+}
+function moveMod(from, to){
+  const n = state.mods.length;
+  if (n < 2) return;
+  to = Math.max(0, Math.min(n-1, to));
+  if (from === to) return;
+  const name = state.mods[from].name;
+  const m = state.mods.splice(from,1)[0];
+  state.mods.splice(to,0,m);
+  state.sel = to;
+  state.dirty++;                                  // 原版：排序同样置 waitingToRestart = true
+  toast(T('toastMove', {name:name, from:from+1, to:to+1}));
+  flip(()=>{});
+}
+function reloadMenu(){ state.dirty = 0; toast(T('toastReload')); renderAll(); }
+function exitTo(){
+  const target = state.fromFreeplay ? T('toastExitFp') : T('toastExitMain');
+  state.fromFreeplay = false;                     // 原版在退出分支里复位
+  state.dirty = 0;
+  toast(target);
+  renderAll();
+}
+function exitMenu(){ state.dirty > 0 ? $('#mask').classList.add('on') : exitTo(); }
+function openDrawer(){ const m = curMod(); if (m && m.settings){ state.drawerOpen = true; renderDrawer(); } }
+function closeDrawer(save){ state.drawerOpen = false; renderDrawer(); if (save) toast(T('toastSaved')); }
+
+/* ── 标签筛选：点当前标签 = 取消筛选（显示全部） ── */
+function setFilter(f){
+  state.filter = (state.filter === f) ? null : f;
+  const vis = visibleMods();
+  if (vis.length && !vis.some(o=>o.i === state.sel)) state.sel = vis[0].i;
+  renderAll();
+}
+
+/* ══════════════════════ 长按拖拽排序（按住 1 秒）══════════════════════
+   1 秒内松开 = 点击选中；1 秒内移动超过容差 = 滑动列表/选择（不排序）；
+   按住满 1 秒 = 该行抬起，进入拖拽排序。滚轮始终直接滚动列表。 */
+let press = null;   // {i, x, y, moved, dragging, timer, row}
+const stageScale = () => $('#stage').getBoundingClientRect().width / 1280;
+function toStage(clientX, clientY){
+  const r = $('#stage').getBoundingClientRect(), k = r.width / 1280;
+  return {x:(clientX - r.left) / k, y:(clientY - r.top) / k};
+}
+function pressStart(i, x, y, row){
+  pressCancel();
+  press = {i:i, x:x, y:y, moved:false, dragging:false, row:row};
+  row.style.setProperty('--press-ms', LONG_PRESS_MS + 'ms');
+  row.classList.add('pressing');                       // 底部 1 秒进度条
+  showPressHint(x, y, 'hold');
+  press.timer = setTimeout(()=>{
+    if (!press || press.moved) return;
+    press.dragging = true;
+    press.row.classList.remove('pressing');
+    press.row.classList.add('dragging');               // 整行抬起
+    showPressHint(x, y, 'drag');
+  }, LONG_PRESS_MS);
+}
+function pressCancel(){
+  if (!press) return;
+  clearTimeout(press.timer);
+  if (press.row){ press.row.classList.remove('dragging'); press.row.classList.remove('pressing'); }
+  press = null;
+  setDropLine(0, false);
+  hidePressHint();
+}
+function showPressHint(clientX, clientY, phase){
+  const h = $('#pressHint'), p = toStage(clientX, clientY);
+  h.textContent = T(phase === 'drag' ? 'pressDrag' : 'pressHold');
+  h.classList.add('on');
+  h.style.left = Math.max(6, Math.min(p.x + 14, 1280 - 280)) + 'px';
+  h.style.top  = Math.max(42, p.y - 34) + 'px';
+}
+function hidePressHint(){ $('#pressHint').classList.remove('on'); }
+
+$('#list').addEventListener('pointerdown', e => {
+  const row = e.target.closest('.bl-row');
+  if (!row) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  e.preventDefault();
+  pressStart(+row.dataset.row, e.clientX, e.clientY, row);
+});
+window.addEventListener('pointermove', e => {
+  if (!press) return;
+  const dx = e.clientX - press.x, dy = e.clientY - press.y;
+  if (!press.dragging){
+    if (Math.abs(dx) > MOVE_TOLERANCE || Math.abs(dy) > MOVE_TOLERANCE){
+      // 还没到 1 秒就动了 → 视为滑动列表/选择，取消长按
+      clearTimeout(press.timer);
+      press.moved = true;
+      press.row.classList.remove('pressing');
+      setDropLine(0, false);
+      hidePressHint();
+    }
+    return;
+  }
+  // 拖动中：被拖行跟随光标 + 插入指示线 + 边缘自动滚动
+  press.row.style.transform = 'translateY(' + dy + 'px)';
+  const scrollBox = $('#listScroll'), box = scrollBox.getBoundingClientRect();
+  if (e.clientY < box.top + 20) scrollBox.scrollTop -= 8;
+  else if (e.clientY > box.bottom - 20) scrollBox.scrollTop += 8;
+
+  const rows = $$('.bl-row'), listBox = $('#list').getBoundingClientRect();
+  let target = rows.length;
+  for (let k = 0; k < rows.length; k++){
+    const r = rows[k].getBoundingClientRect();
+    if (e.clientY < r.top + r.height/2){ target = k; break; }
+  }
+  press.target = target;
+  const ref = rows[Math.min(target, rows.length-1)];
+  const rb = ref.getBoundingClientRect();
+  const above = e.clientY < rb.top + rb.height/2;
+  setDropLine((above ? rb.top : rb.bottom) - listBox.top - 1, true);
+  showPressHint(e.clientX, e.clientY, 'drag');
+});
+window.addEventListener('pointerup', e => {
+  if (!press) return;
+  const p = press;
+  if (p.dragging){
+    const rows = $$('.bl-row');
+    rows.forEach(r => { r.style.transform = ''; });
+    const to = (p.target == null) ? p.i : p.target;
+    const visIdx = rows.map(r => +r.dataset.row);
+    const mapped = (to >= visIdx.length) ? state.mods.length - 1 : visIdx[to];
+    pressCancel();
+    if (mapped !== p.i) moveMod(p.i, mapped);
+    else renderAll();
+    return;
+  }
+  const wasClick = !p.moved;
+  pressCancel();
+  if (wasClick) selectMod(p.i);
+});
+window.addEventListener('pointercancel', pressCancel);
+$('#listScroll').addEventListener('wheel', e => {
+  if (e.shiftKey){ e.preventDefault(); selectStep(e.deltaY > 0 ? 1 : -1); }
+}, {passive:false});
+
+/* ── 其它绑定 ── */
+$('#tabOn').addEventListener('click', ()=>setFilter('on'));
+$('#tabOff').addEventListener('click', ()=>setFilter('off'));
+$('#dToggle').addEventListener('click', ()=>toggleMod(state.sel));
+$('#btnReload').addEventListener('click', reloadMenu);
+$('#btnEnableAll').addEventListener('click', ()=>setAll(true));
+$('#btnDisableAll').addEventListener('click', ()=>setAll(false));
+$('#toolbar').addEventListener('click', e => {
+  const b = e.target.closest('.tool');
+  if (!b || b.disabled) return;
+  state.tool = +b.dataset.tool; state.zone = 'tool';
+  TOOLS[state.tool].act(); renderAll();
+});
+/* hover 只切类名，不重建 DOM（否则指针下的按钮被替换，tooltip 会闪） */
+$('#toolbar').addEventListener('mouseover', e => {
+  const b = e.target.closest('.tool');
+  if (!b || b.disabled) return;
+  state.tool = +b.dataset.tool; state.zone = 'tool';
+  $$('#toolbar .tool').forEach(el => el.classList.toggle('focus', el === b));
+  $('#stage').classList.add('focus-tool'); $('#stage').classList.remove('focus-list');
+});
+$('#q').addEventListener('input', e => {
+  state.query = e.target.value;
+  const vis = visibleMods();
+  if (vis.length && !vis.some(o=>o.i === state.sel)) state.sel = vis[0].i;
+  renderStats(); renderList(); renderDetail();
+});
+$('#btnFolder').addEventListener('click', ()=>toast(T('toastFolder', {path:'<game>/mods/'})));
+$('#btnEmptyFolder').addEventListener('click', ()=>toast(T('toastFolder', {path:'<game>/mods/'})));
+$('#btnEmptyBack').addEventListener('click', exitMenu);
+$('#btnExit').addEventListener('click', exitMenu);
+$('#wMin').addEventListener('click', ()=>toast(T('winMin') + ' — ' + T('winNote')));
+$('#wMax').addEventListener('click', ()=>toast(T('winMax') + ' — ' + T('winNote')));
+$('#wClose').addEventListener('click', ()=>toast(T('winClose') + ' — ' + T('winNote')));
+$('#btnDrawerSave').addEventListener('click', ()=>closeDrawer(true));
+$('#btnDrawerClose').addEventListener('click', ()=>closeDrawer(false));
+$('#drawerList').addEventListener('click', e => {
+  const sw = e.target.closest('.mini-switch'); if (!sw) return;
+  const o = curMod().settings[+sw.dataset.opt];
+  o.value = !o.value; sw.classList.toggle('on', o.value);
+});
+/* 抽屉控件只更新局部文本，不整体重建（否则拖动滑条会断） */
+$('#drawerList').addEventListener('input', e => {
+  const el = e.target; if (!el.dataset || el.dataset.opt == null) return;
+  const o = curMod().settings[+el.dataset.opt];
+  o.value = (el.type === 'range') ? parseFloat(el.value) : el.value;
+  const box = el.closest('.opt');
+  const valEl = box ? box.querySelector('.val') : null;
+  if (valEl) valEl.textContent = (o.t === 'percent') ? Math.round(o.value * 100) + '%' : o.value;
+});
+$('#btnRestartNow').addEventListener('click', ()=>{
+  $('#mask').classList.remove('on');
+  toast(T('toastRestart'));
+  state.dirty = 0;
+  setTimeout(()=>setScene(state.scene), 900);
+});
+$('#btnStayHere').addEventListener('click', ()=>$('#mask').classList.remove('on'));
+$('#mask').addEventListener('click', e => { if (e.target.id === 'mask') $('#mask').classList.remove('on'); });
+
+/* ── 键盘（对应原版 controls：UI_UP/DOWN/LEFT/RIGHT/ACCEPT/BACK） ── */
+function enterToolZone(){
+  state.zone = 'tool'; state.tool = 0;
+  while (state.tool < TOOLS.length - 1 && toolDisabled(TOOLS[state.tool])) state.tool++;
+  renderAll();
+}
+function toolStep(step){
+  const n = TOOLS.length;
+  let i = state.tool;
+  for (let guard = 0; guard < n; guard++){
+    i += step;
+    if (i < 0 || i >= n) break;
+    if (!toolDisabled(TOOLS[i])){ state.tool = i; renderToolbar(); return; }
+  }
+  state.zone = 'list'; renderAll();
+}
+window.addEventListener('keydown', e => {
+  const ae = document.activeElement;
+  const typing = !!(ae && ae.tagName === 'INPUT' && ae.type === 'text');
+  if (typing && e.key !== 'Escape') return;
+  if (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')){
+    e.preventDefault(); moveMod(state.sel, e.key === 'ArrowUp' ? 0 : state.mods.length - 1); return;
+  }
+  if (state.drawerOpen && e.key === 'Escape'){ closeDrawer(false); e.preventDefault(); return; }
+  if ($('#mask').classList.contains('on')){
+    if (e.key === 'Escape'){ $('#mask').classList.remove('on'); e.preventDefault(); }
+    return;
+  }
+  const n = state.mods.length, list = state.zone === 'list';
+  switch(e.key){
+    case 'ArrowDown':
+      e.preventDefault();
+      if (list){ if (e.shiftKey) moveMod(state.sel, state.sel + 1); else selectStep(1); }
+      else toolStep(1);
+      break;
+    case 'ArrowUp':
+      e.preventDefault();
+      if (list){ if (e.shiftKey) moveMod(state.sel, state.sel - 1); else selectStep(-1); }
+      else toolStep(-1);
+      break;
+    case 'ArrowLeft':
+      e.preventDefault();
+      if (list) enterToolZone(); else toolStep(-1);
+      break;
+    case 'ArrowRight':
+      e.preventDefault();
+      if (list){ if (e.shiftKey) moveMod(state.sel, state.sel + 1); else enterToolZone(); }
+      else toolStep(1);
+      break;
+    case 'Home': e.preventDefault(); if (n) selectMod(0); break;
+    case 'End':  e.preventDefault(); if (n) selectMod(n-1); break;
+    case 'Enter':
+      e.preventDefault();
+      if (list) enterToolZone();
+      else { const t = TOOLS[state.tool]; if (!toolDisabled(t)) t.act(); renderAll(); }
+      break;
+    case ' ':
+      e.preventDefault(); if (n) toggleMod(state.sel); break;
+    case 'Escape':
+      e.preventDefault();
+      if (list) exitMenu(); else { state.zone = 'list'; renderAll(); }   // 原版：按钮区 BACK 只回列表
+      break;
+  }
+});
+
+/* ── 场景 ── */
+function setScene(scene){
+  state.scene = scene;
+  const count = { many:DEMO.length, few:6, one:1, empty:0 }[scene];
+  state.mods = count ? DEMO.slice(0, count).map(d => Object.assign({}, d)) : [];
+  state.sel = 0; state.dirty = 0; state.query = ''; $('#q').value = '';
+  state.drawerOpen = false; $('#mask').classList.remove('on');
+  state.filter = 'on';
+  const has = state.mods.length > 0;
+  $('#body').style.display = has ? 'flex' : 'none';
+  $('#empty').classList.toggle('on', !has);
+  if (has){
+    const vis = visibleMods();
+    if (vis.length) state.sel = vis[0].i;
+  }
+  $('#listScroll').scrollTop = 0;
+  renderAll(); renderDrawer();
+}
+
+/* ── 演示控制条 ── */
+$('#demoBar').addEventListener('click', e => {
+  const langBtn = e.target.closest('[data-lang]');
+  if (langBtn){
+    state.lang = langBtn.dataset.lang; renderAll(); renderDrawer();
+    $$('#demoBar [data-lang]').forEach(b=>b.classList.toggle('on', b === langBtn));
+    return;
+  }
+  const mqBtn = e.target.closest('[data-mq]');
+  if (mqBtn){
+    setMarqueeMode(mqBtn.dataset.mq);
+    $$('#demoBar [data-mq]').forEach(b=>b.classList.toggle('on', b === mqBtn));
+    return;
+  }
+  const sc = e.target.closest('[data-scene]');
+  if (sc){
+    setScene(sc.dataset.scene);
+    $$('#demoBar [data-scene]').forEach(b=>b.classList.toggle('on', b === sc));
+    return;
+  }
+  const act = e.target.closest('[data-act]');
+  if (!act) return;
+  if (act.dataset.act === 'settings') openDrawer();
+  if (act.dataset.act === 'exit') exitMenu();
+  if (act.dataset.act === 'reset'){
+    setScene('many'); state.lang = 'cn';
+    setMarqueeMode('loop');
+    $$('#demoBar [data-lang]').forEach(b=>b.classList.toggle('on', b.dataset.lang === 'cn'));
+    $$('#demoBar [data-scene]').forEach(b=>b.classList.toggle('on', b.dataset.scene === 'many'));
+    $$('#demoBar [data-mq]').forEach(b=>b.classList.toggle('on', b.dataset.mq === 'loop'));
+    toast(T('toastReload'));
+  }
+});
+$('#cbFreeplay').addEventListener('change', e => { state.fromFreeplay = e.target.checked; renderAll(); });
+$('#cbEgg').addEventListener('change', e => { state.egg = e.target.checked; renderAll(); });
+/* 长名字显示模式（演示控制条切换） */
+function setMarqueeMode(mode){
+  state.marqueeMode = mode;
+  $('#stage').classList.toggle('no-marquee', mode === 'off');
+  renderAll();                                   // 重建列表并重新决定走马灯
+}
+
+/* ── 缩放适配：保持 1280×720 逻辑像素 ── */
+function fit(){
+  const availW = Math.min(window.innerWidth - 28, 1280);
+  const availH = window.innerHeight - 150;
+  const s = Math.max(0.4, Math.min(1, availW / 1280, availH / 720));
+  $('#stage').style.transform = 'scale(' + s + ')';
+  $('#stageWrap').style.width  = (1280 * s) + 'px';
+  $('#stageWrap').style.height = (720 * s) + 'px';
+}
+window.addEventListener('resize', fit);
+
+/* 图标占位：[data-icon] → SVG（可用 data-size 指定尺寸） */
+$$('[data-icon]').forEach(el => { el.innerHTML = svg(el.dataset.icon, +(el.dataset.size || 18)); });
+
+/* 启动 */
+fit();
+setScene('many');
+$('#stage').classList.toggle('no-marquee', state.marqueeMode === 'off');
+
+/* ?shot=1：纯净截图模式 —— 隐藏演示条与说明区、去掉页面留白、锁定 scale=1，
+   这样截图的 (0,0)-(1280,720) 就是游戏画面本体，便于像素级核对 */
+if (location.search.indexOf('shot') >= 0){
+  $('#demoBar').style.display = 'none';
+  $('#spec').style.display = 'none';
+  document.body.style.padding = '0';
+  document.body.style.gap = '0';
+  window.removeEventListener('resize', fit);
+  $('#stage').style.transform = 'scale(1)';
+  $('#stageWrap').style.width = '1280px';
+  $('#stageWrap').style.height = '720px';
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   内置自检（?selftest=1）：页面内断言几何 / 交互 / 长按拖拽，便于无头验收
+   ══════════════════════════════════════════════════════════════════════════ */
+if (location.search.indexOf('selftest') >= 0){
+  const out = [];
+  const ok = (name, cond, extra) => out.push((cond ? 'PASS  ' : 'FAIL  ') + name + (extra != null ? '   [' + extra + ']' : ''));
+  const rectOf = sel => { const el = $(sel); return el ? el.getBoundingClientRect() : null; };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const stage = $('#stage');
+  const sr = () => stage.getBoundingClientRect();
+  const inside = r => { const s = sr(); return r && r.left >= s.left - 0.6 && r.top >= s.top - 0.6 && r.right <= s.right + 0.6 && r.bottom <= s.bottom + 0.6; };
+  const toRect = x => (typeof x === 'string') ? rectOf(x) : (x && x.nodeType === 1 ? x.getBoundingClientRect() : x);
+  const noOverlap = (a,b) => { const r1 = toRect(a), r2 = toRect(b); if (!r1 || !r2) return false;
+    return r1.bottom <= r2.top + 0.6 || r2.bottom <= r1.top + 0.6 || r1.right <= r2.left + 0.6 || r2.right <= r1.left + 0.6; };
+  /* 用逻辑坐标（除以缩放比）判断"贴边"，不受窗口缩放影响 */
+  const S = () => sr().width / 1280;
+  const near = (v, target, tol) => Math.abs(v - target) <= (tol || 1);
+
+  (async function runTest(){
+    ok('舞台逻辑尺寸 1280×720', Math.round(stage.offsetWidth) === 1280 && Math.round(stage.offsetHeight) === 720,
+       stage.offsetWidth + '×' + stage.offsetHeight);
+    ok('舞台裁剪越界内容', getComputedStyle(stage).overflow === 'hidden');
+
+    // —— 贴边断言（无空隙）——
+    const s = sr(), k = S();
+    const chromeR = rectOf('#chrome'), leftR = rectOf('#left'), rightR = rectOf('#right');
+    const listR = rectOf('#listScroll'), tabsR = rectOf('#tabs'), footR = rectOf('#listFooter');
+    ok('窗口条贴顶且满宽', near(chromeR.top, s.top, 1) && near(chromeR.left, s.left, 1) &&
+       near(chromeR.width / k, 1280, 1) && near(chromeR.height / k, 36, 1),
+       [chromeR.height / k].map(v=>v.toFixed(1)).join());
+    ok('左栏贴左缘', near(leftR.left, s.left, 1));
+    ok('右栏贴右缘', near(rightR.right, s.right, 1));
+    ok('底部按钮条贴屏幕底', near(footR.bottom, s.bottom, 1), (footR.bottom/k).toFixed(1) + ' vs ' + (s.bottom/k).toFixed(1));
+    ok('左右分栏为 30% / 70%', near(leftR.width / k, 384, 1) && near(rightR.width / k, 896, 1),
+       (leftR.width/k).toFixed(1) + ' / ' + (rightR.width/k).toFixed(1));
+    ok('标签栏高度 40 且贴左栏顶', near(tabsR.height / k, 40, 1) && near(tabsR.top, chromeR.bottom, 1));
+    ok('标签栏无左右外边距', near(tabsR.left, s.left, 1) && near(tabsR.right, leftR.right, 1));
+
+    // —— 窗口条内容 ——
+    ok('窗口条含 − □ × 三个按钮', ['[data-role=winMin]','[data-role=winMax]','[data-role=winClose]'].every(x => inside(rectOf(x))));
+    ok('× 按钮贴屏幕右上角', near(rectOf('[data-role=winClose]').right, s.right, 1) && near(rectOf('[data-role=winClose]').top, s.top, 1));
+    ok('× 按钮宽 46（BTN_W）', near(rectOf('[data-role=winClose]').width / k, 46, 1.5), (rectOf('[data-role=winClose]').width/k).toFixed(1));
+    const fR = rectOf('[data-role=folder]'), qR = rectOf('#searchWrap'), eR = rectOf('[data-role=exitTop]');
+    ok('搜索框在 × 左边', qR.right <= rectOf('[data-role=winMin]').left + 1);
+    ok('打开文件夹 → 搜索框 → 退出 依次排列', fR.right <= qR.left + 1 && qR.right <= eR.left + 1);
+    ok('三者都在窗口条内', [fR,qR,eR].every(r => r.top >= chromeR.top - 1 && r.bottom <= chromeR.bottom + 1));
+    ok('9 个工具按钮在窗口条内', $$('#toolbar .tool').length === 9 &&
+       $$('#toolbar .tool').every(b => inside(b.getBoundingClientRect())), $$('#toolbar .tool').length);
+    ok('工具栏在窗口条左侧区域（不在底部）', rectOf('#toolbar').top < s.top + 36 * k + 1);
+    ok('工具按钮互不重叠', (()=>{ const r = $$('#toolbar .tool').map(b=>b.getBoundingClientRect());
+       return r.every((x,i)=> i===0 || r[i-1].right <= x.left + 0.6); })());
+    ok('窗口条与主体不重叠', noOverlap('#chrome','#body'));
+
+    // —— 列表版式（pack 图标 | 两行文本）——
+    ok('列表行 = 可见模组数', $$('.bl-row').length === visibleMods().length, $$('.bl-row').length);
+    const row0 = $('.bl-row'), icon0 = $('.bl-row .bl-icon'), name0 = $('.bl-row .bl-name'), folder0 = $('.bl-row .bl-folder');
+    ok('行内含 pack 图标 + 名称 + 文件夹名两行', !!icon0 && !!name0 && !!folder0);
+    ok('图标在文本左侧（pack|文本 结构）', icon0.getBoundingClientRect().right <= name0.getBoundingClientRect().left + 0.6);
+    ok('名称行在文件夹行上方', name0.getBoundingClientRect().bottom <= folder0.getBoundingClientRect().top + 1);
+    ok('行高 56', near(row0.getBoundingClientRect().height / k, 56, 1.5), (row0.getBoundingClientRect().height/k).toFixed(1));
+    ok('列表行通铺左栏（左右贴边）', near(row0.getBoundingClientRect().left, leftR.left, 1) && near(row0.getBoundingClientRect().right, leftR.right, 1));
+    ok('列表行互不重叠', (()=>{ const r = $$('.bl-row').map(x=>x.getBoundingClientRect());
+       return r.every((x,i)=> i===0 || r[i-1].bottom <= x.top + 0.6); })());
+
+    // —— 标签筛选 ——
+    const onAll = state.mods.filter(m=>m.enabled).length;
+    state.filter = null; renderAll();
+    ok('取消筛选时行数 = 全部模组', $$('.bl-row').length === state.mods.length, $$('.bl-row').length);
+    $('#tabOn').click();
+    ok('【已启用】筛选后行数正确', state.filter === 'on' && $$('.bl-row').length === onAll, $$('.bl-row').length);
+    $('#tabOff').click();
+    ok('【已禁用】筛选后行数正确', state.filter === 'off' && $$('.bl-row').length === state.mods.length - onAll, $$('.bl-row').length);
+    $('#tabOff').click();
+    ok('再点当前标签 = 取消筛选', state.filter === null && $$('.bl-row').length === state.mods.length);
+    $('#tabOn').click();
+
+    // —— 详情右上角启用/禁用 ——
+    const dT = rectOf('[data-role=detailToggle]');
+    ok('启用/禁用按钮在详情区右上角', dT.right <= rightR.right + 1 && dT.top <= rightR.top + 140 * k && dT.left > rightR.left + rightR.width / 2);
+    selectMod(0);
+    const tKey = curMod().folder, tBefore = curMod().enabled, tD0 = state.dirty;
+    $('#dToggle').click();
+    const tMod = state.mods.find(m => m.folder === tKey);
+    ok('右上角开关切换该 mod 的启用状态', tMod.enabled === !tBefore, tKey + ': ' + tBefore + ' → ' + tMod.enabled);
+    ok('切换计入待重启改动', state.dirty === tD0 + 1, state.dirty);
+    $('#dToggle').click();
+    state.dirty = tD0;
+
+    // —— 长按拖拽（每步都重新取行节点：renderAll 会重建列表，旧节点已脱离文档）——
+    const rowAt = k => $$('.bl-row')[k];
+    const pt = (el, type, x, y) => el.dispatchEvent(new PointerEvent(type,
+      {bubbles:true, clientX:x, clientY:y, pointerType:'mouse', button:0}));
+    state.filter = null; renderAll();
+    const keyFirst = state.mods[0].folder, keySecond = state.mods[1].folder;
+
+    // (1) 短按 = 只选中，不改顺序
+    let r = rowAt(1);
+    pt(r, 'pointerdown', 100, r.getBoundingClientRect().top + 20);
+    window.dispatchEvent(new PointerEvent('pointerup', {bubbles:true}));
+    ok('短按 = 选中（不改顺序）', state.sel === 1 && state.mods[0].folder === keyFirst && state.mods[1].folder === keySecond,
+       'sel=' + state.sel);
+
+    // (2) 按住后立刻移动 = 不算长按
+    state.filter = null; renderAll();
+    r = rowAt(1);
+    pt(r, 'pointerdown', 100, r.getBoundingClientRect().top + 20);
+    window.dispatchEvent(new PointerEvent('pointermove', {bubbles:true, clientX:160, clientY:r.getBoundingClientRect().top + 60}));
+    await sleep(LONG_PRESS_MS + 60);
+    ok('长按前就移动 → 不进入拖拽', press === null || press.dragging === false);
+    window.dispatchEvent(new PointerEvent('pointerup', {bubbles:true}));
+
+    // (3) 真正的长按拖拽：第 2 项拖到首位（按住满 1 秒）
+    state.filter = null; renderAll();
+    r = rowAt(1);
+    pt(r, 'pointerdown', 100, r.getBoundingClientRect().top + 20);
+    await sleep(500);
+    ok('按住 0.5 秒时仍未进入拖拽（只亮进度条）',
+       !!press && press.dragging === false && r.classList.contains('pressing'));
+    await sleep(LONG_PRESS_MS - 500 + 180);
+    ok('长按满 1 秒后进入拖拽态', !!press && press.dragging === true);
+    ok('拖拽态整行抬起（.dragging）', !!$('.bl-row.dragging'));
+    const r0 = rowAt(0).getBoundingClientRect();
+    window.dispatchEvent(new PointerEvent('pointermove', {bubbles:true, clientX:100, clientY:r0.top + 2}));
+    ok('拖动时出现插入指示线', !!$('#dropLine') && $('#dropLine').classList.contains('on'));
+    window.dispatchEvent(new PointerEvent('pointerup', {bubbles:true}));
+    ok('松手后顺序变更（第 2 项移到首位）', state.mods[0].folder === keySecond && state.mods[1].folder === keyFirst,
+       state.mods.map(m=>m.folder).slice(0,3).join(' > '));
+    ok('排序计入待重启改动', state.dirty > 0, state.dirty);
+    setScene('many');
+    ok('重置场景后恢复初始顺序', state.mods[0].folder === keyFirst && state.mods[1].folder === keySecond);
+
+    // —— 多模组：列表必须可滚动 ——
+    ok('模组数量足够撑出滚动（22 个）', state.mods.length === 22, state.mods.length);
+    const sc = $('#listScroll');
+    ok('列表可滚动（内容高于可视区）', sc.scrollHeight > sc.clientHeight + 100,
+       sc.scrollHeight + ' > ' + sc.clientHeight);
+    sc.scrollTop = 240;
+    ok('滚动位置可改变（滚轮/滑块路径）', sc.scrollTop > 0, sc.scrollTop);
+    sc.scrollTop = 0;
+    ok('滚动条可用（overflow-y:auto）', getComputedStyle(sc).overflowY === 'auto');
+
+    // —— 版式回归：走马灯副本绝不能折行成"两行同名" ——
+    const clips = $$('#list .bl-name-clip, #list .bl-folder-clip');
+    ok('裁剪容器不折行（高度=单行）', clips.every(c => c.clientHeight <= 20),
+       clips.map(c => c.clientHeight).join('/'));
+    ok('副本只横向溢出、无纵向溢出（不会出现第二行同名）',
+       clips.every(c => c.scrollHeight <= c.clientHeight + 1), 
+       clips.map(c => c.scrollHeight + '≤' + (c.clientHeight + 1)).slice(0,3).join(' '));
+    ok('行高未被走马灯撑高（全部 56）',
+       $$('.bl-row').every(r => Math.abs(r.getBoundingClientRect().height / k - 56) <= 1.5));
+    const longRow = $$('.bl-row').find(r => r.querySelector('[data-marquee]') && r.querySelector('.mq-copy'));
+    if (longRow){
+      const nR = longRow.querySelector('.bl-name-clip').getBoundingClientRect();
+      const fR = longRow.querySelector('.bl-folder-clip').getBoundingClientRect();
+      ok('长名字行仍是「名称一行 + 文件夹一行」', nR.bottom <= fR.top + 1,
+         'name.bottom=' + nR.bottom.toFixed(1) + ' folder.top=' + fR.top.toFixed(1));
+      ok('副本与原件同处一行（同一 clip 内）',
+         longRow.querySelector('.mq-copy').parentElement === longRow.querySelector('.bl-name-clip'));
+    } else {
+      ok('长名字行仍是「名称一行 + 文件夹一行」', false);
+      ok('副本与原件同处一行（同一 clip 内）', false);
+    }
+
+    // —— 超长名字走马灯：三种模式，都必须"只往一个方向" ——
+    const kfX = a => a.effect.getKeyframes().map(k => { const m = String(k.transform).match(/-?\d+(?:\.\d+)?/); return m ? parseFloat(m[0]) : NaN; });
+    const kfOff = a => a.effect.getKeyframes().map(k => k.offset);
+    setMarqueeMode('loop');
+    let mq = $$('#list [data-marquee]').filter(el => el._anim);
+    ok('默认模式=无缝单向循环（有动画实例）', mq.length >= 1 && mq[0]._anim.marqueeInfo.seamless === true, mq.length);
+    if (mq.length){
+      const a = mq[0]._anim, info = a.marqueeInfo, xs = kfX(a);
+      const D = info.w + info.gap;
+      const expectTotal = MARQUEE_HOLD * 1000 + D / MARQUEE_SPEED * 1000;
+      ok('循环位移 = 文本宽 + 间隔（循环边界第二份正好接上）', Math.abs(info.d - D) <= 1.001,
+         'd=' + info.d + ' w=' + info.w + ' gap=' + info.gap);
+      ok('走马灯参数 = 32px/s + 起点停 0.9s（引擎常量）',
+         info.speed === 32 && info.hold === 0.9 && Math.abs(info.total - expectTotal) <= 2, 'total=' + info.total + 'ms');
+      ok('单向滑动：位移关键帧 0 → 0 → -D（全程不回程）',
+         xs.length === 3 && xs[0] === 0 && xs[1] === 0 && xs[2] === -info.d, 'x=' + xs.join(','));
+      ok('无缝：第二份文案已插入且同步动画', $$('#list .mq-copy').length === mq.length && $$('#list .mq-copy').every(el => !!el._anim),
+         $$('#list .mq-copy').length + ' 份');
+    } else {
+      ok('循环位移 = 文本宽 + 间隔（循环边界第二份正好接上）', false);
+      ok('走马灯参数 = 32px/s + 起点停 0.9s（引擎常量）', false);
+      ok('单向滑动：位移关键帧 0 → 0 → -D（全程不回程）', false);
+      ok('无缝：第二份文案已插入且同步动画', false);
+    }
+    setMarqueeMode('once');
+    mq = $$('#list [data-marquee]').filter(el => el._anim);
+    if (mq.length){
+      const a = mq[0]._anim, info = a.marqueeInfo, xs = kfX(a), offs = kfOff(a);
+      const backMs = (offs[4] - offs[3]) * info.total;
+      ok('单程模式：0 → 0 → -d → -d → 0，回程仅 ' + backMs.toFixed(2) + 'ms 瞬时跳回（不反向滑）',
+         xs.length === 5 && xs[0] === 0 && xs[1] === 0 && xs[2] === -info.d && xs[3] === xs[2] && xs[4] === 0 && backMs <= 2,
+         'x=' + xs.join(','));
+      ok('单程模式无第二份文案', $$('#list .mq-copy').length === 0);
+    } else {
+      ok('单程模式：0 → 0 → -d → -d → 0，回程瞬时跳回（不反向滑）', false);
+      ok('单程模式无第二份文案', false);
+    }
+    setMarqueeMode('off');
+    ok('省略号模式：无动画实例 + no-marquee 类',
+       $$('#list [data-marquee]').every(el => !el._anim) && $('#stage').classList.contains('no-marquee'));
+    setMarqueeMode('loop');
+    ok('切回单向循环恢复正常', $$('#list [data-marquee]').some(el => el._anim) && $$('#list .mq-copy').length > 0);
+
+    // —— 底部三个原版按钮 ——
+    ok('RELOAD / 全部启用 / 全部禁用 仍在列表下方', ['[data-role=reload]','[data-role=enableAll]','[data-role=disableAll]'].every(x => inside(rectOf(x))));
+    state.filter = null; renderAll();
+    setAll(false);
+    ok('全部禁用生效', state.mods.every(m=>!m.enabled));
+    ok('“全部启用”按钮恢复可用', !$('#btnEnableAll').disabled && $('#btnDisableAll').disabled);
+    $('#tabOn').click();   // → 筛选「已启用」，此时应为空
+    ok('筛选后无可见行时显示占位', $$('.bl-row').length === 0 && !!$('.bl-empty'), $$('.bl-row').length);
+    $('#tabOn').click();   // → 取消筛选
+    setAll(true);
+
+    // —— 搜索 ——
+    $('#q').value = 'skin'; $('#q').dispatchEvent(new Event('input', {bubbles:true}));
+    ok('搜索过滤生效', $$('.bl-row').length >= 1 && $$('.bl-row').length < state.mods.length, $$('.bl-row').length);
+    $('#q').value = ''; $('#q').dispatchEvent(new Event('input', {bubbles:true}));
+
+    // —— 设置抽屉 / 退出确认 / 语言 / 空状态 ——
+    selectMod(1);
+    openDrawer();
+    ok('设置抽屉打开且有选项行', $('#drawer').classList.contains('on') && $$('#drawerList .opt').length >= 6, $$('#drawerList .opt').length);
+    closeDrawer(false);
+    state.dirty = 2; exitMenu();
+    ok('有改动时退出弹确认', $('#mask').classList.contains('on'));
+    $('#btnStayHere').click();
+    state.dirty = 0;
+    $$('[data-lang]')[1].click();
+    ok('语言切英文', $('#screenLabel b').textContent === 'Mods', $('#screenLabel b').textContent);
+    $$('[data-lang]')[0].click();
+    ok('语言切回中文', $('#screenLabel b').textContent === '模组管理');
+    setScene('empty');
+    ok('空状态显示 + 主体隐藏', $('#empty').classList.contains('on') && $('#body').style.display === 'none');
+    ok('空状态贴满窗口条以下区域', inside(rectOf('[data-role=empty]')) && near(rectOf('[data-role=empty]').top, chromeR.bottom, 1));
+    setScene('many');
+    ok('恢复 22 个模组', state.mods.length === 22, state.mods.length);
+
+    const fails = out.filter(l => l.indexOf('FAIL') === 0).length;
+    const pageRect = sel => { const r = rectOf(sel); return r ? [Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)].join(',') : 'none'; };
+    const dump = 'RECTS scale=' + k.toFixed(3)
+      + ' stage=' + pageRect('#stage') + ' chrome=' + pageRect('#chrome') + ' left=' + pageRect('#left')
+      + ' right=' + pageRect('#right') + ' tabs=' + pageRect('#tabs') + ' row0=' + pageRect('.bl-row')
+      + ' footer=' + pageRect('#listFooter') + ' toggle=' + pageRect('[data-role=detailToggle]')
+      + ' dName=' + pageRect('#dName') + ' dDesc=' + pageRect('#dDesc')
+      + ' tools=' + $$('#toolbar .tool').map(b => { const r = b.getBoundingClientRect(); return [Math.round(r.left),Math.round(r.top),Math.round(r.width)].join(':'); }).join('|');
+    const el = $('#selftest');
+    el.classList.add('on');
+    el.innerHTML = '自检结果：' + (out.length - fails) + '/' + out.length + ' 通过\n\n'
+      + out.map(l => l.indexOf('FAIL') === 0 ? '<span class="fail">' + esc(l) + '</span>' : esc(l)).join('\n')
+      + '\n\n' + (fails ? '有 ' + fails + ' 项失败' : '全部通过 ✔') + '\n\n' + esc(dump);
+    document.title = (fails ? 'FAIL(' + fails + ') ' : 'PASS ') + 'Mods 菜单原型 v3 自检';
+    console.log(el.textContent);
+  })();
+}
+</script>
+</body>
+</html>

@@ -41,8 +41,9 @@ class EncryptUtil {
     public static function aesEncrypt(data:String):String {
         var iv:Bytes = generateRandomIV();
 
-        trace("iv: " + iv.toString());
-        
+        // 原为 trace("iv: " + iv.toString())：调试残留，会把加密材料刷进控制台/日志。
+        // （IV 本身随密文一起传输，不是密钥，但不应进日志。）
+
         var dataBytes:Bytes = Bytes.ofString(data);
         var paddedData:Bytes = PKCS7.pad(dataBytes, BLOCK_SIZE);
         

@@ -1,4 +1,4 @@
-﻿package general.backend;
+package general.backend;
 
 import games.backend.Song;
 import games.backend.Section;
@@ -18,8 +18,35 @@ class Conductor
 	public static var bpm(default, set):Float = 100;
 	public static var crochet:Float = ((60 / bpm) * 1000); // beats in milliseconds
 	public static var stepCrochet:Float = crochet / 4; // steps in milliseconds
-	public static var songPosition:Float = 0;
+	public static var songPosition(default, set):Float = 0;
 	public static var offset:Float = 0;
+
+	/**
+	 * 外部（脚本 / 其它状态）把 songPosition 跳到别处时的回调，由 PlayState 在 create() 里注入。
+	 *
+	 * 为什么需要这个回调：本引擎的歌曲时钟是 PlayState.timing 那套独立时钟，
+	 * handleInput 每帧都会执行 `Conductor.songPosition = timing.getPositionMs()`。
+	 * 于是 mod 里最经典的"跳时间"写法
+	 *
+	 *     setPropertyFromClass('Conductor', 'songPosition', X)
+	 *     setPropertyFromClass('flixel.FlxG', 'sound.music.time', X)
+	 *
+	 * 会在下一帧被时钟原样覆盖回去 —— 表现出来就是「过场视频播完之后谱面从 0 重新开始，
+	 * 视频却不会再播一次」。有了这个回调，PlayState 就能把引擎时钟一起锚定到新位置。
+	 */
+	public static var onExternalSeek:Float->Void = null;
+
+	/** 正常播放时每帧只差十几毫秒；超过这个差值才认定为"外部跳变"。 */
+	public static inline var SEEK_JUMP_EPSILON:Float = 150;
+
+	static function set_songPosition(value:Float):Float
+	{
+		var previous:Float = songPosition;
+		songPosition = value;
+		if (onExternalSeek != null && !Math.isNaN(value) && Math.abs(value - previous) > SEEK_JUMP_EPSILON)
+			onExternalSeek(value);
+		return value;
+	}
 
 	// public static var safeFrames:Int = 10;
 	public static var safeZoneOffset:Float = 0; // is calculated in create(), is safeFrames in milliseconds
@@ -136,7 +163,6 @@ class Conductor
 			totalSteps += deltaSteps;
 			totalPos += ((60 / curBPM) * 1000 / 4) * deltaSteps;
 		}
-		trace("new BPM map BUDDY " + bpmChangeMap);
 	}
 
 	static function getSectionBeats(song:SwagSong, section:Int)

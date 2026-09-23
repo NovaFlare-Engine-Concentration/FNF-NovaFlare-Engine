@@ -1,0 +1,32 @@
+# ===== 菜单角色编辑器（新 UI）=====
+
+# ===== 底部一级菜单按钮 =====
+menu_type => 角色类型
+menu_char => 角色
+menu_hint => 提示
+
+# ===== 角色类型名 =====
+type_opponent => 对手
+type_boyfriend => 男友
+type_girlfriend => 女友
+
+# ===== 面板上方状态文字（当前角色 + 偏移）=====
+cur_role => 当前调整角色：
+
+# ===== 角色面板字段标签 =====
+lbl_image => 图片文件名：
+lbl_idle => 空闲动画（.XML）：
+lbl_confirm => Start Press 动画（.XML）：
+lbl_scale => 缩放：
+
+# ===== 角色面板动作 =====
+chk_flip_x => 水平翻转
+btn_reload => 重新加载角色
+
+# ===== 提示面板 =====
+btn_load => 加载角色
+btn_save => 保存角色
+h_arrow => 方向键 - 调整偏移（按住 Shift 为 10 倍速）
+h_space1 => 空格 - 播放 "Start Press" 动画
+h_space2 => （仅 Boyfriend 角色类型）
+h_esc => Esc - 关闭面板 / 退出编辑器

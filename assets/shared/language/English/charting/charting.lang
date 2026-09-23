@@ -1,0 +1,236 @@
+﻿charting => Charting
+
+# ===== Menu titles =====
+menu_charting => Charting
+menu_data => Data
+menu_event => Event
+menu_note => Note
+menu_section => Section
+menu_song => Song
+menu_test => Test
+menu_help => Help
+
+# ===== Status bar =====
+status_zoom => Zoom:
+status_tempo =>
+status_section => Section:
+status_beat => Beat:
+status_snap => Beat Snap:
+status_move => Move Note Mode:
+status_move_on => True
+status_move_off => False
+
+# ===== Event panel =====
+event_tag => EVENT
+event_value1 => Value 1
+event_value2 => Value 2
+
+# ===== Items: Charting menu =====
+item_metronome => Metronome
+item_autoscroll => Disable Autoscroll (Not Recommended)
+item_bpm => BPM
+item_offset => Offset (ms)
+item_waveform_inst => Waveform - Instrumental
+item_waveform_main => Waveform - Main Vocals
+item_waveform_opp => Waveform - Opp. Vocals
+item_mute_inst => Mute Instrumental
+item_mute_main => Mute Main Vocals
+item_mute_opp => Mute Opp. Vocals
+item_vortex => Vortex Editor
+item_ignore_warnings => Ignore Progress Warnings
+item_sfx_bf => Play Sound - BF Notes
+item_sfx_opp => Play Sound - Opp. Notes
+
+# ===== Items: Data menu =====
+item_go_char => Game Over Character
+item_go_sound => Death Sound
+item_go_loop => Loop Music
+item_go_end => Retry Music
+item_no_rgb => Disable Note RGB
+item_note_skin => Note Texture
+item_note_splash => Note Splashes
+item_apply_notes => Apply Note Changes
+
+# ===== Items: Event menu =====
+item_event_type => Event Type
+item_value1 => Value 1
+item_value2 => Value 2
+item_add_event => Add Event
+item_del_event => Remove Event
+item_prev_event => Previous
+item_next_event => Next
+
+# ===== Items: Note menu =====
+item_sustain_len => Sustain Length
+item_strum_time => Strum Time (ms)
+item_note_type => Note Type
+
+# ===== Items: Section menu =====
+item_must_hit => Must Hit Section
+item_gf_section => GF Section
+item_alt_anim => Alt Animation
+item_beats_per_section => Beats per Section
+item_change_bpm => Change BPM
+item_section_bpm => Section BPM
+item_copy_section => Copy Section
+item_paste_section => Paste Section
+item_clear_section => Clear
+item_swap_section => Swap Section
+item_do_copy_beat => Apply Copy
+item_undo => Undo Last Action
+item_include_notes => Notes
+item_include_events => Events
+item_duet_notes => Duet Notes
+item_mirror_notes => Mirror Notes
+
+# ===== Items: Song menu =====
+item_song_title => Song Title
+item_has_voice => Has Voice Track
+item_save => Save
+item_reload_audio => Reload Audio
+item_reload_json => Reload JSON
+item_engine => Engine
+item_load_autosave => Load Autosave
+item_load_events => Load Events
+item_save_events => Save Events
+item_clear_events => Clear Events
+item_clear_notes => Clear Notes
+item_speed => Speed
+item_mania => Mania
+item_opponent => Opponent
+item_girlfriend => Girlfriend
+item_player => Player
+item_stage => Stage
+
+# ===== Items: Test menu =====
+item_test_mode => Playtest
+item_normal_mode => Play Normally
+
+# ===== Descriptions (hover hint) =====
+desc_metronome => Plays a crisp metronome click on every beat (default 800Hz short tone) to help you lock down timing and spot drift. Turn it down in tandem with the mute toggles if the ticking gets annoying.
+desc_autoscroll => When off, the chart grid won't auto-follow the playhead. The whole song appears as one long scroll - great for large-scale arrangement tweaks, but definitely not for beginners.
+desc_bpm => Beats per minute. Drives every time-related calculation in the editor: grid cell size, metronome, waveform rendering, drag snapping, and playback ticks. If you change this, hit Reload JSON to double-check the grid.
+desc_offset => Audio output latency compensation (ms). Positive values push the entire chart later in time (handles BT headphone lag); negative values pull it earlier (fights oversampling / pre-trigger). A difference of +/-5ms is usually inaudible; at +/-20ms you'll clearly feel it.
+desc_waveform_inst => Overlay the instrumental track waveform (Inst.ogg) on the grid. Instrumental waveforms make kick / snare / bass hits visible at a glance - ideal for aligning drum-heavy charts.
+desc_waveform_main => Overlay the main (player) vocal waveform. Pair with the instrumental to see how vocals line up against the beat.
+desc_waveform_opp => Overlay the opponent's vocal waveform (Vocals-dad / Vocals-mom / etc.). Useful for rap battles where the opponent has standalone verses.
+desc_mute_inst => Mute the instrumental (Inst.ogg) during playback so you can isolate vocals and check that every syllable is properly charted.
+desc_mute_main => Mute the player's main vocal, leaving only instrumental + opponent vocals. Good for focusing on the opponent side of a battle without hearing BF cues.
+desc_mute_opp => Mute the opponent vocal, leaving only instrumental + player vocal. Use for fine-grained inspection of the player's chart accuracy.
+desc_vortex => Enable Vortex editor mode, which unlocks free editing across more than the default 4 lanes. Pick this for mania charts, dual-player charts, or non-standard lane counts.
+desc_ignore_warnings => Suppress the red progress warnings (too few notes, zero notes, song length below the standard threshold, etc.). Only turn this on for micro-songs or short practice clips.
+desc_sfx_bf => Play a sharp 'tick' sound each time you place a BF (player) note. Instantly tells you if the note attack sits on the beat; perfect for precise drum mapping.
+desc_sfx_opp => Play a tick when placing opponent notes. Same benefit as above - turn it on when the opponent's rhythm diverges from the player's.
+desc_go_char => Character sprite shown on the Game Over screen. Must match the character table name (e.g., bf-pixel, bf, gf-pixel). Falls back to default BF if missing.
+desc_go_sound => Sound file played the instant the player dies (combo hits 0). Has to be registered in the metadata sounds list; unknown names are silently skipped.
+desc_go_loop => Looping background music for the Game Over screen. Plays on repeat from the moment the player lands on the Game Over panel.
+desc_go_end => Short end-music clip played right before the editor retries the song after Game Over.
+desc_no_rgb => Disable per-note RGB tinting so every note uses its skin's original colors. Use this when the skin already comes with gradients or themed tints. Also gives a tiny performance boost.
+desc_note_skin => Base filename of the note textures, found under assets/shared/images/notes/. The engine automatically appends _left / _down / _up / _right.
+desc_note_splash => Asset name for the note-hit splash effect. Splash files are transparent PNGs holding 4 small splash sprites; the engine picks one and randomly rotates it.
+desc_apply_notes => Bulk-apply the current note skin / splash / no-RGB settings to every note that's already been placed in the chart. One click instead of patching each note by hand.
+desc_event_type => Choose the type of the current event. The description panel on the right updates with the precise meaning of Value 1 / Value 2, recommended ranges, and common patterns.
+desc_event_info => Current event type and its description. Hover over the dropdown options above to preview each event's name and usage before picking one.
+desc_value1 => First parameter for the event. Its meaning changes per type: zoom amount for camera events, character name for animation events, property path for SetProperty.
+desc_value2 => Second parameter for the event. Zoom events use it for HUD zoom; animation events take the animation id; sound events use it for volume.
+desc_add_event => Insert a brand new event of the currently selected type at the playhead (that red vertical line), and auto-select it.
+desc_del_event => Delete the currently selected event permanently. There's no undo, so hit Save before deleting anything important.
+desc_prev_event => Move selection backward to the previous event in chronological order.
+desc_next_event => Move selection forward to the next event in chronological order.
+desc_sustain_len => Sustain length, measured in beats (1 = one standard beat). 0 gives you a short tap, 0.5 a half-beat hold, 2 a two-beat hold, etc.
+desc_strum_time => The exact millisecond moment (counted from song start) at which the note should be hit by the player.
+desc_note_type => Marks a note as special. Choices: None = normal, Alt Animation = uses the alt animation group, Hey! = plays the VO clip, Hurt Note = damages on hit, GF Sing = triggers GF sing, No Animation = silent visually.
+desc_must_hit => When ON this section is played by BF (the player); when OFF it's played by the opponent. Choose one per section, don't mix and match randomly.
+desc_gf_section => When ON, girlfriend (GF) sings along during this section. Useful for bridges or choruses where you want to emphasize GF's presence.
+desc_alt_anim => When ON, every character switches to the 'alt' animation set for this section (e.g., BF puts on sunglasses, GF strikes a new pose).
+desc_beats_per_section => How many beats fit inside this section (default 4). Change to get weird time signatures: 3/4, 5/4, 7/8, etc. 4 beats is the overwhelming FNF standard.
+desc_change_bpm => When ON, this section uses the Section BPM value instead of the global song BPM. Use for mid-song tempo changes.
+desc_section_bpm => Independent BPM value for this section. Only active when 'Change BPM' is ON. Watch out for misaligned snaps when adjacent sections differ greatly.
+desc_copy_section => Copy the entire current section (player notes + opponent notes + events) to the clipboard, respecting the 'Include Notes' / 'Include Events' toggles.
+desc_paste_section => Paste whatever is in the clipboard as the new contents of the current section. Paste overwrites - so take a backup or save first.
+desc_clear_section => Wipe every note and event out of the current section. Fully destructive, non-reversible - save before clearing.
+desc_swap_section => Swap ownership (mustHit) plus arrow directions between the player and the opponent in this section - essentially mirroring the battle.
+desc_copy_beat => Based on the current beat (N), a positive number copies the content of beat [N - value] straight into the current beat; a negative number does the opposite. Value 1 = one beat before, 2 = two beats before, etc.
+desc_do_copy_beat => Run the copy using the offset above. The target beat's content (notes + events) overwrites the current beat, so make sure the value is what you want.
+desc_undo => Undo the most recent destructive operation (copy / paste / swap / copy beat / duet / mirror, etc.). Keeps up to 50 steps. Ctrl+Z works too.
+desc_include_notes => Whether copy / paste / mirror / swap operations should touch notes. Turn off to manipulate only the event layer.
+desc_include_events => Whether copy / paste / mirror / swap operations should touch events. Turn off to manipulate only the note layer.
+desc_duet_notes => Clone every note in this section so the player AND opponent strike identical notes simultaneously. Used for chorus duets.
+desc_mirror_notes => Horizontally mirror the current section: left <-> right arrows, down <-> up arrows. Mirrors direction only, not timing.
+desc_song_title => Song title, which also doubles as the default lookup name for chart and audio files (sans extension). Stick to short English names for maximum sanity.
+desc_has_voice => Whether the song ships with a separate vocal track (Vocals.ogg / Vocals-dad.ogg / Vocals-mom.ogg). When OFF, the engine only tries to play Inst.ogg.
+desc_save => Save the current chart JSON to the charts/ directory using the song title as the filename. Press this early, press this often. Ctrl+S shortcut.
+desc_reload_audio => Re-read all song audio files from disk. Use this right after swapping Inst.ogg or Vocals.ogg externally - no need to restart the editor.
+desc_reload_json => Reload the chart JSON file from disk. Use when you edited the JSON in a text editor and want the changes reflected, or to discard in-memory mistakes.
+desc_engine => Switch engine version / compatibility mode. Different engines have slightly different note properties and event names; picking the right one here saves tons of compatibility headaches with older charts.
+desc_load_autosave => Load the editor's latest auto-saved chart from the autosave/ directory. This is your parachute after a crash or an unsaved bad edit.
+desc_load_events => Merge an event JSON file from the events/ folder into the current chart. Events are NOT de-duplicated on load - duplicates stack.
+desc_save_events => Export only the event list out of the current chart and save it to events/. Lets you share an event sequence (cameras, etc.) between multiple charts of the same song.
+desc_clear_events => Permanently erase every single event in the entire song (cameras, animations, SetProperty, sounds, the lot). No undo. Save first. Please.
+desc_clear_notes => Permanently erase every note in the song - all characters, all lanes, all types. Leaves BPM, sections, and stage information intact so you can rewrite the chart cleanly.
+desc_speed => Playback speed multiplier (1.0 = original song speed). Only affects playback inside the editor; saved charts stay at 1.0. Use < 1.0 for detail inspection, > 1.0 for fast sanity passes.
+desc_mania => Mania lane count (2 - 9). Controls both the visual grid and the keybind layout. Vanilla FNF is 4K; changing this rerenders the grid with the chosen number of lanes.
+desc_opponent => Sprite name of the opponent character. Folder must exist under assets/shared/images/. A missing name renders as a black placeholder.
+desc_girlfriend => Sprite name of girlfriend. She decorates the middle of the stage and bops her head to the beat.
+desc_player => Sprite name of the player character. Usually BF, but you can plug in any protagonist of your mod.
+desc_stage => Name of the stage / background asset, matching a folder in assets/shared/images/stages/. A missing stage name leaves the background black.
+desc_test_mode => Enter EditorPlayState test mode: overlays stay on, judgement leniency is relaxed, and you can press Esc to drop back into the editor without dying. For quick chart walkthroughs.
+desc_normal_mode => Launch the normal PlayState from the current playhead. Full real judgement, real combo, real Game Over. Choose this if you actually want to play-test the chart for real. Enter shortcut.
+
+# ===== Items: Help menu =====
+item_help_nav => Navigation
+item_help_nav_ws => W / S or Mouse Wheel - Move playhead up/down
+item_help_nav_ad => A / D - Previous / Next section
+item_help_nav_lr => ← / → - Adjust snap precision
+item_help_note => Note Operations
+item_help_note_add => Left Click - Add note at cursor position
+item_help_note_move => Right Click Hold - Drag to move note
+item_help_note_del => Left Click on existing note - Delete
+item_help_note_sus => Q / E - Shorten / Lengthen note sustain
+item_help_play => Playback Control
+item_help_play_test => Esc - Test mode playthrough
+item_help_play_norm => Enter - Normal mode playthrough
+item_help_play_stop => Space - Pause / Resume playback
+item_help_play_zoom => Z / X - Zoom in / out
+item_help_edit => Edit Operations
+item_help_edit_undo => Ctrl+Z - Undo
+item_help_edit_save => Ctrl+S - Save current chart
+item_help_edit_section => Tab / Shift+Tab - Switch to next / previous panel
+
+# ===== Item labels (for labeled controls) =====
+label_bpm => BPM:
+label_offset => Offset (ms):
+label_inst_vol => Inst Volume:
+label_voices_vol => Main Vol:
+label_voices_opp_vol => Opp Vol:
+label_go_char => End Character:
+label_go_sound => Death Sound:
+label_go_loop => Loop Music:
+label_go_end => Retry Music:
+label_note_skin => Note Skin:
+label_note_splash => Note Splash:
+label_event_type => Event Type:
+label_value1 => Value 1:
+label_value2 => Value 2:
+label_sustain_len => Sustain Length:
+label_strum_time => Strum Time:
+label_note_type => Note Type:
+label_beats => Beats/Section:
+label_section_bpm => Section BPM:
+label_copy_beat => Copy Beat:
+label_song_title => Song Title:
+label_song_bpm => BPM:
+label_song_speed => Speed:
+label_song_mania => Mania:
+label_stage => Stage:
+label_player1 => Opponent:
+label_gf => Girlfriend:
+label_player2 => Player:
+
+# ===== Confirm prompts (destructive actions) =====
+prompt_paste_section => Paste clipboard into current section?\nThis will overwrite the current section.
+prompt_clear_section => Clear all notes & events of the current section?
+prompt_swap_section => Swap the player's and opponent's notes in this section?
+prompt_copy_beat => Copy the target beat and overwrite the current section?
+prompt_duet_notes => Balance this section's two sides?\nCopy the notes of the fuller side to the emptier side.
+prompt_mirror_notes => Mirror every note of this section?

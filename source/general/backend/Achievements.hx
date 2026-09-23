@@ -48,6 +48,7 @@ class Achievements
 		createAchievement('two_keys', {name: "Just the Two of Us", description: "Finish a Song pressing only two keys."});
 		createAchievement('toastie', {name: "Toaster Gamer", description: "Have you tried to run the game on a toaster?"});
 		createAchievement('debugger', {name: "Debugger", description: "Beat the \"Test\" Stage from the Chart Editor.", hidden: true});
+		createAchievement('self_deception', {name: "自欺欺人 (Self-Deception)", description: "打开 Mod 信息却什么也没选中的你，满意了吧？"});
 
 		// dont delete this thing below
 		_originalLength = _sortID + 1;

@@ -3,6 +3,8 @@ Maintenance => Maintenance
 developerMode => developer model
 deepDebug => Deep Debug
 devConScale => console Size
+luaErrorOverlay => Lua Error Overlay
+hscriptErrorOverlay => HScript Error Overlay
 
 oldHscriptVersion => Old Hscript Version
 
@@ -15,4 +17,5 @@ screensaver => Screensaver
 filesCheck => Files Check
 filesCheckNew => New Files Check
 storageFolder => Storage Folder
+adjustMobileEditorKeys => Adjust Mobile Editor Keys
 enterOriginFunkin => Enter Origin Funkin

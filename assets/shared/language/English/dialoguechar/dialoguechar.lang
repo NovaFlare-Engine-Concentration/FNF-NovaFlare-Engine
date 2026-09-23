@@ -1,0 +1,103 @@
+# ===== Dialogue Character Editor top menu (Adobe style) =====
+# ===== Menu titles =====
+menu_type => Position
+menu_char => Character
+menu_anim => Animation
+menu_view => View
+menu_file => File
+menu_help => Help
+
+# ===== Status bar =====
+status_side => Pos:
+status_image => Image:
+status_anim => Anim:
+status_offset => Offset:
+status_scale => Scale:
+
+# ===== Items: Position menu =====
+item_side_left => Align left
+item_side_center => Align center
+item_side_right => Align right
+
+# ===== Items: Character menu =====
+item_image => Image file
+label_image => Image file
+item_pos_x => Position offset X
+label_pos_x => Position X
+item_pos_y => Position offset Y
+label_pos_y => Position Y
+item_scale => Scale
+label_scale => Scale
+item_no_aa => Disable antialiasing
+item_reload_image => Reload image
+item_load_char => Load character JSON
+item_save_char => Save character JSON
+
+# ===== Items: Animation menu =====
+item_anim => Expression
+label_anim => Animation
+item_anim_name => Animation name (JSON)
+label_anim_name => Anim name
+item_loop_name => Loop prefix (XML)
+label_loop_name => Loop prefix
+item_idle_name => Idle prefix (XML)
+label_idle_name => Idle prefix
+item_anim_add_update => Add / Update animation
+item_anim_remove => Remove animation
+
+# ===== Items: View menu =====
+item_view_reset => Reset camera & display
+item_view_bubble => Toggle speech bubble
+item_view_ghost => Cycle ghosts (Loop / Idle / Off)
+
+# ===== Items: File menu =====
+item_load => Load character (JSON)
+item_save => Save character (JSON)
+item_exit => Exit editor
+
+# ===== Descriptions =====
+desc_side_left => Character & bubble aligned to the left side
+desc_side_center => Character & bubble centered
+desc_side_right => Character aligned to the right side
+desc_image => Sparrow atlas/XML name of the portrait (under images/dialogue/)
+desc_pos_x => Horizontal offset from the base position
+desc_pos_y => Vertical offset from the base position
+desc_scale => Overall character scale
+desc_no_aa => Disable antialiasing for this character
+desc_reload_image => Reload atlas & animations using the current image file
+desc_load_char => Load a dialogue character JSON from disk
+desc_save_char => Save the current character data as JSON
+desc_anim => Pick an animation from the list to view/edit
+desc_anim_name => Animation name used inside the character JSON
+desc_loop_name => XML frame prefix of the looping segment
+desc_idle_name => XML frame prefix of the idle/finish segment
+desc_anim_add_update => Add a new animation; updates loop/idle prefixes when the name exists
+desc_anim_remove => Remove the current animation entry
+desc_view_reset => Reset camera zoom to 1x, reset content position and show HUD
+desc_view_bubble => Show or hide the speech bubble preview
+desc_view_ghost => Cycle ghost display: Loop ghost → Idle ghost → off
+desc_load => Load a dialogue character JSON from disk
+desc_save => Save the current character as a dialogue character JSON
+desc_exit => Exit the dialogue character editor and return to the master editor menu (confirms when unsaved changes exist)
+
+# ===== Help rows =====
+item_help_keys => Offset nudging (Animation tab): WASD / Arrow keys
+item_help_camera => Move camera: J K L I
+item_help_zoom => Zoom camera: Q / E
+item_help_shift => Hold Shift: offset steps x10
+item_help_space => Replay current animation & text: SPACE
+item_help_f1 => Open this help menu: F1
+item_help_exit => Exit editor: ESC
+
+# ===== Help row descriptions =====
+desc_help_keys => On the Animation page: WASD = loop offset, Arrow keys = idle offset
+desc_help_camera => Hold J/K/L/I to pan the camera (Shift moves 4x faster)
+desc_help_zoom => Q zooms out, E zooms in (up to 1x)
+desc_help_shift => While held, offset steps are multiplied by 10
+desc_help_space => Replay the current animation and reset the dialogue typing
+desc_help_f1 => Open this help menu: F1
+desc_help_exit => Exit editor: ESC (confirms when unsaved changes exist)
+
+# ===== Exit confirmation popup (overrides the shared keys in the editors group) =====
+confirm_unsaved_title => Exit Dialogue Portrait Editor
+confirm_unsaved_message => This portrait has unsaved changes. They will be lost if you exit. Discard them and exit?

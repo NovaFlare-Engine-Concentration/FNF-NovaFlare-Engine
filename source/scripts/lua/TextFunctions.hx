@@ -10,7 +10,7 @@ class TextFunctions
 			tag = tag.replace('.', '');
 			LuaUtils.resetTextTag(tag);
 			var leText:FlxText = new FlxText(x, y, width, text, 16);
-			leText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+			leText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 16, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 			leText.cameras = [game.camHUD];
 			leText.scrollFactor.set();
 			leText.allowStop = true;

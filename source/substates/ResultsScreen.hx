@@ -193,7 +193,7 @@ class ResultsScreen extends MusicBeatSubstate
 
 		modsText = new FlxText(20, 20 + modsMenu.height, 0, 'Mod name: ' + Mods.currentModDirectory);
 		modsText.size = 16;
-		modsText.font = Paths.font('vcr.ttf');
+		modsText.font = Paths.font(Language.get('fontName', 'main') + '.ttf');
 		modsText.setBorderStyle(FlxTextBorderStyle.OUTLINE, FlxColor.BLACK, 1, 1);
 		modsText.antialiasing = ClientPrefs.data.antialiasing;
 		modsText.alignment = CENTER;
@@ -676,7 +676,7 @@ class ResultsScreen extends MusicBeatSubstate
 			numberText.y += type.length * textSize;
 		if (sameLine > 0)
 			numberText.x += (sameLine - 1) * 300;
-		numberText.font = Paths.font('vcr.ttf');
+		numberText.font = Paths.font(Language.get('fontName', 'main') + '.ttf');
 		numberText.setBorderStyle(FlxTextBorderStyle.OUTLINE, FlxColor.BLACK, 1, 1);
 		numberText.scrollFactor.set();
 		numberText.antialiasing = ClientPrefs.data.antialiasing;
@@ -829,7 +829,7 @@ class ResultsScreen extends MusicBeatSubstate
 		percentRectNumber.add(numberRect);
 
 		var numberText = new FlxText(percentBG.x + 5, numberBG.y + numberBG.height, 0, RateName, 16);
-		numberText.font = Paths.font('vcr.ttf');
+		numberText.font = Paths.font(Language.get('fontName', 'main') + '.ttf');
 		numberText.setBorderStyle(FlxTextBorderStyle.OUTLINE, FlxColor.BLACK, 1, 1);
 		numberText.scrollFactor.set();
 		numberText.antialiasing = ClientPrefs.data.antialiasing;
@@ -846,7 +846,7 @@ class ResultsScreen extends MusicBeatSubstate
 			+ '('
 			+ Math.ceil(number / (game.NoteTime.length - 1) * 100 * 100) / 100
 			+ '%)', 16);
-		numberText.font = Paths.font('vcr.ttf');
+		numberText.font = Paths.font(Language.get('fontName', 'main') + '.ttf');
 		numberText.setBorderStyle(FlxTextBorderStyle.OUTLINE, FlxColor.BLACK, 1, 1);
 		numberText.scrollFactor.set();
 		numberText.antialiasing = ClientPrefs.data.antialiasing;
@@ -857,7 +857,7 @@ class ResultsScreen extends MusicBeatSubstate
 		percentTextNumber.add(numberText);
 
 		var numberText = new FlxText(percentBG.x - 5 + percentBG.width, numberBG.y + numberBG.height, 0, Math.ceil(ms * 100) / 100 + 'MS', 16);
-		numberText.font = Paths.font('vcr.ttf');
+		numberText.font = Paths.font(Language.get('fontName', 'main') + '.ttf');
 		numberText.setBorderStyle(FlxTextBorderStyle.OUTLINE, FlxColor.BLACK, 1, 1);
 		numberText.scrollFactor.set();
 		numberText.antialiasing = ClientPrefs.data.antialiasing;

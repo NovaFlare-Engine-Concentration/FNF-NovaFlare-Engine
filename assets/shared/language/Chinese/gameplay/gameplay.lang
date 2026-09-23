@@ -1,0 +1,13 @@
+// Gameplay Changers Substate
+scrollType => 滚动类型
+scrollSpeed => 滚动速度
+playbackRate => 播放速率
+healthGain => 生命值获取倍率
+healthLoss => 生命值损失倍率
+instakill => Miss即死
+practice => 练习模式
+botplay => 自动演示
+
+// Scroll Type options
+multiplicative => 乘法
+constant => 恒定

@@ -1,4 +1,4 @@
-﻿package developer.editors;
+package developer.editors;
 
 import lime.system.Clipboard;
 
@@ -11,9 +11,10 @@ import flixel.FlxObject;
 import flixel.graphics.FlxGraphic;
 import flixel.animation.FlxAnimation;
 import flixel.addons.ui.*;
+import flixel.math.FlxPoint;
 import flixel.ui.FlxButton;
 
-import mobile.flixel.FlxButton as MobileButton;
+import general.backend.language.Language;
 
 import games.objects.Character;
 import games.objects.HealthIcon;
@@ -44,27 +45,62 @@ class CharacterEditorState extends MusicBeatState
 	var dadPosition = FlxPoint.weak();
 	var bfPosition = FlxPoint.weak();
 
-	var helpBg:FlxSprite;
-	var helpTexts:FlxSpriteGroup;
-	var cameraZoomText:FlxText;
-	var frameAdvanceText:FlxText;
-
 	var healthBar:Bar;
 	var healthIcon:HealthIcon;
 
 	var copiedOffset:Array<Float> = [0, 0];
+	var undoOffsets:Array<Float> = null; // Ctrl+Z 撤销用（保存撤销前的值）
 	var _char:String = null;
 	var _goToPlayState:Bool = false;
 
 	var anims = null;
-	var animsTxtGroup:FlxTypedGroup<FlxText>;
 	var curAnim = 0;
 
 	private var camEditor:FlxCamera;
 	private var camHUD:FlxCamera;
 
-	var UI_box:FlxUITabMenu;
-	var UI_characterbox:FlxUITabMenu;
+	// ===== 顶栏菜单（Adobe 风格，与 ChartEditorMenuBar 同架构）=====
+	var menuBar:CharacterEditorMenuBar;
+	#if (cpp && windows)
+	var windowChrome:EditorChromeUI;
+	var modInfoPopup:general.objects.ModInfoPopup;
+	#end
+
+	// ★ 双图层方案（同一 camHUD 相机）：
+	//   uiLayer —— 底层：菜单/动画列表/血条等全部 UI
+	//   overlayLayer —— 顶层：输入覆盖层（widget / stepper 覆盖层），最后挂载 → 渲染在菜单之上
+	var uiLayer:FlxSpriteGroup;
+	var overlayLayer:FlxSpriteGroup;
+
+	// ===== 原生控件引用（只作数据源，不渲染；由 menuBar 自绘接管显示）=====
+	// Ghost
+	var highlightGhost:FlxUICheckBox;
+	var ghostAlphaSlider:FlxUISlider;
+	// Settings
+	var check_player:FlxUICheckBox;
+	var charDropDown:FlxUIDropDownMenu;
+	// Animations
+	var animationDropDown:FlxUIDropDownMenu;
+	var animationInputText:FlxUIInputText;
+	var animationNameInputText:FlxUIInputText;
+	var animationIndicesInputText:FlxUIInputText;
+	var animationFramerate:FlxUINumericStepper;
+	var animationLoopCheckBox:FlxUICheckBox;
+	// Character
+	var imageInputText:FlxUIInputText;
+	var healthIconInputText:FlxUIInputText;
+	var vocalsInputText:FlxUIInputText;
+	var singDurationStepper:FlxUINumericStepper;
+	var scaleStepper:FlxUINumericStepper;
+	var positionXStepper:FlxUINumericStepper;
+	var positionYStepper:FlxUINumericStepper;
+	var positionCameraXStepper:FlxUINumericStepper;
+	var positionCameraYStepper:FlxUINumericStepper;
+	var flipXCheckBox:FlxUICheckBox;
+	var noAntialiasingCheckBox:FlxUICheckBox;
+	var healthColorStepperR:FlxUINumericStepper;
+	var healthColorStepperG:FlxUINumericStepper;
+	var healthColorStepperB:FlxUINumericStepper;
 
 	public function new(char:String = null, goToPlayState:Bool = false)
 	{
@@ -81,6 +117,9 @@ class CharacterEditorState extends MusicBeatState
 		if (ClientPrefs.data.cacheOnGPU)
 			Paths.clearStoredMemory();
 
+		// 强制刷新语言数据，确保 character 等新分组被正确加载
+		Language.resetData();
+
 		FlxG.sound.music.stop();
 		camEditor = initPsychCamera();
 
@@ -88,9 +127,14 @@ class CharacterEditorState extends MusicBeatState
 		camHUD.bgColor.alpha = 0;
 		FlxG.cameras.add(camHUD, false);
 
+		// ★ 双图层：uiLayer 底层（所有 UI），overlayLayer 顶层（输入覆盖层，最后挂载）
+		uiLayer = new FlxSpriteGroup();
+		uiLayer.cameras = [camHUD];
+		uiLayer.scrollFactor.set();
+		add(uiLayer);
+
 		loadBG();
 
-		animsTxtGroup = new FlxTypedGroup<FlxText>();
 		silhouettes = new FlxSpriteGroup();
 		add(silhouettes);
 
@@ -120,49 +164,40 @@ class CharacterEditorState extends MusicBeatState
 		cameraFollowPointer.updateHitbox();
 		add(cameraFollowPointer);
 
+		// ===== 血条 + 图标（恢复原版：屏幕底部，icon 在血条上方）=====
+		// ★ 必须在此处（早期）创建：放在 create 末尾会导致 FlxUIInputText 构造崩溃（已实测）
 		healthBar = new Bar(30, FlxG.height - 75);
 		healthBar.scrollFactor.set();
-		add(healthBar);
+		uiLayer.add(healthBar);
 		healthBar.cameras = [camHUD];
 
 		healthIcon = new HealthIcon(character.healthIcon, false, false);
 		healthIcon.y = FlxG.height - 150;
-		add(healthIcon);
+		uiLayer.add(healthIcon);
 		healthIcon.cameras = [camHUD];
 
-		animsTxtGroup.cameras = [camHUD];
-		add(animsTxtGroup);
+		// ===== 动画列表（状态栏下方，可滚动/可点击）=====
+		setupAnimList();
+		updateAnimList(); // addCharacter 时列表 UI 尚未创建，这里补刷一次
 
-		var tipText:FlxText = new FlxText(FlxG.width - 300, FlxG.height - 24, 300, 'Press ${(controls.mobileC) ? 'F' : 'F1'} for Help', 16);
-		tipText.cameras = [camHUD];
-		tipText.setFormat(null, 16, FlxColor.WHITE, RIGHT, OUTLINE_FAST, FlxColor.BLACK);
-		tipText.borderColor = FlxColor.BLACK;
-		tipText.scrollFactor.set();
-		tipText.borderSize = 1;
-		tipText.active = false;
-		add(tipText);
-
-		cameraZoomText = new FlxText(0, 50, 200, 'Zoom: 1x');
-		cameraZoomText.setFormat(null, 16, FlxColor.WHITE, CENTER, OUTLINE_FAST, FlxColor.BLACK);
-		cameraZoomText.scrollFactor.set();
-		cameraZoomText.borderSize = 1;
-		cameraZoomText.screenCenter(X);
-		cameraZoomText.cameras = [camHUD];
-		add(cameraZoomText);
-
-		frameAdvanceText = new FlxText(0, 75, 350, '');
-		frameAdvanceText.setFormat(null, 16, FlxColor.WHITE, CENTER, OUTLINE_FAST, FlxColor.BLACK);
-		frameAdvanceText.scrollFactor.set();
-		frameAdvanceText.borderSize = 1;
-		frameAdvanceText.screenCenter(X);
-		frameAdvanceText.cameras = [camHUD];
-		add(frameAdvanceText);
-
-		addHelpScreen();
 		FlxG.mouse.visible = true;
 		FlxG.camera.zoom = 1;
 
-		makeUIMenu();
+		// ===== UI 控件创建（只作数据源，不渲染）=====
+		addGhostUI();
+		addSettingsUI();
+		addAnimationsUI();
+		addCharacterUI();
+
+		// ===== 顶栏菜单栏（Adobe 风格）+ 状态栏 =====
+		setupMenuBar();
+
+		// ★ 顶层覆盖层容器（在菜单之后挂载 → 渲染在菜单之上）
+		setupOverlayLayer();
+
+		// ★ 控件挂到顶层覆盖层：输入覆盖层（openInputOverlay）显示在菜单之上
+		addLegacyWidgetsToScene();
+		hideAllLegacyWidgets();
 
 		updatePointerPos();
 		updateHealthBar();
@@ -171,82 +206,164 @@ class CharacterEditorState extends MusicBeatState
 		addVirtualPad(LEFT_FULL, CHARACTER_EDITOR);
 		addVirtualPadCamera(false);
 
+		#if (cpp && windows)
+		// 引擎自绘窗口控制组（右上角：图标+标题 / - □ ×，可拖动窗口）
+		// 必须与新版 UI 同相机（camHUD），否则点击判定/层级全乱
+		windowChrome = new EditorChromeUI();
+		windowChrome.scrollFactor.set();
+		windowChrome.cameras = [camHUD];
+		add(windowChrome);
+		// 点击标题 → Mod 信息弹窗
+		modInfoPopup = new general.objects.ModInfoPopup();
+		modInfoPopup.scrollFactor.set();
+		modInfoPopup.cameras = [camHUD];
+		add(modInfoPopup);
+		windowChrome.onTitleClick = () -> modInfoPopup.openUnder(windowChrome);
+		// 顶栏左侧「退出 角色编辑器」按钮
+		windowChrome.setupExitButton('characterEditor', doExitEditor);
+		#end
+
 		if (ClientPrefs.data.cacheOnGPU)
 			Paths.clearUnusedMemory();
 
 		super.create();
 	}
 
-	function addHelpScreen()
+	// ============ 动画列表（屏幕右侧，可滚动/可点击，保留高亮与 offset 显示） ============
+	static final ANIM_LIST_Y:Int = 68; // 顶栏 + 状态栏下方
+	static final ANIM_LIST_W:Int = 300;
+	static final ANIM_LIST_ROW_H:Int = 20;
+	static final ANIM_LIST_VISIBLE:Int = 20;
+
+	var animListX:Float = 10; // 运行时计算（屏幕右侧）
+	var animListBg:FlxSprite;
+	var animListBorder:FlxSprite; // 卡片边框
+	var animListTexts:Array<FlxText> = [];
+	var animListHits:Array<FlxSprite> = [];
+	var animListHoverBgs:Array<FlxSprite> = []; // 行 hover 底色（0x0F8B5CF6）
+	var animListSelBgs:Array<FlxSprite> = [];   // 当前动画行选中底色（0x268B5CF6）
+	var animListScroll:Int = 0;
+	var animListHoverIdx:Int = -1; // 当前 hover 的行（相对可见区）
+	// 动画列表拖拽状态（按下记录，移动超阈值 → 拖动滚动；松开且未拖动 → 点击选中）
+	var animListPressActive:Bool = false;
+	var animListPressY:Float = 0;
+	var animListPressScroll:Int = 0;
+	var animListDragMoved:Bool = false;
+
+	function setupAnimList():Void
 	{
-		var str:String;
-		if (controls.mobileC)
-		{
-			str = "CAMERA
-			\nX/Y - Camera Zoom In/Out
-			\nZ - Reset Camera Zoom
-			\n
-			\nCHARACTER
-			\nA - Reset Current Offset
-			\nV/D - Previous/Next Animation
-			\nArrow Buttons - Move Offset
-			\n
-			\nOTHER
-			\nS - Toggle Silhouettes
-			\nHold C - Move Offsets 10x faster and Camera 4x faster";
-		}
-		else
-		{
-			str = "CAMERA
-			\nE/Q - Camera Zoom In/Out
-			\nJ/K/L/I - Move Camera
-			\nR - Reset Camera Zoom
-			\n
-			\nCHARACTER
-			\nCtrl + R - Reset Current Offset
-			\nCtrl + C - Copy Current Offset
-			\nCtrl + V - Paste Copied Offset on Current Animation
-			\nCtrl + Z - Undo Last Paste or Reset
-			\nW/S - Previous/Next Animation
-			\nSpace - Replay Animation
-			\nArrow Keys/Mouse & Right Click - Move Offset
-			\nA/D - Frame Advance (Back/Forward)
-			\n
-			\nOTHER
-			\nF12 - Toggle Silhouettes
-			\nHold Shift - Move Offsets 10x faster and Camera 4x faster
-			\nHold Control - Move camera 4x slower";
-		}
+		animListX = FlxG.width - ANIM_LIST_W - 14;
+		// ★ 设计规范：卡片面板背景 + 半透明白边框
+		animListBorder = new FlxSprite().makeGraphic(ANIM_LIST_W + 10, ANIM_LIST_VISIBLE * ANIM_LIST_ROW_H + 10, 0x26FFFFFF);
+		animListBorder.x = animListX - 5;
+		animListBorder.y = ANIM_LIST_Y - 5;
+		animListBorder.scrollFactor.set();
+		animListBorder.cameras = [camHUD];
+		animListBorder.active = false;
+		uiLayer.add(animListBorder);
 
-		helpBg = new FlxSprite().makeGraphic(1, 1, FlxColor.BLACK);
-		helpBg.scale.set(FlxG.width, FlxG.height);
-		helpBg.updateHitbox();
-		helpBg.alpha = 0.6;
-		helpBg.cameras = [camHUD];
-		helpBg.active = helpBg.visible = false;
-		add(helpBg);
+		animListBg = new FlxSprite().makeGraphic(ANIM_LIST_W + 8, ANIM_LIST_VISIBLE * ANIM_LIST_ROW_H + 8, 0xFF1C1F28);
+		animListBg.x = animListX - 4;
+		animListBg.y = ANIM_LIST_Y - 4;
+		animListBg.scrollFactor.set();
+		animListBg.cameras = [camHUD];
+		animListBg.active = false;
+		uiLayer.add(animListBg);
 
-		var arr = str.split('\n');
-		helpTexts = new FlxSpriteGroup();
-		helpTexts.cameras = [camHUD];
-		for (i in 0...arr.length)
+		for (i in 0...ANIM_LIST_VISIBLE)
 		{
-			if (arr[i].length < 2)
-				continue;
+			// hover 底色（加在文本之下）
+			var hoverBg:FlxSprite = new FlxSprite().makeGraphic(ANIM_LIST_W, ANIM_LIST_ROW_H, 0x0F8B5CF6);
+			hoverBg.x = animListX;
+			hoverBg.y = ANIM_LIST_Y + i * ANIM_LIST_ROW_H;
+			hoverBg.scrollFactor.set();
+			hoverBg.cameras = [camHUD];
+			hoverBg.visible = false;
+			hoverBg.active = false;
+			uiLayer.add(hoverBg);
+			animListHoverBgs.push(hoverBg);
 
-			var helpText:FlxText = new FlxText(0, 0, 600, arr[i], 16);
-			helpText.setFormat(null, 16, FlxColor.WHITE, CENTER, OUTLINE_FAST, FlxColor.BLACK);
-			helpText.borderColor = FlxColor.BLACK;
-			helpText.scrollFactor.set();
-			helpText.borderSize = 1;
-			helpText.screenCenter();
-			add(helpText);
-			helpText.y += ((i - arr.length / 2) * 16);
-			helpText.active = false;
-			helpTexts.add(helpText);
+			// 当前动画行选中底色
+			var selBg:FlxSprite = new FlxSprite().makeGraphic(ANIM_LIST_W, ANIM_LIST_ROW_H, 0x268B5CF6);
+			selBg.x = animListX;
+			selBg.y = ANIM_LIST_Y + i * ANIM_LIST_ROW_H;
+			selBg.scrollFactor.set();
+			selBg.cameras = [camHUD];
+			selBg.visible = false;
+			selBg.active = false;
+			uiLayer.add(selBg);
+			animListSelBgs.push(selBg);
+
+			var t:FlxText = new FlxText(animListX + 6, ANIM_LIST_Y + i * ANIM_LIST_ROW_H, ANIM_LIST_W - 10, '', 14);
+			t.setFormat(null, 14, 0xFFC9CDD4, LEFT, NONE, 0x00000000);
+			t.scrollFactor.set();
+			t.cameras = [camHUD];
+			t.active = false;
+			uiLayer.add(t);
+			animListTexts.push(t);
+
+			var hit:FlxSprite = new FlxSprite().makeGraphic(ANIM_LIST_W, ANIM_LIST_ROW_H, FlxColor.TRANSPARENT);
+			hit.x = animListX;
+			hit.y = ANIM_LIST_Y + i * ANIM_LIST_ROW_H;
+			hit.scrollFactor.set();
+			hit.cameras = [camHUD];
+			uiLayer.add(hit);
+			animListHits.push(hit);
 		}
-		helpTexts.active = helpTexts.visible = false;
-		add(helpTexts);
+	}
+
+	/** 刷新动画列表可见行（滚动偏移 + 当前动画高亮 + hover 底色 + offset 显示） */
+	function updateAnimList():Void
+	{
+		if (anims == null) return;
+		var maxScroll:Int = Std.int(Math.max(0, anims.length - ANIM_LIST_VISIBLE));
+		animListScroll = Std.int(FlxMath.bound(animListScroll, 0, maxScroll));
+
+		for (i in 0...ANIM_LIST_VISIBLE)
+		{
+			// 列表 UI 尚未创建时（addCharacter 先于 setupAnimList）直接跳过
+			if (i >= animListTexts.length || i >= animListHits.length) break;
+			var idx:Int = animListScroll + i;
+			var t:FlxText = animListTexts[i];
+			if (idx < anims.length)
+			{
+				var anim:AnimArray = anims[idx];
+				t.text = anim.anim + ': ' + anim.offsets;
+				// ★ 设计规范：当前动画行 = 选中态（紫字）；其余 = 次级文字
+				t.color = (idx == curAnim) ? 0xFFA78BFA : 0xFFC9CDD4;
+				t.visible = true;
+			}
+			else
+			{
+				t.text = '';
+				t.visible = false;
+			}
+			var rowVisible:Bool = (idx < anims.length);
+			animListHits[i].visible = rowVisible;
+			if (animListHoverBgs.length > i)
+			{
+				animListHoverBgs[i].visible = rowVisible && (i == animListHoverIdx) && (idx != curAnim);
+				animListSelBgs[i].visible = rowVisible && (idx == curAnim);
+			}
+		}
+	}
+
+	/** 点击列表行 → 选中动画（播放 + 高亮 + 同步动画编辑框） */
+	function selectAnimFromList(idx:Int):Void
+	{
+		if (idx < 0 || idx >= anims.length) return;
+		curAnim = idx;
+		character.playAnim(anims[idx].anim, true);
+		updateTextColors();
+		// 同步动画菜单的编辑框（等价于在动画下拉里选中）
+		var anim:AnimArray = anims[idx];
+		animationInputText.text = anim.anim;
+		animationNameInputText.text = anim.name;
+		animationLoopCheckBox.checked = anim.loop;
+		animationFramerate.value = anim.fps;
+		var indicesStr:String = anim.indices.toString();
+		animationIndicesInputText.text = indicesStr.substr(1, indicesStr.length - 2);
+		try { animationDropDown.selectedLabel = anim.anim; } catch (e:Dynamic) {}
 	}
 
 	function addCharacter(reload:Bool = false)
@@ -280,126 +397,376 @@ class CharacterEditorState extends MusicBeatState
 			updateHealthBar();
 	}
 
-	function makeUIMenu()
+	/** 创建顶栏菜单栏并注册所有控件（原生控件只作数据源） */
+	function setupMenuBar():Void
 	{
-		var tabs = [{name: 'Ghost', label: 'Ghost'}, {name: 'Settings', label: 'Settings'}];
+		menuBar = new CharacterEditorMenuBar();
+		menuBar.scrollFactor.set();
+		// ★ 菜单挂 HUD 相机：UI 不随主相机缩放（Q/E 缩放只影响舞台内容）
+		menuBar.uiCamera = camHUD;
+		menuBar.cameras = [camHUD];
+		menuBar.onAction = function(actionKey:String) {
+			handleMenuAction(actionKey);
+		};
+		// ★ 菜单打开后刷新 widget 显示值
+		//   widget 在 visible=false 时被赋值后显示不会刷新，需要在菜单打开时强制同步
+		menuBar.onMenuOpened = function(menuKey:String) {
+			refreshMenuWidgets(menuKey);
+		};
 
-		UI_box = new FlxUITabMenu(null, tabs, true);
-		UI_box.cameras = [camHUD];
+		// 注册 widget 引用（仅用于下拉菜单显示状态文本）
+		menuBar.registerWidget('w_char_select', charDropDown);
+		menuBar.registerWidget('w_image', imageInputText);
+		menuBar.registerWidget('w_health_icon', healthIconInputText);
+		menuBar.registerWidget('w_vocals', vocalsInputText);
 
-		UI_box.resize(250, 120);
-		UI_box.x = FlxG.width - 275;
-		UI_box.y = 25;
-		UI_box.scrollFactor.set();
+		menuBar.registerWidget('w_anim_select', animationDropDown);
+		menuBar.registerWidget('w_anim_name', animationInputText);
+		menuBar.registerWidget('w_anim_symbol', animationNameInputText);
+		menuBar.registerWidget('w_anim_fps', animationFramerate);
+		menuBar.registerWidget('w_anim_loop', animationLoopCheckBox);
+		menuBar.registerWidget('w_anim_indices', animationIndicesInputText);
 
-		var tabs = [
-			{name: 'Character', label: 'Character'},
-			{name: 'Animations', label: 'Animations'},
+		menuBar.registerWidget('w_playable', check_player);
+		menuBar.registerWidget('w_flip_x', flipXCheckBox);
+		menuBar.registerWidget('w_no_aa', noAntialiasingCheckBox);
+		menuBar.registerWidget('w_scale', scaleStepper);
+		menuBar.registerWidget('w_sing_duration', singDurationStepper);
+		menuBar.registerWidget('w_pos_x', positionXStepper);
+		menuBar.registerWidget('w_pos_y', positionYStepper);
+		menuBar.registerWidget('w_cam_x', positionCameraXStepper);
+		menuBar.registerWidget('w_cam_y', positionCameraYStepper);
+		menuBar.registerWidget('w_health_r', healthColorStepperR);
+		menuBar.registerWidget('w_health_g', healthColorStepperG);
+		menuBar.registerWidget('w_health_b', healthColorStepperB);
+
+		menuBar.registerWidget('w_highlight_ghost', highlightGhost);
+		menuBar.registerWidget('w_ghost_alpha', ghostAlphaSlider);
+
+		uiLayer.add(menuBar);
+	}
+
+	/** 创建顶层覆盖层容器（输入覆盖层挂这里，渲染在所有 UI 之上） */
+	function setupOverlayLayer():Void
+	{
+		overlayLayer = new FlxSpriteGroup();
+		overlayLayer.cameras = [camHUD];
+		overlayLayer.scrollFactor.set();
+		add(overlayLayer);
+		menuBar.overlayLayer = overlayLayer;
+	}
+
+	/** 菜单动作分发（Cmd 行点击回调） */
+	function handleMenuAction(actionKey:String):Void
+	{
+		switch (actionKey)
+		{
+			case 'reload_image':
+				var lastAnim = character.getAnimationName();
+				character.imageFile = imageInputText.text;
+				reloadCharacterImage();
+				if (!character.isAnimationNull())
+				{
+					character.playAnim(lastAnim, true);
+				}
+			case 'get_icon_color':
+				var coolColor:FlxColor = FlxColor.fromInt(CoolUtil.dominantColor(healthIcon));
+				character.healthColorArray[0] = coolColor.red;
+				character.healthColorArray[1] = coolColor.green;
+				character.healthColorArray[2] = coolColor.blue;
+				updateHealthBar();
+			case 'anim_add_update':
+				addUpdateCurrentAnimation();
+			case 'anim_remove':
+				removeCurrentAnimation();
+			case 'make_ghost':
+				makeGhost();
+			case 'save':
+				saveCharacter();
+			case 'load_template':
+				loadCharacterTemplate();
+			case 'reload_char':
+				addCharacter(true);
+				updatePointerPos();
+				reloadCharacterOptions();
+				reloadCharacterDropDown();
+		}
+	}
+
+	/** 菜单打开后刷新 widget 显示值（从当前角色数据同步） */
+	function refreshMenuWidgets(menuKey:String):Void
+	{
+		reloadCharacterOptions();
+		reloadCharacterDropDown();
+		reloadAnimationDropDown();
+	}
+
+	/**
+	 * 把所有原生 widget add 到场景，保证它们进入 FlxG.update() 循环。
+	 * 之前只 new 不 add → widget 的 update() 从没被调 → 点了没反应，纯贴图。
+	 * 用 try/catch 防御性处理重复 add 的情况。
+	 */
+	function addLegacyWidgetsToScene():Void
+	{
+		function addOne(w:Dynamic):Void {
+			if (w == null) return;
+			// ★ 挂到顶层覆盖层容器（overlayLayer）：输入覆盖层渲染在所有 UI 之上
+			try { overlayLayer.add(w); } catch (e:Dynamic) {}
+			// ★ 创建时就设 scrollFactor=0，之后 positionWidget 只需设坐标
+			try { w.scrollFactor.set(0, 0); } catch (e:Dynamic) {}
+			try { w.setScrollFactor(0, 0); } catch (e:Dynamic) {}
+			try { w.cameras = [camHUD]; } catch (e:Dynamic) {}
+		}
+		// Ghost
+		addOne(highlightGhost);
+		addOne(ghostAlphaSlider);
+		// Settings
+		addOne(check_player);
+		addOne(charDropDown);
+		// Animations
+		addOne(animationDropDown);
+		addOne(animationInputText);
+		addOne(animationNameInputText);
+		addOne(animationIndicesInputText);
+		addOne(animationFramerate);
+		addOne(animationLoopCheckBox);
+		// Character
+		addOne(imageInputText);
+		addOne(healthIconInputText);
+		addOne(vocalsInputText);
+		addOne(singDurationStepper);
+		addOne(scaleStepper);
+		addOne(positionXStepper);
+		addOne(positionYStepper);
+		addOne(positionCameraXStepper);
+		addOne(positionCameraYStepper);
+		addOne(flipXCheckBox);
+		addOne(noAntialiasingCheckBox);
+		addOne(healthColorStepperR);
+		addOne(healthColorStepperG);
+		addOne(healthColorStepperB);
+	}
+
+	/** 隐藏所有原生 widget（只作数据源，显示由 menuBar 自绘接管） */
+	function hideAllLegacyWidgets():Void
+	{
+		var all:Array<Dynamic> = [
+			highlightGhost, ghostAlphaSlider,
+			check_player, charDropDown,
+			animationDropDown, animationInputText, animationNameInputText, animationIndicesInputText,
+			animationFramerate, animationLoopCheckBox,
+			imageInputText, healthIconInputText, vocalsInputText,
+			singDurationStepper, scaleStepper,
+			positionXStepper, positionYStepper, positionCameraXStepper, positionCameraYStepper,
+			flipXCheckBox, noAntialiasingCheckBox,
+			healthColorStepperR, healthColorStepperG, healthColorStepperB
 		];
-		UI_characterbox = new FlxUITabMenu(null, tabs, true);
-		UI_characterbox.cameras = [camHUD];
+		for (w in all)
+			if (w != null) EditorInputStyle.deepHide(w);
+	}
 
-		UI_characterbox.resize(350, 280);
-		UI_characterbox.x = UI_box.x - 100;
-		UI_characterbox.y = UI_box.y + UI_box.height;
-		UI_characterbox.scrollFactor.set();
-		add(UI_characterbox);
-		add(UI_box);
+	/**
+	 * 与 ESC / B 键等价的退出动作（顶栏「退出 角色编辑器」按钮共用）：
+	 *   - _goToPlayState=true 时直接进入 PlayState（导出测试用）
+	 *   - 否则回到 MasterEditorMenu 并播放 freakyMenu BGM
+	 */
+	function doExitEditor():Void
+	{
+		FlxG.mouse.visible = false;
+		if (!_goToPlayState)
+		{
+			MusicBeatState.switchState(new developer.editors.MasterEditorMenu());
+			FlxG.sound.playMusic(Paths.music('freakyMenu'));
+		}
+		else
+			MusicBeatState.switchState(new PlayState());
+	}
 
-		addGhostUI();
-		addSettingsUI();
-		addAnimationsUI();
-		addCharacterUI();
+	/** 生成 Ghost 帧（原 Make Ghost 按钮逻辑） */
+	function makeGhost():Void
+	{
+		var anim = anims[curAnim];
+		if (!character.isAnimationNull())
+		{
+			var myAnim = anims[curAnim];
+			if (!character.isAnimateAtlas)
+			{
+				ghost.loadGraphic(character.graphic);
+				ghost.frames.frames = character.frames.frames;
+				ghost.animation.copyFrom(character.animation);
+				ghost.animation.play(character.animation.curAnim.name, true, false, character.animation.curAnim.curFrame);
+				ghost.animation.pause();
+			}
+			else
+				if (myAnim != null) // This is VERY unoptimized and bad, I hope to find a better replacement that loads only a specific frame as bitmap in the future.
+			{
+				#if flxanimate
+				if (animateGhost == null) // If I created the animateGhost on create() and you didn't load an atlas, it would crash the game on destroy, so we create it here
+				{
+					animateGhost = new FlxAnimate(ghost.x, ghost.y);
+					animateGhost.showPivot = false;
+					insert(members.indexOf(ghost), animateGhost);
+					animateGhost.active = false;
+				}
 
-		UI_box.selected_tab_id = 'Settings';
-		UI_characterbox.selected_tab_id = 'Character';
+				if (animateGhost == null || animateGhostImage != character.imageFile)
+					Paths.loadAnimateAtlas(animateGhost, character.imageFile);
+
+				if (myAnim.indices != null && myAnim.indices.length > 0)
+					animateGhost.anim.addBySymbolIndices('anim', myAnim.name, myAnim.indices, 0, false);
+				else
+					animateGhost.anim.addBySymbol('anim', myAnim.name, 0, false);
+
+				animateGhost.anim.play('anim', true, false, character.atlas.anim.curFrame);
+				animateGhost.anim.pause();
+
+				animateGhostImage = character.imageFile;
+				#end
+			}
+
+			var spr:FlxSprite = #if flxanimate !character.isAnimateAtlas? #end
+			ghost #if flxanimate :animateGhost #end;
+			if (spr != null)
+			{
+				spr.setPosition(character.x, character.y);
+				spr.antialiasing = character.antialiasing;
+				spr.flipX = character.flipX;
+				spr.alpha = ghostAlpha;
+
+				spr.scale.set(character.scale.x, character.scale.y);
+				spr.updateHitbox();
+
+				spr.offset.set(character.offset.x, character.offset.y);
+				spr.visible = true;
+
+				var otherSpr:FlxSprite = #if flxanimate (spr == animateGhost) ? #end
+				ghost #if flxanimate :animateGhost #end;
+				if (otherSpr != null)
+					otherSpr.visible = false;
+			}
+			trace('created ghost image');
+		}
+	}
+
+	/** 添加/更新当前动画（原 Add/Update 按钮逻辑） */
+	function addUpdateCurrentAnimation():Void
+	{
+		var indices:Array<Int> = [];
+		var indicesStr:Array<String> = animationIndicesInputText.text.trim().split(',');
+		if (indicesStr.length > 1)
+		{
+			for (i in 0...indicesStr.length)
+			{
+				var index:Int = Std.parseInt(indicesStr[i]);
+				if (indicesStr[i] != null && indicesStr[i] != '' && !Math.isNaN(index) && index > -1)
+				{
+					indices.push(index);
+				}
+			}
+		}
+
+		var lastAnim:String = (character.animationsArray[curAnim] != null) ? character.animationsArray[curAnim].anim : '';
+		var lastOffsets:Array<Int> = [0, 0];
+		for (anim in character.animationsArray)
+			if (animationInputText.text == anim.anim)
+			{
+				lastOffsets = anim.offsets;
+				if (character.animOffsets.exists(animationInputText.text))
+				{
+					if (!character.isAnimateAtlas)
+						character.animation.remove(animationInputText.text);
+					#if flxanimate
+					else
+						@:privateAccess character.atlas.anim.animsMap.remove(animationInputText.text); #end
+				}
+				character.animationsArray.remove(anim);
+			}
+
+		var addedAnim:AnimArray = newAnim(animationInputText.text, animationNameInputText.text);
+		addedAnim.fps = Math.round(animationFramerate.value);
+		addedAnim.loop = animationLoopCheckBox.checked;
+		addedAnim.indices = indices;
+		addedAnim.offsets = lastOffsets;
+		addAnimation(addedAnim.anim, addedAnim.name, addedAnim.fps, addedAnim.loop, addedAnim.indices);
+		character.animationsArray.push(addedAnim);
+
+		reloadAnimList();
+		@:arrayAccess curAnim = Std.int(Math.max(0, character.animationsArray.indexOf(addedAnim)));
+		character.playAnim(addedAnim.anim, true);
+		trace('Added/Updated animation: ' + animationInputText.text);
+	}
+
+	/** 删除当前动画（原 Remove 按钮逻辑） */
+	function removeCurrentAnimation():Void
+	{
+		for (anim in character.animationsArray)
+			if (animationInputText.text == anim.anim)
+			{
+				var resetAnim:Bool = false;
+				if (anim.anim == character.getAnimationName())
+					resetAnim = true;
+				if (character.animOffsets.exists(anim.anim))
+				{
+					if (!character.isAnimateAtlas)
+						character.animation.remove(anim.anim);
+					#if flxanimate
+					else
+						@:privateAccess character.atlas.anim.animsMap.remove(anim.anim); #end
+					character.animOffsets.remove(anim.anim);
+					character.animationsArray.remove(anim);
+				}
+
+				if (resetAnim && character.animationsArray.length > 0)
+				{
+					curAnim = FlxMath.wrap(curAnim, 0, anims.length - 1);
+					character.playAnim(anims[curAnim].anim, true);
+					updateTextColors();
+				}
+				reloadAnimList();
+				trace('Removed animation: ' + animationInputText.text);
+				break;
+			}
+	}
+
+	/** 加载模板角色（原 Load Template 按钮逻辑） */
+	function loadCharacterTemplate():Void
+	{
+		final _template:CharacterFile = {
+			animations: [
+				newAnim('idle', 'BF idle dance'),
+				newAnim('singLEFT', 'BF NOTE LEFT0'),
+				newAnim('singDOWN', 'BF NOTE DOWN0'),
+				newAnim('singUP', 'BF NOTE UP0'),
+				newAnim('singRIGHT', 'BF NOTE RIGHT0')
+			],
+			no_antialiasing: false,
+			flip_x: false,
+			healthicon: 'face',
+			image: 'characters/BOYFRIEND',
+			sing_duration: 4,
+			scale: 1,
+			healthbar_colors: [161, 161, 161],
+			camera_position: [0, 0],
+			position: [0, 0],
+			vocals_file: null
+		};
+
+		character.loadCharacterFile(_template);
+		character.color = FlxColor.WHITE;
+		character.alpha = 1;
+		reloadAnimList();
+		reloadCharacterOptions();
+		updateCharacterPositions();
+		updatePointerPos();
+		reloadCharacterDropDown();
+		updateHealthBar();
 	}
 
 	var ghostAlpha:Float = 0.6;
 
 	function addGhostUI()
 	{
-		var tab_group = new FlxUI(null, UI_box);
-		tab_group.name = "Ghost";
-
-		// var hideGhostButton:FlxButton = null;
-		var makeGhostButton:FlxButton = new FlxButton(25, 15, "Make Ghost", function()
-		{
-			var anim = anims[curAnim];
-			if (!character.isAnimationNull())
-			{
-				var myAnim = anims[curAnim];
-				if (!character.isAnimateAtlas)
-				{
-					ghost.loadGraphic(character.graphic);
-					ghost.frames.frames = character.frames.frames;
-					ghost.animation.copyFrom(character.animation);
-					ghost.animation.play(character.animation.curAnim.name, true, false, character.animation.curAnim.curFrame);
-					ghost.animation.pause();
-				}
-				else
-					if (myAnim != null) // This is VERY unoptimized and bad, I hope to find a better replacement that loads only a specific frame as bitmap in the future.
-				{
-					#if flxanimate
-					if (animateGhost == null) // If I created the animateGhost on create() and you didn't load an atlas, it would crash the game on destroy, so we create it here
-					{
-						animateGhost = new FlxAnimate(ghost.x, ghost.y);
-						animateGhost.showPivot = false;
-						insert(members.indexOf(ghost), animateGhost);
-						animateGhost.active = false;
-					}
-
-					if (animateGhost == null || animateGhostImage != character.imageFile)
-						Paths.loadAnimateAtlas(animateGhost, character.imageFile);
-
-					if (myAnim.indices != null && myAnim.indices.length > 0)
-						animateGhost.anim.addBySymbolIndices('anim', myAnim.name, myAnim.indices, 0, false);
-					else
-						animateGhost.anim.addBySymbol('anim', myAnim.name, 0, false);
-
-					animateGhost.anim.play('anim', true, false, character.atlas.anim.curFrame);
-					animateGhost.anim.pause();
-
-					animateGhostImage = character.imageFile;
-					#end
-				}
-
-				var spr:FlxSprite = #if flxanimate !character.isAnimateAtlas? #end
-				ghost #if flxanimate :animateGhost #end;
-				if (spr != null)
-				{
-					spr.setPosition(character.x, character.y);
-					spr.antialiasing = character.antialiasing;
-					spr.flipX = character.flipX;
-					spr.alpha = ghostAlpha;
-
-					spr.scale.set(character.scale.x, character.scale.y);
-					spr.updateHitbox();
-
-					spr.offset.set(character.offset.x, character.offset.y);
-					spr.visible = true;
-
-					var otherSpr:FlxSprite = #if flxanimate (spr == animateGhost) ? #end
-					ghost #if flxanimate :animateGhost #end;
-					if (otherSpr != null)
-						otherSpr.visible = false;
-				}
-				/*hideGhostButton.active = true;
-					hideGhostButton.alpha = 1; */
-				trace('created ghost image');
-			}
-		});
-
-		/*hideGhostButton = new FlxButton(20 + makeGhostButton.width, makeGhostButton.y, "Hide Ghost", function() {
-				ghost.visible = false;
-				hideGhostButton.active = false;
-				hideGhostButton.alpha = 0.6;
-			});
-			hideGhostButton.active = false;
-			hideGhostButton.alpha = 0.6; */
-
-		var highlightGhost:FlxUICheckBox = new FlxUICheckBox(20 + makeGhostButton.x + makeGhostButton.width, makeGhostButton.y, null, null, "Highlight Ghost",
-			100);
+		highlightGhost = new FlxUICheckBox(10, 10, null, null, "Highlight Ghost", 100);
 		highlightGhost.callback = function()
 		{
 			var value = highlightGhost.checked ? 125 : 0;
@@ -416,7 +783,7 @@ class CharacterEditorState extends MusicBeatState
 			#end
 		};
 
-		var ghostAlphaSlider:FlxUISlider = new FlxUISlider(this, 'ghostAlpha', 10, makeGhostButton.y + 25, 0, 1, 210, #if !hl null #else 0 #end, 5,
+		ghostAlphaSlider = new FlxUISlider(this, 'ghostAlpha', 10, 40, 0, 1, 210, #if !hl null #else 0 #end, 5,
 			FlxColor.WHITE, FlxColor.BLACK);
 		ghostAlphaSlider.nameLabel.text = 'Opacity:';
 		ghostAlphaSlider.decimals = 2;
@@ -427,23 +794,11 @@ class CharacterEditorState extends MusicBeatState
 				animateGhost.alpha = ghostAlpha; #end
 		};
 		ghostAlphaSlider.value = ghostAlpha;
-
-		tab_group.add(makeGhostButton);
-		// tab_group.add(hideGhostButton);
-		tab_group.add(highlightGhost);
-		tab_group.add(ghostAlphaSlider);
-		UI_box.addGroup(tab_group);
 	}
-
-	var check_player:FlxUICheckBox;
-	var charDropDown:FlxUIDropDownMenu;
 
 	function addSettingsUI()
 	{
-		var tab_group = new FlxUI(null, UI_box);
-		tab_group.name = "Settings";
-
-		check_player = new FlxUICheckBox(10, 60, null, null, "Playable Character", 100);
+		check_player = new FlxUICheckBox(10, 10, null, null, "Playable Character", 100);
 		check_player.checked = character.isPlayer;
 		check_player.callback = function()
 		{
@@ -452,49 +807,6 @@ class CharacterEditorState extends MusicBeatState
 			updateCharacterPositions();
 			updatePointerPos(false);
 		};
-
-		var reloadCharacter:FlxButton = new FlxButton(140, 20, "Reload Char", function()
-		{
-			addCharacter(true);
-			updatePointerPos();
-			reloadCharacterOptions();
-			reloadCharacterDropDown();
-		});
-
-		var templateCharacter:FlxButton = new FlxButton(140, 50, "Load Template", function()
-		{
-			final _template:CharacterFile = {
-				animations: [
-					newAnim('idle', 'BF idle dance'),
-					newAnim('singLEFT', 'BF NOTE LEFT0'),
-					newAnim('singDOWN', 'BF NOTE DOWN0'),
-					newAnim('singUP', 'BF NOTE UP0'),
-					newAnim('singRIGHT', 'BF NOTE RIGHT0')
-				],
-				no_antialiasing: false,
-				flip_x: false,
-				healthicon: 'face',
-				image: 'characters/BOYFRIEND',
-				sing_duration: 4,
-				scale: 1,
-				healthbar_colors: [161, 161, 161],
-				camera_position: [0, 0],
-				position: [0, 0],
-				vocals_file: null
-			};
-
-			character.loadCharacterFile(_template);
-			character.color = FlxColor.WHITE;
-			character.alpha = 1;
-			reloadAnimList();
-			reloadCharacterOptions();
-			updateCharacterPositions();
-			updatePointerPos();
-			reloadCharacterDropDown();
-			updateHealthBar();
-		});
-		templateCharacter.color = FlxColor.RED;
-		templateCharacter.label.color = FlxColor.WHITE;
 
 		charDropDown = new FlxUIDropDownMenu(10, 30, FlxUIDropDownMenu.makeStrIdLabelArray([''], true), function(index:String)
 		{
@@ -525,27 +837,10 @@ class CharacterEditorState extends MusicBeatState
 		});
 		reloadCharacterDropDown();
 		charDropDown.selectedLabel = _char;
-
-		tab_group.add(new FlxText(charDropDown.x, charDropDown.y - 18, 0, 'Character:'));
-		tab_group.add(check_player);
-		tab_group.add(reloadCharacter);
-		tab_group.add(templateCharacter);
-		tab_group.add(charDropDown);
-		UI_box.addGroup(tab_group);
 	}
-
-	var animationDropDown:FlxUIDropDownMenu;
-	var animationInputText:FlxUIInputText;
-	var animationNameInputText:FlxUIInputText;
-	var animationIndicesInputText:FlxUIInputText;
-	var animationFramerate:FlxUINumericStepper;
-	var animationLoopCheckBox:FlxUICheckBox;
 
 	function addAnimationsUI()
 	{
-		var tab_group = new FlxUI(null, UI_box);
-		tab_group.name = "Animations";
-
 		animationInputText = new FlxUIInputText(15, 85, 80, '', 8);
 		animationNameInputText = new FlxUIInputText(animationInputText.x, animationInputText.y + 35, 150, '', 8);
 		animationIndicesInputText = new FlxUIInputText(animationNameInputText.x, animationNameInputText.y + 40, 250, '', 8);
@@ -564,147 +859,13 @@ class CharacterEditorState extends MusicBeatState
 			var indicesStr:String = anim.indices.toString();
 			animationIndicesInputText.text = indicesStr.substr(1, indicesStr.length - 2);
 		});
-
-		var addUpdateButton:FlxButton = new FlxButton(70, animationIndicesInputText.y + 60, "Add/Update", function()
-		{
-			var indices:Array<Int> = [];
-			var indicesStr:Array<String> = animationIndicesInputText.text.trim().split(',');
-			if (indicesStr.length > 1)
-			{
-				for (i in 0...indicesStr.length)
-				{
-					var index:Int = Std.parseInt(indicesStr[i]);
-					if (indicesStr[i] != null && indicesStr[i] != '' && !Math.isNaN(index) && index > -1)
-					{
-						indices.push(index);
-					}
-				}
-			}
-
-			var lastAnim:String = (character.animationsArray[curAnim] != null) ? character.animationsArray[curAnim].anim : '';
-			var lastOffsets:Array<Int> = [0, 0];
-			for (anim in character.animationsArray)
-				if (animationInputText.text == anim.anim)
-				{
-					lastOffsets = anim.offsets;
-					if (character.animOffsets.exists(animationInputText.text))
-					{
-						if (!character.isAnimateAtlas)
-							character.animation.remove(animationInputText.text);
-						#if flxanimate
-						else
-							@:privateAccess character.atlas.anim.animsMap.remove(animationInputText.text); #end
-					}
-					character.animationsArray.remove(anim);
-				}
-
-			var addedAnim:AnimArray = newAnim(animationInputText.text, animationNameInputText.text);
-			addedAnim.fps = Math.round(animationFramerate.value);
-			addedAnim.loop = animationLoopCheckBox.checked;
-			addedAnim.indices = indices;
-			addedAnim.offsets = lastOffsets;
-			addAnimation(addedAnim.anim, addedAnim.name, addedAnim.fps, addedAnim.loop, addedAnim.indices);
-			character.animationsArray.push(addedAnim);
-
-			reloadAnimList();
-			@:arrayAccess curAnim = Std.int(Math.max(0, character.animationsArray.indexOf(addedAnim)));
-			character.playAnim(addedAnim.anim, true);
-			trace('Added/Updated animation: ' + animationInputText.text);
-		});
-
-		var removeButton:FlxButton = new FlxButton(180, animationIndicesInputText.y + 60, "Remove", function()
-		{
-			for (anim in character.animationsArray)
-				if (animationInputText.text == anim.anim)
-				{
-					var resetAnim:Bool = false;
-					if (anim.anim == character.getAnimationName())
-						resetAnim = true;
-					if (character.animOffsets.exists(anim.anim))
-					{
-						if (!character.isAnimateAtlas)
-							character.animation.remove(anim.anim);
-						#if flxanimate
-						else
-							@:privateAccess character.atlas.anim.animsMap.remove(anim.anim); #end
-						character.animOffsets.remove(anim.anim);
-						character.animationsArray.remove(anim);
-					}
-
-					if (resetAnim && character.animationsArray.length > 0)
-					{
-						curAnim = FlxMath.wrap(curAnim, 0, anims.length - 1);
-						character.playAnim(anims[curAnim].anim, true);
-						updateTextColors();
-					}
-					reloadAnimList();
-					trace('Removed animation: ' + animationInputText.text);
-					break;
-				}
-		});
 		reloadAnimList();
 		animationDropDown.selectedLabel = anims[0] != null ? anims[0].anim : '';
-
-		tab_group.add(new FlxText(animationDropDown.x, animationDropDown.y - 18, 0, 'Animations:'));
-		tab_group.add(new FlxText(animationInputText.x, animationInputText.y - 18, 0, 'Animation name:'));
-		tab_group.add(new FlxText(animationFramerate.x, animationFramerate.y - 18, 0, 'Framerate:'));
-		tab_group.add(new FlxText(animationNameInputText.x, animationNameInputText.y - 18, 0, 'Animation Symbol Name/Tag:'));
-		tab_group.add(new FlxText(animationIndicesInputText.x, animationIndicesInputText.y - 18, 0, 'ADVANCED - Animation Indices:'));
-
-		tab_group.add(animationInputText);
-		tab_group.add(animationNameInputText);
-		tab_group.add(animationIndicesInputText);
-		tab_group.add(animationFramerate);
-		tab_group.add(animationLoopCheckBox);
-		tab_group.add(addUpdateButton);
-		tab_group.add(removeButton);
-		tab_group.add(animationDropDown);
-		UI_characterbox.addGroup(tab_group);
 	}
-
-	var imageInputText:FlxUIInputText;
-	var healthIconInputText:FlxUIInputText;
-	var vocalsInputText:FlxUIInputText;
-
-	var singDurationStepper:FlxUINumericStepper;
-	var scaleStepper:FlxUINumericStepper;
-	var positionXStepper:FlxUINumericStepper;
-	var positionYStepper:FlxUINumericStepper;
-	var positionCameraXStepper:FlxUINumericStepper;
-	var positionCameraYStepper:FlxUINumericStepper;
-
-	var flipXCheckBox:FlxUICheckBox;
-	var noAntialiasingCheckBox:FlxUICheckBox;
-
-	var healthColorStepperR:FlxUINumericStepper;
-	var healthColorStepperG:FlxUINumericStepper;
-	var healthColorStepperB:FlxUINumericStepper;
 
 	function addCharacterUI()
 	{
-		var tab_group = new FlxUI(null, UI_box);
-		tab_group.name = "Character";
-
 		imageInputText = new FlxUIInputText(15, 30, 200, character.imageFile, 8);
-		var reloadImage:FlxButton = new FlxButton(imageInputText.x + 210, imageInputText.y - 3, "Reload Image", function()
-		{
-			var lastAnim = character.getAnimationName();
-			character.imageFile = imageInputText.text;
-			reloadCharacterImage();
-			if (!character.isAnimationNull())
-			{
-				character.playAnim(lastAnim, true);
-			}
-		});
-
-		var decideIconColor:FlxButton = new FlxButton(reloadImage.x, reloadImage.y + 30, "Get Icon Color", function()
-		{
-			var coolColor:FlxColor = FlxColor.fromInt(CoolUtil.dominantColor(healthIcon));
-			character.healthColorArray[0] = coolColor.red;
-			character.healthColorArray[1] = coolColor.green;
-			character.healthColorArray[2] = coolColor.blue;
-			updateHealthBar();
-		});
 
 		healthIconInputText = new FlxUIInputText(15, imageInputText.y + 35, 75, healthIcon.getCharacter(), 8);
 
@@ -736,47 +897,16 @@ class CharacterEditorState extends MusicBeatState
 			character.noAntialiasing = noAntialiasingCheckBox.checked;
 		};
 
-		positionXStepper = new FlxUINumericStepper(flipXCheckBox.x + 110, flipXCheckBox.y, 10, character.positionArray[0], -9000, 9000, 0);
-		positionYStepper = new FlxUINumericStepper(positionXStepper.x + 60, positionXStepper.y, 10, character.positionArray[1], -9000, 9000, 0);
+		// 位置/相机步进：默认 ±5（菜单里按住 Shift 变 ±1 微调）
+		positionXStepper = new FlxUINumericStepper(flipXCheckBox.x + 110, flipXCheckBox.y, 5, character.positionArray[0], -9000, 9000, 0);
+		positionYStepper = new FlxUINumericStepper(positionXStepper.x + 60, positionXStepper.y, 5, character.positionArray[1], -9000, 9000, 0);
 
-		positionCameraXStepper = new FlxUINumericStepper(positionXStepper.x, positionXStepper.y + 40, 10, character.cameraPosition[0], -9000, 9000, 0);
-		positionCameraYStepper = new FlxUINumericStepper(positionYStepper.x, positionYStepper.y + 40, 10, character.cameraPosition[1], -9000, 9000, 0);
+		positionCameraXStepper = new FlxUINumericStepper(positionXStepper.x, positionXStepper.y + 40, 5, character.cameraPosition[0], -9000, 9000, 0);
+		positionCameraYStepper = new FlxUINumericStepper(positionYStepper.x, positionYStepper.y + 40, 5, character.cameraPosition[1], -9000, 9000, 0);
 
-		var saveCharacterButton:FlxButton = new FlxButton(reloadImage.x, noAntialiasingCheckBox.y + 40, "Save Character", function()
-		{
-			saveCharacter();
-		});
-
-		healthColorStepperR = new FlxUINumericStepper(singDurationStepper.x, saveCharacterButton.y, 20, character.healthColorArray[0], 0, 255, 0);
-		healthColorStepperG = new FlxUINumericStepper(singDurationStepper.x + 65, saveCharacterButton.y, 20, character.healthColorArray[1], 0, 255, 0);
-		healthColorStepperB = new FlxUINumericStepper(singDurationStepper.x + 130, saveCharacterButton.y, 20, character.healthColorArray[2], 0, 255, 0);
-
-		tab_group.add(new FlxText(15, imageInputText.y - 18, 0, 'Image file name:'));
-		tab_group.add(new FlxText(15, healthIconInputText.y - 18, 0, 'Health icon name:'));
-		tab_group.add(new FlxText(15, vocalsInputText.y - 18, 0, 'Vocals File Postfix:'));
-		tab_group.add(new FlxText(15, singDurationStepper.y - 18, 0, 'Sing Animation length:'));
-		tab_group.add(new FlxText(15, scaleStepper.y - 18, 0, 'Scale:'));
-		tab_group.add(new FlxText(positionXStepper.x, positionXStepper.y - 18, 0, 'Character X/Y:'));
-		tab_group.add(new FlxText(positionCameraXStepper.x, positionCameraXStepper.y - 18, 0, 'Camera X/Y:'));
-		tab_group.add(new FlxText(healthColorStepperR.x, healthColorStepperR.y - 18, 0, 'Health bar R/G/B:'));
-		tab_group.add(imageInputText);
-		tab_group.add(reloadImage);
-		tab_group.add(decideIconColor);
-		tab_group.add(healthIconInputText);
-		tab_group.add(vocalsInputText);
-		tab_group.add(singDurationStepper);
-		tab_group.add(scaleStepper);
-		tab_group.add(flipXCheckBox);
-		tab_group.add(noAntialiasingCheckBox);
-		tab_group.add(positionXStepper);
-		tab_group.add(positionYStepper);
-		tab_group.add(positionCameraXStepper);
-		tab_group.add(positionCameraYStepper);
-		tab_group.add(healthColorStepperR);
-		tab_group.add(healthColorStepperG);
-		tab_group.add(healthColorStepperB);
-		tab_group.add(saveCharacterButton);
-		UI_characterbox.addGroup(tab_group);
+		healthColorStepperR = new FlxUINumericStepper(singDurationStepper.x, positionCameraYStepper.y + 40, 20, character.healthColorArray[0], 0, 255, 0);
+		healthColorStepperG = new FlxUINumericStepper(singDurationStepper.x + 65, positionCameraYStepper.y + 40, 20, character.healthColorArray[1], 0, 255, 0);
+		healthColorStepperB = new FlxUINumericStepper(singDurationStepper.x + 130, positionCameraYStepper.y + 40, 20, character.healthColorArray[2], 0, 255, 0);
 	}
 
 	override function getEvent(id:String, sender:Dynamic, data:Dynamic, ?params:Array<Dynamic>)
@@ -904,9 +1034,6 @@ class CharacterEditorState extends MusicBeatState
 
 	function reloadCharacterOptions()
 	{
-		if (UI_characterbox == null)
-			return;
-
 		check_player.checked = character.isPlayer;
 		imageInputText.text = character.imageFile;
 		healthIconInputText.text = character.healthIcon;
@@ -927,11 +1054,39 @@ class CharacterEditorState extends MusicBeatState
 	var holdingArrowsElapsed:Float = 0;
 	var holdingFrameTime:Float = 0;
 	var holdingFrameElapsed:Float = 0;
-	var undoOffsets:Array<Float> = null;
 
 	override function update(elapsed:Float)
 	{
 		super.update(elapsed);
+
+		// ===== 顶栏状态栏更新（只显示变化，内部有缓存）=====
+		if (menuBar != null && menuBar.statusBar != null)
+		{
+			menuBar.statusBar.setCharacter(_char);
+			var animName:String = 'NO ANIM';
+			var frames:Int = 0;
+			var length:Int = 0;
+			if (!character.isAnimationNull())
+			{
+				animName = character.getAnimationName();
+				if (!character.isAnimateAtlas)
+				{
+					frames = character.animation.curAnim.curFrame;
+					length = character.animation.curAnim.numFrames;
+				}
+				#if flxanimate
+				else
+				{
+					frames = character.atlas.anim.curFrame;
+					length = character.atlas.anim.length;
+				}
+				#end
+			}
+			menuBar.statusBar.setAnim(animName);
+			menuBar.statusBar.setOffset(Std.int(character.offset.x) + ' / ' + Std.int(character.offset.y));
+			menuBar.statusBar.setFrame('$frames / ${length - 1}');
+			menuBar.statusBar.setZoom(FlxMath.roundDecimal(FlxG.camera.zoom, 2) + 'x');
+		}
 
 		if (animationInputText.hasFocus || animationNameInputText.hasFocus || animationIndicesInputText.hasFocus || imageInputText.hasFocus
 			|| healthIconInputText.hasFocus || vocalsInputText.hasFocus)
@@ -962,7 +1117,6 @@ class CharacterEditorState extends MusicBeatState
 		if (FlxG.keys.pressed.I #if mobile || (virtualPad.buttonUp.pressed && virtualPad.buttonG.pressed) #end)
 			FlxG.camera.scroll.y -= elapsed * 500 * shiftMult * ctrlMult;
 
-		var lastZoom = FlxG.camera.zoom;
 		if (FlxG.keys.justPressed.R && !FlxG.keys.pressed.CONTROL || virtualPad.buttonZ.justPressed)
 			FlxG.camera.zoom = 1;
 		else if ((FlxG.keys.pressed.E || virtualPad.buttonX.pressed) && FlxG.camera.zoom < 3)
@@ -978,8 +1132,7 @@ class CharacterEditorState extends MusicBeatState
 				FlxG.camera.zoom = 0.1;
 		}
 
-		if (lastZoom != FlxG.camera.zoom)
-			cameraZoomText.text = 'Zoom: ' + FlxMath.roundDecimal(FlxG.camera.zoom, 2) + 'x';
+		// Zoom 显示已由顶栏状态栏接管（update 开头更新）
 
 		// CHARACTER CONTROLS
 		var changedAnim:Bool = false;
@@ -1095,6 +1248,11 @@ class CharacterEditorState extends MusicBeatState
 				character.offset.y = undoOffsets[1];
 				changedOffset = true;
 			}
+			else if (FlxG.keys.justPressed.S)
+			{
+				// Ctrl+S 快速保存角色
+				saveCharacter();
+			}
 		}
 		if (virtualPad.buttonA.justPressed)
 		{
@@ -1110,13 +1268,10 @@ class CharacterEditorState extends MusicBeatState
 			anim.offsets[0] = Std.int(character.offset.x);
 			anim.offsets[1] = Std.int(character.offset.y);
 
-			var myText:FlxText = animsTxtGroup.members[curAnim];
-			myText.text = anim.anim + ": " + anim.offsets;
+			updateAnimList(); // 刷新动画列表中的 offset 显示
 			character.addOffset(anim.anim, character.offset.x, character.offset.y);
 		}
 
-		var txt = 'ERROR: No Animation Found';
-		var clr = FlxColor.RED;
 		if (!character.isAnimationNull())
 		{
 			if (FlxG.keys.pressed.A || FlxG.keys.pressed.D)
@@ -1164,31 +1319,114 @@ class CharacterEditorState extends MusicBeatState
 					holdingFrameElapsed -= 0.1;
 				}
 			}
-
-			txt = 'Frames: ( $frames / ${length - 1} )';
-			// if(character.animation.curAnim.paused) txt += ' - PAUSED';
-			clr = FlxColor.WHITE;
 		}
-		if (txt != frameAdvanceText.text)
-			frameAdvanceText.text = txt;
-		frameAdvanceText.color = clr;
+
+		// ===== 动画列表交互：滚轮滚动 + 拖拽滚动 + 点击选中（松开时判定；菜单展开时让位给菜单）=====
+		var menuOpen:Bool = (menuBar != null && menuBar.activeMenu >= 0);
+		var mp:FlxPoint = FlxG.mouse.getViewPosition(camHUD);
+		var mX:Float = mp.x;
+		var mY:Float = mp.y;
+		mp.put();
+		var inAnimList:Bool = (mX >= animListX && mX <= animListX + ANIM_LIST_W && mY >= ANIM_LIST_Y && mY <= ANIM_LIST_Y + ANIM_LIST_VISIBLE * ANIM_LIST_ROW_H);
+		// 列表 hover 行检测（子菜单 hover 紫底）
+		if (!menuOpen && inAnimList)
+		{
+			var hoverRow:Int = -1;
+			for (i in 0...ANIM_LIST_VISIBLE)
+			{
+				var hit = animListHits[i];
+				if (hit == null || !hit.visible) continue;
+				if (mX >= hit.x && mX <= hit.x + hit.width && mY >= hit.y && mY <= hit.y + hit.height)
+				{
+					hoverRow = i;
+					break;
+				}
+			}
+			if (hoverRow != animListHoverIdx)
+			{
+				animListHoverIdx = hoverRow;
+				updateAnimList();
+			}
+		}
+		else if (animListHoverIdx != -1)
+		{
+			animListHoverIdx = -1;
+			updateAnimList();
+		}
+		if (!menuOpen && inAnimList && FlxG.mouse.wheel != 0)
+		{
+			animListScroll -= FlxG.mouse.wheel;
+			animListScroll = Std.int(FlxMath.bound(animListScroll, 0, Std.int(Math.max(0, anims.length - ANIM_LIST_VISIBLE))));
+			updateAnimList();
+		}
+		// 拖拽滚动 + 点击选择（按下记录，移动超阈值 → 拖动；松开且未拖动 → 视为点击选中）
+		if (!menuOpen && inAnimList)
+		{
+			if (FlxG.mouse.justPressed)
+			{
+				animListPressActive = true;
+				animListDragMoved = false;
+				animListPressY = mY;
+				animListPressScroll = animListScroll;
+			}
+			if (animListPressActive && FlxG.mouse.pressed)
+			{
+				var dy:Float = mY - animListPressY;
+				if (!animListDragMoved && Math.abs(dy) > 6)
+					animListDragMoved = true;
+				if (animListDragMoved)
+				{
+					var maxScroll:Int = Std.int(Math.max(0, anims.length - ANIM_LIST_VISIBLE));
+					var newScroll:Int = Std.int(FlxMath.bound(animListPressScroll - Std.int(dy / ANIM_LIST_ROW_H), 0, maxScroll));
+					if (newScroll != animListScroll)
+					{
+						animListScroll = newScroll;
+						updateAnimList();
+						// 重新基准：拖拽过程平滑跟随
+						animListPressScroll = newScroll;
+						animListPressY = mY;
+					}
+				}
+			}
+			if (animListPressActive && FlxG.mouse.justReleased)
+			{
+				if (!animListDragMoved)
+				{
+					// 点击选中：松开位置的行
+					for (i in 0...ANIM_LIST_VISIBLE)
+					{
+						var hit = animListHits[i];
+						if (hit == null || !hit.visible) continue;
+						if (mX >= hit.x && mX <= hit.x + hit.width && mY >= hit.y && mY <= hit.y + hit.height)
+						{
+							selectAnimFromList(animListScroll + i);
+							break;
+						}
+					}
+				}
+				animListPressActive = false;
+			}
+			// 按住但移出列表区域 → 取消本次按下
+			if (animListPressActive && !inAnimList && !FlxG.mouse.pressed)
+				animListPressActive = false;
+		}
+		else if (animListPressActive)
+		{
+			animListPressActive = false;
+		}
 
 		// OTHER CONTROLS
 		if (FlxG.keys.justPressed.F12 || virtualPad.buttonS.justPressed)
 			silhouettes.visible = !silhouettes.visible;
 
-		if ((FlxG.keys.justPressed.F1 || virtualPad.buttonF.justPressed) || (helpBg.visible && FlxG.keys.justPressed.ESCAPE))
+		if (FlxG.keys.justPressed.F1 || virtualPad.buttonF.justPressed)
 		{
-			if (controls.mobileC)
-			{
-				virtualPad.forEachAlive(function(button:MobileButton)
-				{
-					if (button.tag != 'F')
-						button.visible = !button.visible;
-				});
-			}
-			helpBg.visible = !helpBg.visible;
-			helpTexts.visible = helpBg.visible;
+			// ★ 帮助已并入顶栏菜单：F1 直接打开【帮助】菜单
+			var helpIdx:Int = -1;
+			for (i in 0...menuBar.menus.length)
+				if (menuBar.menus[i].key == 'help') { helpIdx = i; break; }
+			if (helpIdx >= 0)
+				menuBar.openMenu(helpIdx);
 		}
 		else if (FlxG.keys.justPressed.ESCAPE || virtualPad.buttonB.justPressed)
 		{
@@ -1277,41 +1515,17 @@ class CharacterEditorState extends MusicBeatState
 		if (anims.length > 0)
 			character.playAnim(anims[0].anim, true);
 		curAnim = 0;
+		animListScroll = 0;
 
-		for (text in animsTxtGroup)
-			text.kill();
-
-		var daLoop = 0;
-		for (anim in anims)
-		{
-			var text:FlxText = animsTxtGroup.recycle(FlxText);
-			text.x = 10;
-			text.y = 32 + (20 * daLoop);
-			text.fieldWidth = 400;
-			text.fieldHeight = 20;
-			text.text = anim.anim + ": " + anim.offsets;
-			text.setFormat(null, 16, FlxColor.WHITE, LEFT, OUTLINE_FAST, FlxColor.BLACK);
-			text.scrollFactor.set();
-			text.borderSize = 1;
-			animsTxtGroup.add(text);
-
-			daLoop++;
-		}
-		updateTextColors();
+		updateAnimList();
 		if (animationDropDown != null)
 			reloadAnimationDropDown();
 	}
 
 	inline function updateTextColors()
 	{
-		var daLoop = 0;
-		for (text in animsTxtGroup)
-		{
-			text.color = FlxColor.WHITE;
-			if (daLoop == curAnim)
-				text.color = FlxColor.LIME;
-			daLoop++;
-		}
+		// 颜色/高亮已由 updateAnimList 统一处理
+		updateAnimList();
 	}
 
 	inline function updateCharacterPositions()

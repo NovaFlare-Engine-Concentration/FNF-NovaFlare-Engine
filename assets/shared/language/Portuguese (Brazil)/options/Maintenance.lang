@@ -3,6 +3,8 @@ Maintenance => Manutenção
 developerMode => Modo Desenvolvedor
 deepDebug => Depuração Profunda
 devConScale => Tamanho do Console
+luaErrorOverlay => Aviso de Erro Lua
+hscriptErrorOverlay => Aviso de Erro HScript
 
 oldHscriptVersion => Versão Antiga do Hscript
 
@@ -15,3 +17,4 @@ screensaver => Protetor de Tela
 filesCheck => Verificação de Arquivos
 filesCheckNew => Verificação de Novos Arquivos
 storageFolder => Pasta de Armazenamento
+adjustMobileEditorKeys => Ajustar Teclas dos Editores Mobile

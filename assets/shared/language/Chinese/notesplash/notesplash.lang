@@ -1,0 +1,111 @@
+# ===== Note Splash 编辑器顶栏菜单（Adobe 风格）=====
+# ===== 菜单标题 =====
+menu_anim => 动画
+menu_props => 属性
+menu_shader => 染色
+menu_file => 文件
+menu_help => 帮助
+
+# ===== 状态栏 =====
+status_skin => 皮肤:
+status_anim => 动画:
+status_offset => 偏移:
+status_note => NoteData:
+status_scale => 缩放:
+
+# ===== 项目: 动画菜单 =====
+item_anim => 动画列表
+label_anim => 动画
+item_anim_name => 动画名
+label_anim_name => 动画名
+item_prefix => XML 帧前缀
+label_prefix => 帧前缀
+item_note_data => Note Data
+label_note_data => Note Data
+item_indices => 帧索引（可选）
+label_indices => 帧索引
+item_min_fps => 最低帧率
+label_min_fps => 最低帧率
+item_max_fps => 最高帧率
+label_max_fps => 最高帧率
+item_anim_add => 添加 / 更新
+item_anim_remove => 删除动画
+item_anim_reset => 重置为模板
+
+# ===== 项目: 属性菜单 =====
+item_image => 皮肤图片
+label_image => 皮肤
+item_reload_image => 加载该皮肤
+item_scale => 缩放
+label_scale => 缩放
+item_allow_rgb => 允许 RGB 染色
+item_allow_pixel => 允许像素风
+item_template => 生成空白模板
+item_convert_txt => 转换旧版 TXT → JSON
+
+# ===== 项目: 染色菜单 =====
+item_target => 替换目标通道
+label_target => 通道
+item_target_red => Red
+item_target_green => Green
+item_target_blue => Blue
+item_r => 替换为 R
+label_r => R
+item_g => 替换为 G
+label_g => G
+item_b => 替换为 B
+label_b => B
+item_no_replace => 不替换该通道
+item_reset_rgb => 重置染色
+
+# ===== 项目: 文件菜单 =====
+item_save => 保存配置（JSON）
+item_exit => 退出编辑器
+
+# ===== 描述 =====
+desc_anim => 从列表选择要编辑的动画；选中后自动播放预览
+desc_anim_name => 该动画在配置 JSON 中的名字
+desc_prefix => 图集 XML 中该动画的帧前缀
+desc_note_data => 该动画对应的 Note Data 列（0=左 1=下 2=上 3=右）
+desc_indices => 只取前缀下指定帧索引（逗号分隔；留空 = 全部帧）
+desc_min_fps => 播放该动画的最低帧率（随机区间下限）
+desc_max_fps => 播放该动画的最高帧率（随机区间上限）
+desc_anim_add => 把当前参数写入（或更新）动画列表
+desc_anim_remove => 从列表移除当前动画
+desc_anim_reset => 清空当前配置并恢复默认模板
+desc_image => 溅射图集路径（images/ 下，如 noteSplashes/noteSplashes）
+desc_reload_image => 按输入路径重新载入图集与配置
+desc_scale => 溅射整体缩放倍率
+desc_allow_rgb => 允许使用 RGB 染色着色器
+desc_allow_pixel => 像素舞台下允许像素化渲染
+desc_template => 以空白配置开始（可随后逐条添加动画）
+desc_convert_txt => 读取旧版 .txt 溅射配置并转换为 JSON 保存
+desc_target => 选择正在编辑的替换目标通道
+desc_target_red => 编辑红色通道的替换色
+desc_target_green => 编辑绿色通道的替换色
+desc_target_blue => 编辑蓝色通道的替换色
+desc_r => 该通道替换色的红色分量
+desc_g => 该通道替换色的绿色分量
+desc_b => 该通道替换色的蓝色分量
+desc_no_replace => 勾选后该目标通道不做颜色替换
+desc_reset_rgb => 把三通道替换色全部清零
+desc_save => 把当前配置保存为 JSON（与图集同目录）
+desc_exit => 退出 Note Splash 编辑器，返回主编辑器菜单
+
+# ===== 帮助行 =====
+item_help_click => 点击音符或按 SPACE 触发溅射
+item_help_offset => 方向键微调偏移
+item_help_shift => 按住 Shift：偏移步长 ×10
+item_help_copy => Ctrl+C / Ctrl+V / Ctrl+R：复制/粘贴/重置偏移
+item_help_fps => 每 4 个 Note Data 一组，自动追加一套动画
+item_help_f1 => 打开本帮助菜单：F1
+item_help_exit => 退出编辑器：ESC / Back
+
+# ===== 帮助行描述 =====
+desc_help_click => 点击下方任一音符，或在动画页按 SPACE 播放溅射预览
+desc_help_offset => 方向键以 1px 步长微调当前动画偏移
+desc_help_shift => 按住 Shift 时方向键步长为 10px（长按连发）
+desc_help_copy => Ctrl+C 复制当前偏移，Ctrl+V 粘贴，Ctrl+R 归零
+desc_help_fps => 后续每 4 个 Note Data 自动生成下一套动画名
+desc_help_f1 => 打开本帮助菜单：F1
+desc_help_exit => 退出编辑器返回主编辑器菜单：ESC / Back

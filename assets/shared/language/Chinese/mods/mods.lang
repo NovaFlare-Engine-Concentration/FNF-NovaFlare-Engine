@@ -1,0 +1,79 @@
+﻿# Mods 菜单（新界面）语言键
+# 键名与 NewModsMenuState.htm 原型 JS 里的 L 字典一一对应
+title => 模组管理
+subtitle => MODS
+
+# 左侧列表顶部两个标签
+tabEnabled => 已启用
+tabDisabled => 已禁用
+statTotal => 共
+statOn => 启用
+statOff => 禁用
+
+# 顶部窗口条
+hintBar => 滚轮上下滑动列表 · 长按 1 秒可拖动排序 · ↑↓ 选择 · ←→ 区域 · Enter 确认 · Esc 返回
+hintBarShort => 滚轮滚动 · 长按 1 秒拖动排序 · Enter 确认
+toastFolder => 模组文件夹：{path}（手机需自行用文件管理器进入）
+pressHold => 继续按住 1 秒即可拖动排序
+pressDrag => 松开鼠标放下 · 拖到列表上下边缘会自动滚动
+openFolder => 打开 mods 文件夹
+openFolderShort => 打开 mods 文件夹
+search => 搜索模组…
+exitList => 退出 mod 列表
+exitListShort => 退出 mod 列表
+winMin => 最小化
+winMax => 最大化 / 还原
+winClose => 关闭
+dirty => {n} 项改动待重启生效
+
+# 列表底部三个按钮（原版保留）
+reload => 重新加载
+enableAll => 全部启用
+disableAll => 全部禁用
+
+# 右侧详情
+descLabel => 简介 · DESCRIPTION
+enabledLabel => 已启用
+disabledLabel => 已禁用
+toggleHint => 点击切换启用状态
+restartHint => 移动或开关此模组会重启游戏
+badgeGlobal => 全局运行
+badgeRestart => 需重启
+badgeSettings => 含设置项
+badgeDisabled => 当前已禁用
+chipFolder => 文件夹
+chipOrder => 顺序
+chipIcon => 图标
+chipColor => 配色
+frames => {n} 帧 @{fps}fps
+noDesc => 该模组未提供简介。
+
+# 9 个工具按钮（悬停提示）
+toolTop => 移到顶部
+toolBottom => 移到底部
+toolUp => 上移一位
+toolDown => 下移一位
+toolPrev => 上一个模组
+toolNext => 下一个模组
+toolSettings => 打开模组设置
+toolToggle => 启用 / 禁用
+toolExit => 保存并退出
+
+# 空状态
+emptyTitle => 未安装任何模组
+emptyBody1 => 把模组文件夹放进
+emptyBody2 => 即可；本界面每秒自动检测一次，放入后自动刷新。
+scanning => 正在自动检测 mods/ …
+
+# 退出确认
+exitTitle => 需要重启游戏才能生效
+exitBody => 你刚刚修改了模组的启用状态或加载顺序。是否现在重启游戏？
+restartNow => 立即重启
+stayHere => 继续留在这里
+
+# 其它
+srcMain => 来源：主菜单
+srcFreeplay => 来源：选歌界面
+filterNone => 当前标签下没有模组
+searchNone => 没有匹配「{q}」的模组
+marqueeMode => 走马灯：{mode}

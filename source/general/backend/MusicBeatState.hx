@@ -5,6 +5,8 @@ import openfl.Lib;
 import flixel.addons.ui.FlxUIState;
 
 import general.backend.PsychCamera;
+import mobile.objects.EditorMobileKeys;
+import mobile.objects.EditorMobileKeyOverlay;
 
 import general.shaders.ColorblindFilter;
 
@@ -36,6 +38,8 @@ class MusicBeatState extends FlxUIState
 	public var mobileControls:MobileControls;
 	public var camControls:FlxCamera;
 	public var vpadCam:FlxCamera;
+	/** “调整移动端各Editor键位”开启时 Editor 里的自定义按键覆盖层 */
+	public var editorMobileOverlay:EditorMobileKeyOverlay;
 
 	public function addVirtualPad(DPad:FlxDPadMode, Action:FlxActionMode)
 	{
@@ -49,6 +53,7 @@ class MusicBeatState extends FlxUIState
 			virtualPad.active = virtualPad.visible = false;
 		}
 		#end
+		EditorMobileKeys.onVirtualPadAdded(this);
 	}
 
 	public function removeVirtualPad()
@@ -137,6 +142,10 @@ class MusicBeatState extends FlxUIState
 	{
 		super.destroy();
 
+		// 自定义按键覆盖层作为成员会被 super.destroy 一并销毁（含其相机与按键注入），
+		// 先把引用清掉，避免 Manager 之后对已销毁对象做二次清理。
+		editorMobileOverlay = null;
+
 		// Script-created VideoHandlers live below the mouse in FlxG.game rather
 		// than inside this state's member list. A number of hxcodec-era mods
 		// call stop() from onDestroy(), but hxvlc's stop() only halts playback:
@@ -186,6 +195,12 @@ class MusicBeatState extends FlxUIState
 	{
 		instance = this;
 
+		#if (cpp && windows)
+		// 沉浸式标题栏管理：StoryMode/游玩/编辑器隐藏系统栏并扩展视口，
+		// 游玩类界面支持鼠标靠近顶部时唤出标题栏。
+		general.backend.device.WindowChromeManager.onStateChanged(this);
+		#end
+
 		var skip:Bool = FlxTransitionableState.skipNextTransOut;
 		#if MODS_ALLOWED Mods.updatedOnState = false; #end
 
@@ -217,10 +232,17 @@ class MusicBeatState extends FlxUIState
 	public static var timePassedOnState:Float = 0;
 	public var allowMinorGc:Bool = true;
 	private var lastSavedFullscreen:Null<Bool> = null;
+	#if (cpp && windows)
+	private var lastChromeFullscreen:Null<Bool> = null;
+	#end
 
 	override function update(elapsed:Float)
 	{
+		// 注意：此处曾有每 60 帧一次 `sys.io.File.append('ui_mark.log', ...)` 的诊断写盘，
+		// 在所有状态（含 PlayState）的 update 热路径上做同步 open/write/close，
+		// 240TPS 下每秒 4 次 IO 往返，是周期性长帧的来源，已移除。
 		// everyStep();
+		EditorMobileKeys.frameUpdate(this);
 		var oldStep:Int = curStep;
 		timePassedOnState += elapsed;
 		updateCurStep();
@@ -240,13 +262,11 @@ class MusicBeatState extends FlxUIState
 			}
 		}
 
-		if (FlxG.save.data != null && lastSavedFullscreen != FlxG.fullscreen)
+		// 不再把全屏状态写进存档（窗口一律默认窗口化启动，F11 全屏为临时状态）
+		if (FlxG.save.data != null && FlxG.save.data.fullscreen)
 		{
-			var changedByUser:Bool = lastSavedFullscreen != null;
-			lastSavedFullscreen = FlxG.fullscreen;
-			FlxG.save.data.fullscreen = lastSavedFullscreen;
-			if (changedByUser)
-				ClientPrefs.scheduleProtectedSettingsCheckpoint(0.1);
+			// 顺手清掉旧存档里残留的全屏标记，避免旧数据再次生效
+			FlxG.save.data.fullscreen = false;
 		}
 
 		// This is the hottest stage dispatch in the engine.  Avoid allocating a

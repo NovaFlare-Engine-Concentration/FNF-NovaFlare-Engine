@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="EoDBxNZ9rq5Ql208rr4yOM">
+<head data-page-node-id="7p0KAHe7nDpRvU3DeZoFu1">
+<meta charset="UTF-8" data-page-node-id="wL47FyB470K6VjqK8GP3Bs">
+<title>NovaFlare · 新版颜色设置 v3（实时预览 + 前后对照）</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; }
+  body {
+    background:#04060a; font-family:"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+    display:flex; user-select:none; cursor:default;
+  }
+  .mono { font-family:Consolas,"Courier New",monospace; }
+
+  /* ================= 左区：轨道预览（流式宽度，JS 精确布点） ================= */
+  #leftPane {
+    flex:1 1 auto; min-width:480px; position:relative; overflow:hidden;
+    background:
+      radial-gradient(1200px 500px at 50% 110%, rgba(64,90,140,.28), transparent 60%),
+      linear-gradient(180deg, #0c1018 0%, #0a0d13 55%, #080b10 100%);
+  }
+  #leftPane .skyline {
+    position:absolute; left:0; right:0; bottom:0; height:110px; opacity:.5;
+    background:repeating-linear-gradient(90deg,
+      rgba(20,28,44,.9) 0 24px, transparent 24px 46px,
+      rgba(16,22,36,.8) 46px 62px, transparent 62px 92px);
+    mask-image:linear-gradient(180deg, transparent, #000 45%);
+    -webkit-mask-image:linear-gradient(180deg, transparent, #000 45%);
+  }
+  #leftPane .panelTitle {
+    position:absolute; left:14px; top:10px; font-size:12px; color:#7f8898; letter-spacing:.5px; z-index:5;
+  }
+  #leftPane .panelTitle b { color:#c3cad6; font-weight:600; }
+  #leftPane .panelHint {
+    position:absolute; right:14px; top:10px; font-size:11px; color:#5c6575; z-index:5;
+  }
+  /* 轨道容器：JS 设定 left/width（note 组锚定左屏 5cm，向右撑满） */
+  #lanes { position:absolute; top:30px; bottom:64px; left:0; right:0; }
+  .lane {
+    position:absolute; top:0; height:100%;
+    border-right:1px solid rgba(255,255,255,.045);
+    cursor:pointer;
+  }
+  .lane:first-child { border-left:1px solid rgba(255,255,255,.045); }
+  .lane::after {
+    content:""; position:absolute; inset:0;
+    background:repeating-linear-gradient(180deg, rgba(255,255,255,.02) 0 1px, transparent 1px 44px);
+    pointer-events:none;
+  }
+  .lane:hover { background:rgba(255,255,255,.05); }
+  .lane.sel  { background:#8b9098; }          /* ★ 点击轨道 → 不透明灰 */
+  .lane.sel:hover { background:#959aa2; }
+  .lane .laneNo {
+    position:absolute; top:2px; left:0; width:100%; text-align:center;
+    font-size:11px; color:#4e5666; pointer-events:none;
+  }
+  .lane.sel .laneNo { color:#3a3e46; }
+  .lane .sustain { position:absolute; border-radius:3px; pointer-events:none; }
+  .lane .note { position:absolute; pointer-events:none; }
+  .lane .note img, .lane .note svg { display:block; width:100%; height:100%; }
+  .lane .receptor { position:absolute; pointer-events:none; opacity:.5; }
+  .lane .receptor img, .lane .receptor svg { display:block; width:100%; height:100%; }
+  .lane .keyChip {
+    position:absolute; pointer-events:none;
+    border-radius:4px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.22);
+    display:flex; align-items:center; justify-content:center;
+    font-size:13px; font-weight:700; color:rgba(255,255,255,.92);
+  }
+  .lane.sel .keyChip { background:rgba(20,22,28,.55); border-color:rgba(0,0,0,.4); color:#fff; }
+  /* 判定线：精确贯穿全部轨道的受体中心 */
+  #judgeLine {
+    position:absolute; height:2px; background:rgba(255,255,255,.14);
+    box-shadow:0 0 6px rgba(255,255,255,.08); pointer-events:none; z-index:2;
+  }
+  #judgeLine::after {
+    content:"JUDGE LINE"; position:absolute; right:2px; top:-14px;
+    font-size:8px; letter-spacing:1.5px; color:rgba(255,255,255,.28);
+  }
+
+  #leftTips {
+    position:absolute; left:16px; bottom:10px; font-size:12px; color:rgba(255,255,255,.62);
+    line-height:1.6; text-shadow:0 1px 2px #000; z-index:5;
+  }
+  #leftTips b { color:#fff; font-weight:600; }
+  #leftEsc {
+    position:absolute; right:16px; bottom:10px; font-size:11px; color:rgba(255,255,255,.4); z-index:5;
+  }
+
+  /* ================= 右区：样式编辑栏（自适应宽度，给左侧 10 note 留空间） ================= */
+  #rightPane {
+    flex:0 0 clamp(480px, 34vw, 680px); width:clamp(480px, 34vw, 680px); position:relative;
+    background:linear-gradient(180deg,#151922 0%, #12151d 100%);
+    border-left:5px solid #64769e;                 /* ★ 与左侧 10 note 组的明显分割线 */
+    box-shadow:inset 1px 0 0 rgba(255,255,255,.10), -10px 0 22px rgba(0,0,0,.55);
+  }
+  #rHeader { position:absolute; left:0; right:0; top:0; height:58px; border-bottom:1px solid rgba(255,255,255,.08); }
+  #rTitle { position:absolute; left:18px; top:9px; font-size:17px; font-weight:700; color:#eef1f6; }
+  #rSub   { position:absolute; left:18px; top:33px; font-size:12.5px; color:#7d8698; }
+  #btnApply, #btnExit { position:absolute; top:13px; height:32px; border-radius:7px;
+    font-size:13px; font-weight:600; cursor:pointer; border:1px solid; font-family:inherit; }
+  #btnApply { right:92px; width:132px; background:#2c3140; border-color:#4c5468; color:#cfd6e4; }
+  #btnApply:hover { background:#363c4e; color:#fff; }
+  #btnApply.on { background:#1f6b43; border-color:#2f9a61; color:#d9ffe9; }
+  #btnApply .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px;
+    background:#8b93a6; vertical-align:1px; }
+  #btnApply.on .dot { background:#5dff9c; box-shadow:0 0 6px #2fce78; }
+  #btnExit { right:16px; width:68px; background:#3a2228; border-color:#8a4a52; color:#ffc2c2; }
+  #btnExit:hover { background:#552e37; color:#fff; }
+
+  /* ---------- 窄屏降档：编辑列放不下放大字号时自动回落一档 ---------- */
+  #rightPane.compact .aTile { height:78px; }
+  #rightPane.compact .aTile .tName { font-size:13.5px; }
+  #rightPane.compact .aTile .tName small { display:none; }
+  #rightPane.compact .aTile .tHex { font-size:13.5px; bottom:17px; }
+  #rightPane.compact .aTile .tRgb { font-size:11.5px; }
+  #rightPane.compact .aTile .tSw { width:24px; height:24px; }
+  #rightPane.compact #modeSeg button { font-size:13px; padding:0 10px; height:34px; }
+  #rightPane.compact .iconBtn { width:36px; height:34px; }
+  #rightPane.compact .iconBtn svg { width:20px; height:20px; }
+  #rightPane.compact #hexLabel { font-size:13px; }
+  #rightPane.compact #hexInput { font-size:16px; width:104px; height:34px; }
+  #rightPane.compact #curSwatch { width:38px; height:34px; }
+
+  /* ---------- 对照列（修改前 | 修改后 横向排布，带长条 note） ---------- */
+  #compareCol {
+    position:absolute; left:0; top:58px; width:168px; bottom:0;
+    background:rgba(10,12,17,.55); border-right:1px solid rgba(255,255,255,.07);
+    padding:10px 8px; display:none; overflow-y:auto;
+  }
+  #compareCol.show { display:block; }
+  #compareCol .cHead { font-size:14px; font-weight:700; color:#ffd28a; letter-spacing:.5px; }
+  #compareCol .cSub { font-size:12.5px; color:#838d9e; margin-top:3px; line-height:1.5; }
+  .cBlocks { display:flex; gap:8px; margin-top:8px; }
+  .cBlock { flex:1; min-width:0; }
+  .cBlock .cTag { font-size:13.5px; font-weight:700; letter-spacing:1px; margin-bottom:5px; text-align:center; }
+  .cBlock.before .cTag { color:#aab3c4; }
+  .cBlock.after  .cTag { color:#5dff9c; }
+  .cArrowWrap { width:100%; padding:5px 0 6px; text-align:center;
+    background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.07); border-radius:10px; }
+  .cArrowWrap svg { display:inline-block; }
+  .cSus { display:block; width:22px; height:46px; margin:3px auto 0; border-radius:4px;
+    border:2px solid #fff; }
+  .cRow { display:flex; align-items:center; gap:4px; padding:2px 2px 2px 8px; }
+  .cRow .dot { width:11px; height:11px; border-radius:3px; border:1px solid rgba(0,0,0,.5); flex:none; }
+  .cRow .hx { font-size:13px; color:#d6dde9; }
+  #cLaneTag { text-align:center; font-size:13.5px; color:#a5aebf; margin-top:9px; }
+  #cLaneTag b { color:#e6ebf4; }
+
+  /* ---------- 主编辑列 ---------- */
+  /* 溢出走滚动：极矮窗口下色轮有 180px 下限，空间不够时允许滚动而不是裁掉 */
+  #editCol { position:absolute; left:168px; top:58px; right:0; bottom:0; padding:0 12px;
+    overflow-y:auto; overflow-x:hidden; }
+
+  #secAttrs { font-size:14px; color:#8b95a8; margin:10px 0 7px; letter-spacing:1px; }
+  #attrTiles { display:flex; gap:8px; }
+  .aTile {
+    flex:1; height:86px; position:relative; border-radius:9px; cursor:pointer;
+    background:#1a1f2a; border:1px solid #2b3242; transition:all .1s; overflow:hidden;
+  }
+  .aTile:hover { border-color:#3c455a; }
+  .aTile .tName { position:absolute; left:10px; right:6px; top:8px; font-size:15px; font-weight:700; color:#aab3c4;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .aTile .tName small { font-weight:400; color:#5f6a7e; margin-left:5px; font-size:12.5px; }
+  .aTile .tSw { position:absolute; left:10px; bottom:9px; width:28px; height:28px; border-radius:6px;
+    border:1px solid rgba(255,255,255,.25); }
+  .aTile .tHex { position:absolute; left:46px; right:6px; bottom:19px; font-size:15px; color:#eef2f9;
+    letter-spacing:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .aTile .tRgb { position:absolute; left:46px; right:6px; bottom:3px; font-size:12.5px; color:#79839a;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .aTile .tReset { position:absolute; right:5px; top:5px; width:22px; height:22px; border-radius:5px;
+    background:rgba(255,255,255,.07); color:#9aa4b8; font-size:13px; line-height:22px; text-align:center;
+    border:none; cursor:pointer; font-family:inherit; }
+  .aTile .tReset:hover { background:rgba(255,255,255,.18); color:#fff; }
+  .aTile.act { border-color:#7fc1ff; background:#1c2434; box-shadow:0 0 0 2px rgba(127,193,255,.22), 0 2px 10px rgba(0,0,0,.35); }
+  .aTile.act .tName { color:#fff; }
+
+  /* 工具行 */
+  /* ★ 允许换行：窄屏时 HEX 组自动落到第二行，避免被裁掉 */
+  #toolsRow { margin-top:10px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; row-gap:8px; }
+  #modeSeg { display:flex; border:1px solid #39415a; border-radius:7px; overflow:hidden; flex:none; }
+  #modeSeg button {
+    border:none; background:#1a1f2a; color:#98a2b5; font-size:14.5px; padding:0 14px; height:36px;
+    cursor:pointer; display:flex; align-items:center; font-family:inherit; font-weight:600;
+  }
+  #modeSeg button:hover { color:#fff; }
+  #modeSeg button.on { background:#2e6fce; color:#fff; }
+  .iconBtn {
+    width:40px; height:36px; border-radius:7px; border:1px solid #39415a; flex:none;
+    background:#1a1f2a; cursor:pointer; display:flex; align-items:center; justify-content:center;
+    opacity:.72;
+  }
+  .iconBtn:hover { opacity:1; background:#242b3a; }
+  .iconBtn svg { pointer-events:none; width:22px; height:22px; }
+  .iconBtn.ok { border-color:#2f9a61; background:#1c3a2a; opacity:1; }
+  #hexBox { margin-left:auto; display:flex; align-items:center; gap:8px; }
+  #hexLabel { font-size:14.5px; font-weight:700; color:#8b95a8; letter-spacing:1px; }
+  #hexInput {
+    width:120px; height:36px; background:#0d1016; color:#fff;
+    border:none; border-bottom:2px solid #4a5468; outline:none;
+    font-family:Consolas,monospace; font-size:18px; letter-spacing:3px; text-align:center;
+    padding:0 4px; caret-color:#7fc1ff;
+  }
+  #hexInput:focus { border-bottom-color:#7fc1ff; }
+  #hexInput.err { border-bottom-color:#e5484d; animation:shake .2s; }
+  @keyframes shake { 25%{transform:translateX(-3px)} 75%{transform:translateX(3px)} }
+  #curSwatch {
+    width:44px; height:36px; border-radius:6px; border:1px solid rgba(255,255,255,.3);
+    flex:none; box-shadow:inset 0 0 8px rgba(0,0,0,.25);
+  }
+  #hexHelp { font-size:13px; color:#8d97aa; margin-top:6px; line-height:1.5; }
+  #rgbRead { float:right; font-size:13px; color:#a6b0c2; }
+  #rgbRead b { color:#e5ebf5; font-weight:600; }
+
+  /* ---------- 取色区 ----------
+     行1: 预制色卡（紧跟工具行下方）
+     行2: 亮度条 + 大色轮（宽度撑满编辑列，高度自适应窗口） */
+  #pickArea { }
+  #pickRow2 { margin-top:9px; }
+  #paletteImg {
+    display:block; width:100%; height:72px; image-rendering:pixelated; cursor:pointer;
+    border:1px solid rgba(255,255,255,.25); border-radius:3px;
+  }
+  #paletteTip { font-size:13px; color:#8d97aa; text-align:center; margin-top:6px; }
+  #pickRow1 { display:flex; align-items:flex-start; gap:10px; margin-top:10px; }
+  #gradBar {
+    width:20px; border-radius:4px; flex:none; position:relative;
+    background:linear-gradient(to bottom,#ffffff 0%,#000000 100%);
+    border:1px solid rgba(255,255,255,.2); cursor:ns-resize;
+  }
+  #gradThumb {
+    position:absolute; left:-7px; width:34px; height:12px; border-radius:3px;
+    background:rgba(255,255,255,.92); border:1px solid #000; box-shadow:0 0 4px #000;
+    pointer-events:none;
+  }
+  #wheelBox { flex:none; cursor:crosshair; position:relative; }
+  #wheelImg { display:block; pointer-events:none; }
+  #wheelSel {
+    position:absolute; width:16px; height:16px; border-radius:50%;
+    border:2.5px solid #fff; box-shadow:0 0 0 1.5px rgba(0,0,0,.7), 0 0 6px rgba(0,0,0,.8);
+    pointer-events:none; transform:translate(-50%,-50%);
+  }
+
+  #footer {
+    position:absolute; left:12px; right:12px; bottom:0; height:36px;
+    border-top:1px solid rgba(255,255,255,.06);
+    display:flex; align-items:center; font-size:13px; color:#8d97aa; gap:10px;
+  }
+  #footer .dirty { color:#ffb454; font-weight:600; display:none; }
+  #footer .dirty.on { display:inline; }
+  #footer .selInfo { margin-left:auto; color:#a5aec0; }
+  #footer .selInfo b { color:#fff; }
+
+  /* toast */
+  #toast {
+    position:absolute; top:70px; left:50%; transform:translateX(-50%) translateY(-8px);
+    background:rgba(16,20,28,.95); border:1px solid #3a4358; color:#e8edf6;
+    font-size:13px; padding:8px 18px; border-radius:8px; opacity:0; pointer-events:none;
+    transition:all .18s; z-index:60; box-shadow:0 6px 20px rgba(0,0,0,.5);
+    white-space:nowrap;
+  }
+  #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  #toast.good { border-color:#2f9a61; color:#b9f5cf; }
+
+  /* ============ 弹窗 ============ */
+  .modalDim {
+    position:absolute; inset:0; background:rgba(0,0,0,.6);
+    display:none; align-items:center; justify-content:center; z-index:80;
+  }
+  .modalDim.show { display:flex; }
+  .modalBox {
+    width:460px; background:#171b24; border:1px solid #39415a; border-radius:14px;
+    box-shadow:0 20px 60px rgba(0,0,0,.7); padding:22px 24px; text-align:center;
+  }
+  .modalBox h2 { font-size:19px; color:#fff; margin-bottom:6px; }
+  .modalBox p  { font-size:13px; color:#98a2b5; margin-bottom:18px; line-height:1.6; }
+  .modalBtns { display:flex; gap:12px; justify-content:center; }
+  .modalBtns button {
+    border:none; border-radius:9px; color:#fff; font-size:14px; font-weight:700;
+    padding:10px 16px; cursor:pointer; font-family:inherit; transition:filter .1s;
+  }
+  .modalBtns button:hover { filter:brightness(1.18); }
+  #btnSaveQuit  { background:#2e8b57; }
+  #btnDiscQuit  { background:#a34444; }
+  #btnOops      { background:#495160; color:#cfd6e2; }
+  .bigOk { font-size:44px; line-height:1; margin-bottom:6px; }
+  #saveModal .modalBox { width:360px; }
+  #saveModal h2 { color:#5dff9c; }
+  #btnOk { background:#2e8b57; border:none; border-radius:9px; color:#fff; font-size:14px;
+    font-weight:700; padding:10px 34px; cursor:pointer; font-family:inherit; margin-top:6px; }
+
+  /* 退出后的模拟返回界面 */
+  #afterExit {
+    position:absolute; inset:0; background:#07090d; z-index:120;
+    display:none; align-items:center; justify-content:center;
+  }
+  #afterExit.show { display:flex; }
+  #afterExit .box { text-align:center; }
+  #afterExit h1 { font-size:26px; color:#e8edf6; margin-bottom:8px; }
+  #afterExit p  { font-size:14px; color:#7d8698; margin-bottom:22px; }
+  #btnReopen {
+    background:#2e6fce; color:#fff; border:none; border-radius:9px; font-size:14px;
+    font-weight:700; padding:10px 26px; cursor:pointer; font-family:inherit;
+  }
+</style>
+</head>
+<body data-page-node-id="0xCftU7Dd6NbR6mWBdQsC3">
+
+  <!-- ============ 左区：轨道预览 ============ -->
+  <div id="leftPane" data-page-node-id="4VvAgBGDBzPlBjjBCVCC0r">
+    <div class="skyline" data-page-node-id="M0POucXfPGz1pXtRzkyYFe"></div>
+    <div class="panelTitle" data-page-node-id="BBzELR4BmPgLKAxmJtiTtD"><b data-page-node-id="vKmt2LNCOui5DsmrY3DW13">轨道预览</b> · 点击轨道以编辑该轨样式组 · 修改即时生效</div>
+    <div class="panelHint" id="previewHint" data-page-node-id="Y33Zmt8wwLUORMiP8A3IOK">当前预览：原样式（未修改）</div>
+    <div id="lanes" data-page-node-id="3mB3jaqIlcmlswzQUpXAeL"></div>
+    <div id="judgeLine" data-page-node-id="94KnFa8fBALMHBnZqDirfM"></div>
+    <div id="leftTips" data-page-node-id="9SUyq68wyBViC0JWgBFRAj">
+      Press <b data-page-node-id="k1totouiBSK04wT10cpWnc">R</b> to Reset the selected Note Part.<br data-page-node-id="MOeh9h3aBG3BgxIXXnSIdE">
+      Hold <b data-page-node-id="Qfa5zAKs5amC60q5dLhwKz">Shift</b> + Press <b data-page-node-id="waTuRlvzyF44fvsDJD1viT">R</b> key to fully reset the selected Note.
+    </div>
+    <div id="leftEsc" data-page-node-id="pIHmxLRTlbmnbsFrcb1Wic">ESC = 退出（将询问是否保存样式组）</div>
+  </div>
+
+  <!-- ============ 右区：样式编辑栏 ============ -->
+  <div id="rightPane" data-page-node-id="y9cHutvekr6I5h68jT25XG">
+    <div id="rHeader" data-page-node-id="TEwKv2KGxCOiZyu59sajpt">
+      <div id="rTitle" data-page-node-id="19goY8WBEZcakZSswMWBw6">颜色设置</div>
+      <div id="rSub" data-page-node-id="HfObjl4pGPMRQ60GQAJbT4">Note Color Style · 样式组编辑器 v3</div>
+      <button id="btnApply" data-page-node-id="qRhDpxN0CH5xsVAIPouCVP"><span class="dot" data-page-node-id="wYUuqNHLAMv0k9KNmL1Nlb"></span><span id="btnApplyTxt" data-page-node-id="0NgDQ2GyZvBDDB2oOvCEIX">暂应用</span></button>
+      <button id="btnExit" data-page-node-id="IAr9OixgXWKvcPKVoW182C">退出</button>
+    </div>
+
+    <!-- 修改前 | 修改后 对照（横向排布 · 带长条 note 样式） -->
+    <div id="compareCol" data-page-node-id="t78lQTkPFV7THYzHo6IaYQ">
+      <div class="cHead" data-page-node-id="HIYkPLuxGNE1V6MaDlEdJh">样式对照</div>
+      <div class="cSub" data-page-node-id="Rwo2odNOEDLvcgbff8qusC">左=修改前 · 右=修改后<br data-page-node-id="jPQm6ZdxwB0QDH4AYcUUWX">行序：内色 / 描边 / 外轮廓</div>
+      <div class="cBlocks" data-page-node-id="R8s5ykyehZyi2oNKQ2bspu">
+        <div class="cBlock before" data-page-node-id="4WQFeKBjwRrJqe91eT2gSE">
+          <div class="cTag" data-page-node-id="QG2LxS3nEMt4nNpz22DVP0">修改前</div>
+          <div class="cArrowWrap" id="cArrow0" data-page-node-id="8A8HnkOOoC0ynd5LMwpQ5m"></div>
+          <div class="cRow" title="内色" data-page-node-id="tbVLWhkwDDNyfa43D3E4mY"><span class="dot" id="cDot00" data-page-node-id="8BOphicFXwJGH11oxRdRwv"></span><span class="hx mono" id="cHex00" data-page-node-id="OGiuOJ0irxzGvHhqqXpRIG"></span></div>
+          <div class="cRow" title="描边" data-page-node-id="r7El7M8CjfXqxiC9tfrubF"><span class="dot" id="cDot01" data-page-node-id="iD1nNs0sufSi94rMUnPsn3"></span><span class="hx mono" id="cHex01" data-page-node-id="zG2KBWNFlHp70bvDh2JuQC"></span></div>
+          <div class="cRow" title="外轮廓" data-page-node-id="XODnWT0VTym94An3abdIVj"><span class="dot" id="cDot02" data-page-node-id="YwVwcFfkltXNrxeMZxLuEU"></span><span class="hx mono" id="cHex02" data-page-node-id="b5GYiGAzvBU29UZBYYPku8"></span></div>
+        </div>
+        <div class="cBlock after" data-page-node-id="2PjB4q2r9oAUAQXEeP6gMv">
+          <div class="cTag" data-page-node-id="W4TJDYuQF9rz5ORcfVM8Ef">修改后</div>
+          <div class="cArrowWrap" id="cArrow1" data-page-node-id="DE2dvEYhWxb9pVB4pB0G4L"></div>
+          <div class="cRow" title="内色" data-page-node-id="4P54KiuvXlPLd2AEBXXCvv"><span class="dot" id="cDot10" data-page-node-id="DLyVvP9QKnKdjCGIUaVwqO"></span><span class="hx mono" id="cHex10" data-page-node-id="d55AFdUsDBzitUUBAe3B6Q"></span></div>
+          <div class="cRow" title="描边" data-page-node-id="pKp2Mm7V9QAEKBgLPSVcpu"><span class="dot" id="cDot11" data-page-node-id="FUqjFUrMDtVOc6hEKZIJm1"></span><span class="hx mono" id="cHex11" data-page-node-id="Cj1fOFRvnmzYkwj70sFzsM"></span></div>
+          <div class="cRow" title="外轮廓" data-page-node-id="jpKU2IWmh1HLaUWIhR4kkF"><span class="dot" id="cDot12" data-page-node-id="mTFKNJYEzFUFofG1QXtBnn"></span><span class="hx mono" id="cHex12" data-page-node-id="lagsOHFAZZftJdEqlOhh3H"></span></div>
+        </div>
+      </div>
+      <div id="cLaneTag" data-page-node-id="rngb1wacIwbqr4LIoz31sB"></div>
+    </div>
+
+    <div id="editCol" data-page-node-id="oUWwls1TOBXI4Ce43Ks9dJ">
+      <div id="secAttrs" data-page-node-id="x8JWEwN1razqyqnrYeuhwN">NOTE 属性 — 三种颜色（原新版三种颜色设置）</div>
+      <div id="attrTiles" data-page-node-id="7MzNs5GMS5LVSrsk4vgzxo"></div>
+
+      <div id="toolsRow" data-page-node-id="zBnQt6OArk3vJ1b7T3tlqT">
+        <div id="modeSeg" data-page-node-id="l9VO0EvAUIVrslIrWAuiDa">
+          <button id="modeNormal" class="on" title="常规箭头模式" data-page-node-id="iAFCppUE8oTKpC1dDOPcS3">常规</button>
+          <button id="modePixel" title="像素箭头模式" data-page-node-id="3JwPTKHMfkT06qjCmqSZC4">像素</button>
+        </div>
+        <button class="iconBtn" id="btnCopy" title="复制当前颜色 (Ctrl+C)" data-page-node-id="aLaQuHm3OeTZNAHxhQCU8r">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#aab4c6" stroke-width="2" data-page-node-id="id2ttZGyEUuOj5PfZMgI5K">
+            <rect x="9" y="9" width="12" height="12" rx="2" data-page-node-id="CQkTyyha1h3QCgE6LXpf1U"/><path d="M5 15V5a2 2 0 0 1 2-2h10" data-page-node-id="vvzvzYXP3vmwdflFX5oSqt"/>
+          </svg>
+        </button>
+        <button class="iconBtn" id="btnPaste" title="粘贴颜色 (Ctrl+V)" data-page-node-id="7LzwMsnHPUuJBtcBhr4S9h">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#aab4c6" stroke-width="2" data-page-node-id="8dBrCy7mvc42FXzTLB9N83">
+            <rect x="6" y="4" width="14" height="18" rx="2" data-page-node-id="DmkmqFZEcpViSl57pUz85s"/><path d="M9 4V3a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1" data-page-node-id="imaycqd2RESJCAq6fpWsUO"/>
+          </svg>
+        </button>
+        <div id="hexBox" data-page-node-id="gBGJxviAe4g12JNfY7HZdX">
+          <span id="hexLabel" data-page-node-id="lF8RAFqDWrwGwSW9CnaIa1">HEX</span>
+          <input id="hexInput" class="mono" maxlength="6" spellcheck="false" autocomplete="off" data-page-node-id="ZVpPGCFOuCPSCPAjBmQ7Uf">
+        </div>
+        <div id="curSwatch" title="当前编辑颜色" data-page-node-id="kCcKsZGYXOUEyIGhS5bqfB"></div>
+      </div>
+      <div id="hexHelp" data-page-node-id="TuN9T6wAUgWRdqPAYR54ow">0-9 A-F（大小写均可）· 点击不清空 · 满 6 位自动应用 · Enter 应用
+        <span id="rgbRead" data-page-node-id="0z4yOX4yHaGB281ALw15NY">RGB <b id="rgbR" data-page-node-id="AAm6X1AkMNj52K8H5VwOxT">0</b> · <b id="rgbG" data-page-node-id="cjh4DBDN35HnvCUWAvV5sd">0</b> · <b id="rgbB" data-page-node-id="M3CJKgXGqngBdbMzg3IhC2">0</b></span>
+      </div>
+
+      <div id="pickArea" data-page-node-id="MZt9GyPbw7JIZ1z7cw2aJs">
+        <!-- 行1：预制色卡（紧跟工具行下方） -->
+        <div id="pickRow2" data-page-node-id="z2DRvw4SMnBk3LX14Op3w5">
+          <canvas id="paletteImg" width="16" height="4" data-page-node-id="qYCwykYF1ki0CxvBrw5VTc"></canvas>
+          <div id="paletteTip" data-page-node-id="aY7DS6CymR6tXuFS9HWbcc">色板（点击取色）· 复用原新版色图布局</div>
+        </div>
+        <!-- 行2：亮度条 + 大色轮（宽度撑满编辑列） -->
+        <div id="pickRow1" data-page-node-id="X5fAsZPJWFN7VXf3X5Se6P">
+          <div id="gradBar" data-page-node-id="nzlVU9LMZG5cSsGHXDOdud"><div id="gradThumb" data-page-node-id="c3d9jBEWz9foLZcGqqpPm2"></div></div>
+          <div id="wheelBox" data-page-node-id="NPNmOjRoWDrJGcNGM8QVpj"><canvas id="wheelImg" data-page-node-id="hqrA7ze1iDDTIE1WiSxD0s"></canvas><div id="wheelSel" data-page-node-id="nkHhUkF9xpzEEfSNjK2kFZ"></div></div>
+        </div>
+      </div>
+
+      <div id="footer" data-page-node-id="qDiiYiDUQ8PCheAnhjbfd2">
+        <span class="dirty" id="dirtyBadge" data-page-node-id="XFTbLCIbEjs0VnbuJY9AGe">● 有未保存修改</span>
+        <span class="selInfo" id="selInfo" data-page-node-id="qc629D5CbvMqUVYw7H7jex"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- toast -->
+  <div id="toast" data-page-node-id="3Hw4YxKYfax3ectyhvTXEb"></div>
+
+  <!-- 退出询问 -->
+  <div class="modalDim" id="exitModal" data-page-node-id="Mh8cxHSUvQXY9Qs5u3lR7m">
+    <div class="modalBox" data-page-node-id="KAaBcU7YNrdKEzv805qN0Z">
+      <h2 data-page-node-id="0XfSHaM1pvNVDH9XyAp2gO">是否保存样式组？</h2>
+      <p data-page-node-id="g1qeVhKv3JzDhHnSCa2JYw">当前样式组存在未保存的修改。<br data-page-node-id="Tuy68UvuvSuFcprHNBAJXz">【保存并退出】写入修改；【不保存并退出】还原为进入前的样式。</p>
+      <div class="modalBtns" data-page-node-id="3UF9YE8savX9HBNywhUsEj">
+        <button id="btnSaveQuit" data-page-node-id="2s269x4Tq0IivtGH0dGZR0">保存并退出</button>
+        <button id="btnDiscQuit" data-page-node-id="djpOS5WRUByA7V491YXyI9">不保存并退出</button>
+        <button id="btnOops" data-page-node-id="VDFVFOz60iBC6YfGyGb9t6">误触了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 保存成功 -->
+  <div class="modalDim" id="saveModal" data-page-node-id="fGWuD6KAoC7wztDZ0wwltZ">
+    <div class="modalBox" data-page-node-id="LwxNopAN7vRgIoTVGLaYhT">
+      <div class="bigOk" data-page-node-id="SPSvUbISQLBfSxP4CsmkI9">✓</div>
+      <h2 data-page-node-id="xaO65IpE1akL54Y5AMFJCH">保存成功</h2>
+      <p data-page-node-id="RhDmhnsOIXrzgVc5LL0EWV">样式组已保存</p>
+      <button id="btnOk" data-page-node-id="edWLKODcXWVw8MrkFPdJPP">确定</button>
+    </div>
+  </div>
+
+  <!-- 模拟返回 -->
+  <div id="afterExit" data-page-node-id="rJIkDahFSOyYL264PPJkCZ">
+    <div class="box" data-page-node-id="54CSCOOqO6uCFheniielA0">
+      <h1 id="aeTitle" data-page-node-id="DOaxARnIvpVFnMQyzEMKUp">已退出颜色设置</h1>
+      <p id="aeText" data-page-node-id="AcseTDPXuoxxr2ADZhrKpC"></p>
+      <button id="btnReopen" data-page-node-id="zEbUjN20BtCkmMvur4BsY6">重新打开颜色设置（重置演示）</button>
+    </div>
+  </div>
+
+<script>
+/* ============================================================
+ * v3 数据：10 轨 × 3 色（inner / border / outline）× 常规/像素
+ * ============================================================ */
+var KEYS = ["A","S","D","F","V","N","J","K","L",";"];
+var DIRS = ["down","up","left","right"];
+// ★ 10 轨原始方向：左 下 上 右 上 下 左 下 上 右（勿改顺序）
+var LANE_DIR = [2,0,1,3,1,0,2,0,1,3];
+
+// 常规（来自 arrowRGB.json）
+var INIT_N = [
+ ["C24B99","FFFFFF","3C1F56"],["00FFFF","FFFFFF","1542B7"],["12FA05","FFFFFF","0A4447"],
+ ["F9393F","FFFFFF","651038"],["999999","FFFFFF","201E31"],["FFFF00","FFFFFF","993300"],
+ ["8B4AFF","FFFFFF","3B177D"],["FF0000","FFFFFF","660000"],["0033FF","FFFFFF","000066"],
+ ["C24B99","FFFFFF","3C1F56"]
+];
+// 像素（来自 arrowRGBPixel.json）
+var INIT_P = [
+ ["E276FF","FFF9FF","60008D"],["3DCAFF","F4FFFF","003060"],["71E300","F6FFE6","003100"],
+ ["FF884E","FFFAF5","6C0000"],["B6B6B6","FFF9FF","444444"],["FFD94A","F4FFFF","663500"],
+ ["B055BC","F6FFE6","4D0060"],["DF3E23","FFFAF5","440000"],["2F69E5","FFF9FF","000F5D"],
+ ["E276FF","FFF9FF","60008D"]
+];
+var ATTRS = [
+  {name:"内色",  en:"INNER",   key:"inner"},
+  {name:"描边",  en:"BORDER",  key:"border"},
+  {name:"外轮廓",en:"OUTLINE", key:"outline"}
+];
+
+var copyArr = function(a){ return JSON.parse(JSON.stringify(a)); };
+var state = {
+  pixel:false, lane:0, attr:0,
+  applied:false,      // 是否存在"新样式已生效"状态（首次编辑自动置 true）
+  showOrig:false,     // 暂应用按钮切换：true = 预览回原样式对照
+  dirty:false, brightness:1,
+  workN:copyArr(INIT_N), workP:copyArr(INIT_P),   // 编辑中的新样式
+  origN:copyArr(INIT_N), origP:copyArr(INIT_P)    // 进入时的原样式（快照）
+};
+
+/* ============================================================
+ * 工具
+ * ============================================================ */
+function $(id){ return document.getElementById(id); }
+function hex(c){ return ("000000"+c.toString(16).toUpperCase()).slice(-6); }
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+function hexToRgb(h){
+  return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)];
+}
+function workArr(){ return state.pixel ? state.workP : state.workN; }
+function origArr(){ return state.pixel ? state.origP : state.origN; }
+function curColor(arr){ return arr[state.lane][state.attr]; }
+function setWorkColor(v){ workArr()[state.lane][state.attr] = v; }
+
+function refreshDirty(){
+  state.dirty = JSON.stringify(state.workN)!==JSON.stringify(state.origN)
+             || JSON.stringify(state.workP)!==JSON.stringify(state.origP);
+  $("dirtyBadge").classList.toggle("on", state.dirty);
+}
+function toast(msg, good){
+  var t = $("toast");
+  t.textContent = msg; t.classList.add("show");
+  t.classList.toggle("good", !!good);
+  clearTimeout(t._tm);
+  t._tm = setTimeout(function(){ t.classList.remove("show"); }, 1800);
+}
+
+/* ============================================================
+ * FNF 箭头（三层：外轮廓 / 描边 / 内色） — 常规矢量版
+ * ============================================================ */
+var ARROW_PATH = "M80,2 L156,66 L120,66 L112,84 L112,150 L48,150 L48,84 L40,66 L4,66 Z";
+var ROT = {up:0, right:90, down:180, left:270};
+function arrowSVG(cOut, cMid, cIn, px, dir){
+  px = px||64;
+  var r = ROT[dir]||0;
+  var s = '<svg width="'+px+'" height="'+px+'" viewBox="0 0 160 160">';
+  s += '<g transform="translate(80,80) rotate('+r+') translate(-80,-76)">';
+  s += '<path d="'+ARROW_PATH+'" fill="'+cOut+'"/>';
+  s += '<g transform="translate(80,76) scale(.86,.86) translate(-80,-76)"><path d="'+ARROW_PATH+'" fill="'+cMid+'"/></g>';
+  s += '<g transform="translate(80,76) scale(.62,.62) translate(-80,-76)"><path d="'+ARROW_PATH+'" fill="'+cIn+'"/></g>';
+  s += '</g></svg>';
+  return s;
+}
+/* ============================================================
+ * 像素箭头：矢量先绘制到低分辨率 canvas，再最近邻放大 → 真像素块
+ * ============================================================ */
+var _pxCache = {};
+function _cssCol(x){ return (x.charAt(0)==="#") ? x : ("#"+x); }
+function pixelArrowURL(cOut, cMid, cIn, dir, res){
+  res = res||22;
+  cOut=_cssCol(cOut); cMid=_cssCol(cMid); cIn=_cssCol(cIn);
+  var key = cOut+cMid+cIn+dir+res;
+  if (_pxCache[key]) return _pxCache[key];
+  var c = document.createElement("canvas");
+  c.width = res; c.height = res;
+  var g = c.getContext("2d");
+  var r = ROT[dir]||0;
+  g.translate(res/2, res/2);
+  g.rotate(r*Math.PI/180);
+  var k = res/164;
+  g.scale(k,k);
+  g.translate(-80,-77);
+  g.beginPath(); g.moveTo(80,2); g.lineTo(156,66); g.lineTo(120,66); g.lineTo(112,84);
+  g.lineTo(112,150); g.lineTo(48,150); g.lineTo(48,84); g.lineTo(40,66); g.lineTo(4,66);
+  g.closePath(); g.fillStyle = cOut; g.fill();
+  g.save(); g.translate(80,76); g.scale(.86,.86); g.translate(-80,-76);
+  g.beginPath(); g.moveTo(80,2); g.lineTo(156,66); g.lineTo(120,66); g.lineTo(112,84);
+  g.lineTo(112,150); g.lineTo(48,150); g.lineTo(48,84); g.lineTo(40,66); g.lineTo(4,66);
+  g.closePath(); g.fillStyle = cMid; g.fill(); g.restore();
+  g.save(); g.translate(80,76); g.scale(.6,.6); g.translate(-80,-76);
+  g.beginPath(); g.moveTo(80,2); g.lineTo(156,66); g.lineTo(120,66); g.lineTo(112,84);
+  g.lineTo(112,150); g.lineTo(48,150); g.lineTo(48,84); g.lineTo(40,66); g.lineTo(4,66);
+  g.closePath(); g.fillStyle = cIn; g.fill(); g.restore();
+  var url = c.toDataURL();
+  _pxCache[key] = url;
+  return url;
+}
+function noteImgHTML(cOut,cMid,cIn,px,dir,pixel){
+  if (pixel){
+    var url = pixelArrowURL(cOut,cMid,cIn,dir, Math.max(12, Math.round(px/3)));
+    return '<img src="'+url+'" style="image-rendering:pixelated;width:100%;height:100%">';
+  }
+  return arrowSVG("#"+cOut,"#"+cMid,"#"+cIn,px,dir).replace("<svg ", '<svg style="width:100%;height:100%" ');
+}
+
+/* ============================================================
+ * 左区渲染：JS 像素精确布局
+ *  v3：note 组锚定「距左屏 5cm」，向右撑满剩余宽度（更大）
+ * ============================================================ */
+var GEO = { laneW:64, offsetX:0, lanesH:0 };
+var LEFT_ANCHOR_PX = 5;                       // ★ 第 1 条 note 距窗口左边缘 5px
+function layoutLanes(){
+  var lp = $("leftPane");
+  var W = lp.clientWidth, H = lp.clientHeight;
+  var lanesH = H - 30 - 64;
+  var anchor = LEFT_ANCHOR_PX;                // 整体左移，只留 5px 边距
+  var laneW = Math.floor((W - anchor - 8) / 10);
+  laneW = clamp(laneW, 40, 200);
+  var totalW = laneW*10;
+  var offsetX = clamp(anchor, 4, Math.max(4, W-totalW-4));
+  GEO.laneW = laneW; GEO.offsetX = offsetX; GEO.lanesH = lanesH;
+
+  var L = $("lanes");
+  L.style.top = "30px"; L.style.height = lanesH+"px";
+  L.style.left = offsetX+"px"; L.style.width = totalW+"px";
+  // 判定线：贯穿全部轨道（受体中心 y）
+  var jy = Math.round(lanesH*0.82) + Math.round(laneW*0.32);
+  var jl = $("judgeLine");
+  jl.style.left = offsetX+"px"; jl.style.width = totalW+"px";
+  jl.style.top = (30+jy)+"px";
+
+  for (var i=0;i<10;i++){
+    var d = L.children[i];
+    d.style.left = (i*laneW)+"px";
+    d.style.width = laneW+"px";
+    placeLaneContent(d, i);
+  }
+}
+function placeLaneContent(d, i){
+  var laneW = GEO.laneW, H = GEO.lanesH;
+  var cx = Math.round(laneW/2);
+  var dir = DIRS[LANE_DIR[i]];
+  var pixel = state.pixel;
+  var noteSize  = Math.round(laneW*(pixel?0.90:0.86));
+  var note2Size = Math.round(laneW*(pixel?0.74:0.70));
+  var note3Size = Math.round(laneW*0.48);
+  var recSize   = Math.round(laneW*0.64);
+  var c = laneColors(i);
+
+  var yNote1 = Math.round(H*0.16);
+  var yNote2 = Math.round(H*0.50);
+  var yNote3 = Math.round(H*0.66);
+  var yRec   = Math.round(H*0.82);
+  var yKey   = Math.round(H*0.92);
+
+  d.querySelector(".laneNo").textContent = (i+1);
+
+  var notes = [
+    {y:yNote1, s:noteSize},
+    {y:yNote2, s:note2Size},
+    {y:yNote3, s:note3Size}
+  ];
+  var noteEls = d.querySelectorAll(".note");
+  var susEls  = d.querySelectorAll(".sustain");
+  var susW = Math.round(laneW*0.28);
+  for (var k=0;k<3;k++){
+    var n = notes[k], el = noteEls[k];
+    el.style.left = (cx-Math.round(n.s/2))+"px";
+    el.style.top = n.y+"px";
+    el.style.width = n.s+"px"; el.style.height = n.s+"px";
+    el.style.zIndex = "1";
+    el.innerHTML = noteImgHTML(c[0],c[1],c[2],n.s,dir,pixel);
+    if (k<2){
+      var gap = 8;
+      var se = susEls[k];
+      se.style.display = "block";
+      se.style.left = (cx-Math.round(susW/2))+"px";
+      se.style.top = (k===0 ? gap : yNote1+noteSize+gap)+"px";
+      se.style.width = susW+"px";
+      se.style.height = Math.max(0,(k===0 ? n.y : yNote2) - (k===0 ? gap : yNote1+noteSize+gap) - 4)+"px";
+      se.style.background = "#"+c[0];
+      se.style.border = "2px solid #"+c[2];
+      se.style.boxShadow = "inset 0 0 0 2px #"+c[1];
+      se.style.opacity = ".92";
+      se.style.zIndex = "0";
+    }
+  }
+  // 受体（判定线位置，精确对齐轨道中心）
+  var rec = d.querySelector(".receptor");
+  rec.style.left = (cx-Math.round(recSize/2))+"px";
+  rec.style.top = yRec+"px";
+  rec.style.width = recSize+"px"; rec.style.height = recSize+"px";
+  rec.innerHTML = pixel
+    ? '<img src="'+pixelArrowURL("#c8ccd4","#ffffff","#2a2e38",dir,Math.max(12,Math.round(recSize/3)))+'" style="image-rendering:pixelated;width:100%;height:100%">'
+    : arrowSVG("#c8ccd4","#ffffff","#2a2e38",recSize,dir).replace("<svg ", '<svg style="width:100%;height:100%" ');
+  // 按键
+  var key = d.querySelector(".keyChip");
+  var kw = Math.round(laneW*0.42), kh = Math.round(laneW*0.36);
+  key.style.left = (cx-Math.round(kw/2))+"px";
+  key.style.top = yKey+"px";
+  key.style.width = kw+"px"; key.style.height = kh+"px";
+  key.textContent = KEYS[i];
+}
+function laneColors(i){
+  var src = (state.showOrig) ? origArr() : workArr();
+  return src[i];
+}
+function buildLanes(){
+  var L = $("lanes"); L.innerHTML = "";
+  for (var i=0;i<10;i++){
+    var d = document.createElement("div");
+    d.className = "lane";
+    d.dataset.lane = i;
+    d.innerHTML =
+      '<div class="laneNo"></div>' +
+      '<div class="note"></div><div class="note"></div><div class="note"></div>' +
+      '<div class="sustain" style="display:none"></div><div class="sustain" style="display:none"></div>' +
+      '<div class="receptor"></div>' +
+      '<div class="keyChip"></div>';
+    d.addEventListener("click", function(){ selectLane(parseInt(this.dataset.lane)); });
+    L.appendChild(d);
+  }
+}
+function renderLanes(){
+  var lanes = $("lanes").children;
+  for (var i=0;i<10;i++){
+    lanes[i].className = "lane" + (i===state.lane ? " sel" : "");
+    placeLaneContent(lanes[i], i);
+  }
+  $("previewHint").textContent = state.showOrig
+    ? "当前预览：原样式（对照中 · 再点「暂应用」返回新样式）"
+    : (state.dirty ? "当前预览：新样式（修改即时生效）" : "当前预览：原样式（未修改）");
+}
+function selectLane(i){
+  if (i===state.lane) return;
+  state.lane = i;
+  renderLanes(); syncPanel();
+}
+
+/* ============================================================
+ * 右区面板
+ * ============================================================ */
+function buildTiles(){
+  var T = $("attrTiles"); T.innerHTML="";
+  for (var a=0;a<3;a++){
+    var t = document.createElement("div");
+    t.className = "aTile" + (a===state.attr?" act":"");
+    t.dataset.attr = a;
+    t.innerHTML =
+      '<div class="tName">'+(a+1)+' · '+ATTRS[a].name+'<small>'+ATTRS[a].en+'</small></div>' +
+      '<div class="tSw"></div>' +
+      '<div class="tHex mono"></div>' +
+      '<div class="tRgb mono"></div>' +
+      '<button class="tReset" title="重置该颜色 (R)">↺</button>';
+    t.querySelector(".tReset").addEventListener("click", function(e){
+      e.stopPropagation(); resetAttr(parseInt(this.parentNode.dataset.attr), false);
+    });
+    t.addEventListener("click", function(){ selectAttr(parseInt(this.dataset.attr)); });
+    T.appendChild(t);
+  }
+}
+function selectAttr(a){
+  state.attr = a;
+  var tiles = $("attrTiles").children;
+  for (var i=0;i<tiles.length;i++) tiles[i].classList.toggle("act", i===a);
+  syncPanel();
+}
+function syncTiles(){
+  var tiles = $("attrTiles").children;
+  var w = workArr()[state.lane];
+  for (var a=0;a<3;a++){
+    var t = tiles[a];
+    t.querySelector(".tSw").style.background = "#"+w[a];
+    t.querySelector(".tHex").textContent = w[a];
+    t.querySelector(".tRgb").textContent = hexToRgb(w[a]).join(" ");
+  }
+}
+function syncPanel(){
+  var c = curColor(workArr());
+  if (document.activeElement !== $("hexInput")) $("hexInput").value = c;
+  var rgb = hexToRgb(c);
+  $("rgbR").textContent = rgb[0]; $("rgbG").textContent = rgb[1]; $("rgbB").textContent = rgb[2];
+  $("curSwatch").style.background = "#"+c;
+  syncTiles();
+  syncWheelMarkers();
+  syncCompare();
+  var btn = $("btnApply");
+  btn.classList.toggle("on", state.applied && !state.showOrig);
+  $("btnApplyTxt").textContent = state.showOrig ? "返回新样式" : (state.applied ? "已暂应用" : "暂应用");
+  $("selInfo").innerHTML = '轨道 <b>'+(state.lane+1)+'（'+KEYS[state.lane]+'）</b> · '+
+    ATTRS[state.attr].name + ' · ' + (state.pixel?'像素':'常规') + '箭头' +
+    (state.showOrig?' · <span style="color:#ffd28a">预览原样式</span>':'') +
+    (state.dirty?' · <span style="color:#ffb454">未保存</span>':'');
+}
+
+/* ---------- 对照列：修改前 | 修改后（横向 · 带长条） ---------- */
+function cmpPreview(c, dir){
+  // 箭头 + 长条（sustain 长条：内色填充 + 外轮廓描边 + 内衬描边色）
+  return arrowSVG("#"+c[0],"#"+c[1],"#"+c[2],54,dir) +
+    '<span class="cSus" style="background:#'+c[0]+';border-color:#'+c[2]+';box-shadow:inset 0 0 0 2px #'+c[1]+'"></span>';
+}
+function syncCompare(){
+  if (!$("compareCol").classList.contains("show")) return;
+  var o = origArr()[state.lane], w = workArr()[state.lane];
+  var dir = DIRS[LANE_DIR[state.lane]];
+  var same = JSON.stringify(o)===JSON.stringify(w);
+  $("cArrow0").innerHTML = cmpPreview(o, dir);
+  $("cArrow1").innerHTML = cmpPreview(w, dir);
+  for (var a=0;a<3;a++){
+    $("cDot0"+a).style.background = "#"+o[a];
+    $("cHex0"+a).textContent = o[a];
+    $("cDot1"+a).style.background = "#"+w[a];
+    $("cHex1"+a).textContent = w[a];
+    var changed = o[a]!==w[a];
+    $("cHex1"+a).style.color = changed ? "#5dff9c" : "#c9d2e0";
+  }
+  $("cLaneTag").innerHTML = '轨道 <b>'+(state.lane+1)+'</b> · 键 <b>'+KEYS[state.lane]+'</b>'+
+    (same?' · <span style="color:#6d7686">无差异</span>':'');
+}
+function showCompare(){
+  if (!$("compareCol").classList.contains("show")){
+    $("compareCol").classList.add("show");
+  }
+  syncCompare();
+}
+
+/* ---------- 修改动作：编辑即实时生效 ---------- */
+function applyColor(hexv){
+  setWorkColor(hexv);
+  if (!state.applied){
+    state.applied = true;
+    toast("修改已实时生效（新样式已暂覆盖预览）", true);
+  }
+  refreshDirty();
+  renderLanes();
+  syncPanel();
+  showCompare();
+}
+
+/* ---------- 色轮 / 亮度 / 色板 ---------- */
+var WHEEL = { size:418 };
+function layoutPicker(){
+  // 色轮宽度 = 编辑列宽（减亮度条与间距），高度不超过剩余空间
+  var rp = $("rightPane");
+  // 先按编辑列宽度决定是否降档（会影响上面各行的高度，必须在测量前做）
+  rp.classList.toggle("compact", ($("editCol").clientWidth - 24) < 360);
+  var colW = $("editCol").clientWidth - 24;             // 减左右 padding
+  var wheelMaxW = colW - 20 - 10;                        // 减亮度条 20 + 间距 10
+  var size = Math.max(180, Math.floor(wheelMaxW));
+
+  /* 「设定 → 实测 → 收缩」闭环：先按最大可用宽度设定，再量 pickRow1 底部
+     有没有越过底部提示栏，越多少缩多少。完全不依赖 offsetTop 估算。 */
+  var limitBottom = rp.getBoundingClientRect().bottom - 36;   // 36 = 底部提示栏高度
+  for (var i = 0; i < 8; i++){
+    applyWheelSize(size);
+    var over = $("pickRow1").getBoundingClientRect().bottom - limitBottom + 8; // 8 = 余量
+    if (over <= 0) break;
+    var next = Math.floor(size - over);
+    if (next < 180){ size = 180; break; }
+    size = next;
+  }
+  applyWheelSize(size);
+  /* 无条件重画：layoutPicker 只在启动/resize 时执行，重画 418² 像素 <10ms。
+     任何「跳过重画」的条件优化都会撞上 canvas 时序问题（清空后没人补画 → 色轮空白）。 */
+  WHEEL.size = size; buildWheel(); WHEEL.built = true;
+  syncWheelMarkers();
+}
+function applyWheelSize(s){
+  var wb = $("wheelBox");
+  wb.style.width = s+"px"; wb.style.height = s+"px";
+  var cv = $("wheelImg");
+  /* ★ 只在尺寸真的变化时才重设 width/height —— 给 canvas.width 赋值会清空整个画布，
+     若这里无条件赋值、而下面又因「尺寸没变」跳过 buildWheel()，色轮就会变成空白。 */
+  if (cv.width !== s){ cv.width = s; cv.height = s; }
+  cv.style.width = s+"px"; cv.style.height = s+"px";
+  $("gradBar").style.height = s+"px";
+}
+function buildWheel(){
+  var S = WHEEL.size, R = S/2;
+  var c = $("wheelImg"), g = c.getContext("2d");
+  var img = g.createImageData(S,S);
+  var d = img.data;
+  for (var y=0;y<S;y++){
+    for (var x=0;x<S;x++){
+      var dx = x-R, dy = y-R;
+      var dist = Math.sqrt(dx*dx+dy*dy);
+      var idx = (y*S+x)*4;
+      if (dist<=R){
+        var hue = (Math.atan2(dx,-dy)*180/Math.PI+360)%360;
+        var sat = dist/R;
+        var rgb = hsvToRgb(hue,sat,1);
+        d[idx]=rgb[0]; d[idx+1]=rgb[1]; d[idx+2]=rgb[2]; d[idx+3]=255;
+        if (dist>R-1.5){ d[idx]=Math.round(d[idx]*0.4); d[idx+1]=Math.round(d[idx+1]*0.4); d[idx+2]=Math.round(d[idx+2]*0.4); }
+      } else { d[idx+3]=0; }
+    }
+  }
+  g.putImageData(img,0,0);
+}
+function buildPalette(){
+  var c = $("paletteImg"), g = c.getContext("2d");
+  // 16×4：第 1 列灰阶，其余 15 列色相 × 4 档深浅
+  for (var row=0;row<4;row++){
+    for (var col=0;col<16;col++){
+      var rgb;
+      if (col===0){
+        var v = [255,170,85,40][row];
+        rgb = [v,v,v];
+      } else {
+        var hue = (col-1)*360/15;
+        var s = [0.35,0.65,1,1][row];
+        var v = [1,1,1,0.55][row];
+        rgb = hsvToRgb(hue,s,v);
+      }
+      g.fillStyle = "rgb("+rgb[0]+","+rgb[1]+","+rgb[2]+")";
+      g.fillRect(col, row, 1, 1);
+    }
+  }
+}
+function syncWheelMarkers(){
+  var S = WHEEL.size, R = S/2;
+  var c = hexToRgb(curColor(workArr()));
+  var hsv = rgbToHsv(c[0],c[1],c[2]);
+  state.brightness = hsv.v;
+  var ang = hsv.h*Math.PI/180;
+  var r = hsv.s * R;
+  $("wheelSel").style.left = (R + Math.sin(ang)*r)+"px";
+  $("wheelSel").style.top  = (R - Math.cos(ang)*r)+"px";
+  $("gradThumb").style.top = clamp(S*(1-hsv.v),0,S-12)+"px";
+  $("wheelImg").style.filter = "brightness("+hsv.v+")";
+}
+function rgbToHsv(r,g,b){
+  r/=255; g/=255; b/=255;
+  var mx=Math.max(r,g,b), mn=Math.min(r,g,b), dd=mx-mn, h=0;
+  if (dd!==0){
+    if (mx===r) h=((g-b)/dd)%6;
+    else if (mx===g) h=(b-r)/dd+2;
+    else h=(r-g)/dd+4;
+    h*=60; if (h<0) h+=360;
+  }
+  return {h:h, s: mx===0?0:dd/mx, v:mx};
+}
+function hsvToRgb(h,s,v){
+  h=(h%360+360)%360/360; var i=Math.floor(h*6), f=h*6-i,
+    p=v*(1-s), q=v*(1-f*s), t=v*(1-(1-f)*s);
+  var r,g,b;
+  switch(i%6){
+    case 0: r=v;g=t;b=p;break; case 1: r=q;g=v;b=p;break;
+    case 2: r=p;g=v;b=t;break; case 3: r=p;g=q;b=v;break;
+    case 4: r=t;g=p;b=v;break; default: r=v;g=p;b=q;
+  }
+  return [Math.round(r*255),Math.round(g*255),Math.round(b*255)];
+}
+function wheelFromPointer(ev){
+  var box = $("wheelBox"), rect = box.getBoundingClientRect();
+  var R = WHEEL.size/2;
+  var mx = ev.clientX-rect.left, my = ev.clientY-rect.top;
+  var dx = mx-R, dy = my-R;
+  var dist = Math.sqrt(dx*dx+dy*dy);
+  if (dist>R) return null;
+  var sat = dist/R;
+  var hue = (Math.atan2(dx,-dy)*180/Math.PI+360)%360;
+  return hsvToRgb(hue,sat,state.brightness);
+}
+function gradFromPointer(ev){
+  var bar = $("gradBar"), rect = bar.getBoundingClientRect();
+  var my = ev.clientY-rect.top;
+  state.brightness = clamp(1-my/rect.height,0,1);
+  return state.brightness;
+}
+function paletteFromPointer(ev){
+  var img = $("paletteImg"), rect = img.getBoundingClientRect();
+  var col = clamp(Math.floor((ev.clientX-rect.left)/rect.width*16),0,15);
+  var row = clamp(Math.floor((ev.clientY-rect.top)/rect.height*4),0,3);
+  var g = img.getContext("2d");
+  var p = g.getImageData(col,row,1,1).data;
+  return hex((p[0]<<16)|(p[1]<<8)|p[2]);
+}
+function setFromRgbArr(arr){
+  if (!arr) return;
+  applyColor(hex((arr[0]<<16)|(arr[1]<<8)|arr[2]));
+}
+
+/* ---------- 剪贴板 ---------- */
+function copyActive(){
+  var c = curColor(workArr());
+  var done = function(){ toast("已复制 "+c, true); };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(c).then(done, function(){ fallbackCopy(c); done(); });
+  } else { fallbackCopy(c); done(); }
+}
+function fallbackCopy(t){
+  var ta=document.createElement("textarea"); ta.value=t; document.body.appendChild(ta);
+  ta.select(); try{ document.execCommand("copy"); }catch(e){} document.body.removeChild(ta);
+}
+function pasteColor(){
+  var handle = function(txt){
+    txt = (txt||"").trim().toUpperCase().replace(/^#/,"").replace(/^0X/,"").replace(/[^0-9A-F]/g,"");
+    if (txt.length>6) txt = txt.slice(-6);
+    if (txt.length===6){ applyColor(txt); toast("已粘贴 "+txt, true); }
+    else { var inp=$("hexInput"); inp.classList.add("err");
+      setTimeout(function(){ inp.classList.remove("err"); },300);
+      toast("剪贴板内容不是有效的颜色码"); }
+  };
+  if (navigator.clipboard && navigator.clipboard.readText){
+    navigator.clipboard.readText().then(handle, function(){ toast("无法读取剪贴板"); });
+  } else { toast("当前浏览器不支持读取剪贴板"); }
+}
+
+/* ---------- 重置 ---------- */
+function resetAttr(a, all){
+  var defs = state.pixel ? INIT_P : INIT_N;
+  if (all){
+    for (var k=0;k<3;k++){ workArr()[state.lane][k] = defs[state.lane][k]; }
+    toast("已整轨重置为默认样式（Shift+R）");
+  } else {
+    workArr()[state.lane][a] = defs[state.lane][a];
+    toast("已重置 "+ATTRS[a].name+"（R）");
+  }
+  state.attr = a;
+  refreshDirty(); renderLanes(); syncPanel(); showCompare();
+}
+
+/* ============================================================
+ * 暂应用（预览切换）/ 退出流
+ * ============================================================ */
+function toggleApply(){
+  if (!state.dirty){
+    toast("尚无修改：编辑颜色后将自动暂应用新样式");
+    return;
+  }
+  state.showOrig = !state.showOrig;
+  renderLanes(); syncPanel();
+  toast(state.showOrig
+    ? "正在预览原样式（对照）— 再点一次返回新样式"
+    : "已返回新样式预览", !state.showOrig);
+}
+function askExit(){ $("exitModal").classList.add("show"); }
+function doQuit(save){
+  $("exitModal").classList.remove("show");
+  if (save){
+    state.origN = copyArr(state.workN); state.origP = copyArr(state.workP);
+    $("saveModal").classList.add("show");
+  } else {
+    state.workN = copyArr(state.origN); state.workP = copyArr(state.origP);
+  }
+  state.applied = false; state.showOrig = false;
+  refreshDirty();
+  $("aeTitle").textContent = "已退出颜色设置";
+  $("aeText").textContent = save
+    ? "样式组已保存（模拟：popup 已提示保存成功）"
+    : "未保存，所有修改已还原为进入前的样式";
+}
+function reopen(){
+  $("afterExit").classList.remove("show");
+  $("compareCol").classList.remove("show");
+  state.workN=copyArr(INIT_N); state.workP=copyArr(INIT_P);
+  state.origN=copyArr(INIT_N); state.origP=copyArr(INIT_P);
+  state.lane=0; state.attr=0; state.pixel=false; state.applied=false; state.showOrig=false; state.brightness=1;
+  $("modeNormal").classList.add("on"); $("modePixel").classList.remove("on");
+  refreshDirty();
+  renderLanes(); buildTiles(); syncPanel();
+}
+
+/* ============================================================
+ * 事件绑定
+ * ============================================================ */
+function bindAll(){
+  $("btnApply").addEventListener("click", toggleApply);
+  $("btnExit").addEventListener("click", askExit);
+  $("btnSaveQuit").addEventListener("click", function(){ doQuit(true); });
+  $("btnDiscQuit").addEventListener("click", function(){ doQuit(false); $("afterExit").classList.add("show"); });
+  $("btnOops").addEventListener("click", function(){
+    $("exitModal").classList.remove("show");
+    toast("好的，继续编辑～");
+  });
+  $("btnOk").addEventListener("click", function(){
+    $("saveModal").classList.remove("show");
+    $("afterExit").classList.add("show");
+  });
+  $("btnReopen").addEventListener("click", reopen);
+  $("exitModal").addEventListener("click", function(e){
+    if (e.target === $("exitModal")) $("exitModal").classList.remove("show");
+  });
+
+  // 像素 / 常规
+  $("modeNormal").addEventListener("click", function(){ setPixel(false); });
+  $("modePixel").addEventListener("click", function(){ setPixel(true); });
+  function setPixel(p){
+    if (state.pixel===p) return;
+    state.pixel = p;
+    $("modeNormal").classList.toggle("on", !p);
+    $("modePixel").classList.toggle("on", p);
+    renderLanes(); syncPanel();
+    toast(p?"已切换到像素箭头模式（arrowRGBPixel 样式组）":"已切换到常规箭头模式（arrowRGB 样式组）");
+  }
+
+  // 复制 / 粘贴
+  $("btnCopy").addEventListener("click", copyActive);
+  $("btnPaste").addEventListener("click", pasteColor);
+  $("btnCopy").addEventListener("click", function(){
+    var b=this; b.classList.add("ok");
+    setTimeout(function(){ b.classList.remove("ok"); },600);
+  });
+
+  // 输入框：只允许 0-9 A-F a-f；点击不清空；满 6 位自动应用
+  var inp = $("hexInput");
+  inp.addEventListener("beforeinput", function(e){
+    if (e.data && /[^0-9a-fA-F]/.test(e.data)){
+      e.preventDefault();
+      inp.classList.add("err"); setTimeout(function(){ inp.classList.remove("err"); },260);
+    }
+  });
+  inp.addEventListener("input", function(){
+    var clean = inp.value.replace(/[^0-9a-fA-F]/g,"").slice(0,6);
+    if (clean !== inp.value){
+      var pos = inp.selectionStart;
+      inp.value = clean;
+      try{ inp.setSelectionRange(pos,pos); }catch(e){}
+    }
+    if (inp.value.length===6){ applyColor(inp.value.toUpperCase()); }
+  });
+  inp.addEventListener("keydown", function(e){
+    if (e.key==="Enter"){ if (inp.value.length===6){ applyColor(inp.value.toUpperCase()); } inp.blur(); }
+    if (e.key==="Escape"){ inp.blur(); }
+    e.stopPropagation();
+  });
+  inp.addEventListener("blur", function(){
+    inp.value = curColor(workArr());
+  });
+
+  // 色轮
+  var wheelDrag = false;
+  $("wheelBox").addEventListener("mousedown", function(e){ wheelDrag=true; setFromRgbArr(wheelFromPointer(e)); });
+  window.addEventListener("mousemove", function(e){ if (wheelDrag) setFromRgbArr(wheelFromPointer(e)); });
+  window.addEventListener("mouseup", function(){ wheelDrag=false; });
+  // 亮度条
+  var gradDrag = false;
+  $("gradBar").addEventListener("mousedown", function(e){ gradDrag=true; pickGrad(e); });
+  window.addEventListener("mousemove", function(e){ if (gradDrag) pickGrad(e); });
+  window.addEventListener("mouseup", function(){ gradDrag=false; });
+  function pickGrad(e){
+    var b = gradFromPointer(e);
+    var rgb = hexToRgb(curColor(workArr()));
+    var hsv = rgbToHsv(rgb[0],rgb[1],rgb[2]);
+    setFromRgbArr(hsvToRgb(hsv.h, hsv.s, b));
+  }
+  // 色板
+  $("paletteImg").addEventListener("mousedown", function(e){
+    var c = paletteFromPointer(e);
+    if (c) applyColor(c);
+  });
+
+  // 键盘
+  window.addEventListener("keydown", function(e){
+    if (document.activeElement === inp) return;
+    if ($("exitModal").classList.contains("show") || $("saveModal").classList.contains("show")){
+      if (e.key==="Escape"){ $("exitModal").classList.remove("show"); $("saveModal").classList.remove("show"); }
+      return;
+    }
+    if (e.key==="Escape"){ askExit(); return; }
+    if (e.key==="ArrowRight"){ selectLane((state.lane+1)%10); return; }
+    if (e.key==="ArrowLeft"){ selectLane((state.lane+9)%10); return; }
+    if (e.key==="ArrowUp"){ selectAttr((state.attr+2)%3); return; }
+    if (e.key==="ArrowDown"){ selectAttr((state.attr+1)%3); return; }
+    if (e.key==="r"||e.key==="R"){ resetAttr(state.attr, e.shiftKey); return; }
+    if ((e.ctrlKey||e.metaKey) && (e.key==="c"||e.key==="C")){ copyActive(); return; }
+    if ((e.ctrlKey||e.metaKey) && (e.key==="v"||e.key==="V")){ pasteColor(); return; }
+  });
+
+  // 窗口尺寸变化：流式重排（无缩放、无裁切）
+  window.addEventListener("resize", function(){ layoutLanes(); layoutPicker(); renderLanes(); });
+}
+
+/* ============================================================
+ * 调试/验收状态注入（hash）：
+ *   #demo  → 演示：选中第 3 轨改色 → 实时生效 + 显示前后对照
+ *   #exit  → 打开退出询问弹窗
+ *   #pixel → 直接进入像素模式
+ * ============================================================ */
+function applyHash(){
+  var h = location.hash;
+  if (h.indexOf("pixel")>=0){ setPixelMode(true); }
+  if (h.indexOf("exit")>=0){ setTimeout(askExit,300); }
+  if (h.indexOf("demo")>=0){
+    setTimeout(function(){
+      selectLane(2);
+      applyColor("00FF88");                 // 第 3 轨内色 → 立即变绿
+      selectAttr(1);
+      applyColor("222222");                 // 描边 → 深灰
+      selectAttr(0);
+    }, 300);
+  }
+  function setPixelMode(p){
+    state.pixel = p;
+    $("modeNormal").classList.toggle("on", !p);
+    $("modePixel").classList.toggle("on", p);
+    renderLanes(); syncPanel();
+  }
+}
+
+/* ============================================================
+ * 启动
+ * ============================================================ */
+buildLanes();
+buildPalette();
+layoutLanes();
+buildTiles();
+syncPanel();
+renderLanes();
+refreshDirty();
+bindAll();
+applyHash();
+/* 所有内容都渲染完、高度稳定后再定色轮尺寸（否则会因内容撑高而溢出） */
+layoutPicker();
+requestAnimationFrame(function(){ layoutLanes(); layoutPicker(); });
+window.addEventListener("load", function(){ layoutLanes(); layoutPicker(); });
+</script>
+</body>
+</html>

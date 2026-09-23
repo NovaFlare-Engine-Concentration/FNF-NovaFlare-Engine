@@ -118,6 +118,7 @@ class Console extends Sprite {
 		// TextField HTML representation is built only when the user opens it.
 		console.needsRender = true;
 		console.updateScale(resolveDevConScale());
+		console.applySavedPrefs();
 		console.clampToStage();
 
 		ConsoleToggleButton.hide();
@@ -262,6 +263,38 @@ class Console extends Sprite {
 		x = Math.max(16, sw - currentWidth * scaleX - 24);
 		y = Math.max(42, Math.min(72, sh - currentHeight * scaleY - 16));
 		normalBounds.setTo(x, y, currentWidth, currentHeight);
+	}
+
+	/** 恢复用户上次拖动/缩放后的位置尺寸（未自定义则保持默认） */
+	private function applySavedPrefs():Void {
+		if (isMaximized) return;
+
+		var savedX:Float = ClientPrefs.data.consoleX;
+		var savedY:Float = ClientPrefs.data.consoleY;
+		var savedW:Float = ClientPrefs.data.consoleW;
+		var savedH:Float = ClientPrefs.data.consoleH;
+		if (savedX >= 0 && savedY >= 0) {
+			x = savedX;
+			y = savedY;
+		}
+		if (savedW >= MIN_WIDTH && savedH >= MIN_HEIGHT) {
+			currentWidth = savedW;
+			currentHeight = savedH;
+		}
+		clampSizeToStage();
+		normalBounds.setTo(x, y, currentWidth, currentHeight);
+		redraw();
+		needsRender = true;
+	}
+
+	private function saveWindowPrefs():Void {
+		try {
+			ClientPrefs.data.consoleX = x;
+			ClientPrefs.data.consoleY = y;
+			ClientPrefs.data.consoleW = currentWidth;
+			ClientPrefs.data.consoleH = currentHeight;
+			ClientPrefs.saveSettings();
+		} catch (e:Dynamic) {}
 	}
 
 	private function createUI():Void {
@@ -737,6 +770,10 @@ class Console extends Sprite {
 		isDragging = false;
 		stage.removeEventListener(MouseEvent.MOUSE_MOVE, dragWindow);
 		stage.removeEventListener(MouseEvent.MOUSE_UP, stopDragWindow);
+		if (!isMaximized) {
+			normalBounds.setTo(x, y, currentWidth, currentHeight);
+			saveWindowPrefs();
+		}
 		event.stopPropagation();
 	}
 
@@ -768,6 +805,10 @@ class Console extends Sprite {
 		stage.removeEventListener(MouseEvent.MOUSE_MOVE, resizeWindow);
 		stage.removeEventListener(MouseEvent.MOUSE_UP, stopResize);
 		Mouse.cursor = MouseCursor.AUTO;
+		if (!isMaximized) {
+			normalBounds.setTo(x, y, currentWidth, currentHeight);
+			saveWindowPrefs();
+		}
 		event.stopPropagation();
 	}
 
@@ -813,7 +854,10 @@ class Console extends Sprite {
 	private function onKeyDown(event:KeyboardEvent):Void {
 		if (!ClientPrefs.data.developerMode) return;
 
-		if ((event.ctrlKey && event.keyCode == KEY_GRAVE) || event.keyCode == KEY_F10) {
+		// ★ 单独的 F10 = 开关控制台；但 **Ctrl+F10 要让出去** ——
+		//   设置界面拿它当「唤出隐藏的测试语言」的开关（见 OptionsState.toggleTestLanguage）。
+		//   这里不吞这个组合，事件才能继续派发到 Flixel 的键盘管理器（FlxG.keys）。
+		if ((event.ctrlKey && event.keyCode == KEY_GRAVE) || (!event.ctrlKey && event.keyCode == KEY_F10)) {
 			toggle();
 			event.stopImmediatePropagation();
 			return;

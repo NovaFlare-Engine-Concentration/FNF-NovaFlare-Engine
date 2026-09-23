@@ -39,3 +39,35 @@ vs_Community.exe
 !.vscode/extensions.json
 art/build_html.bat
 art/build_html-debug.bat
+
+### 本地开发产物 / 调试垃圾（LushiFu 本地构建环境）
+# 构建与调试日志（build_*.log / *.Log 等）
+/*.log
+/*.Log
+# 调试截图
+/*.png
+# 临时文本、验证用 JSON、杂项输出
+/0
+/*.txt
+/*.json
+# 本地工具、会话与备份目录
+/.workbuddy/
+/.gradle/
+/_backup/
+/_dsh_tools/
+/_release/
+/dependencies/
+/hxcpp/
+/.gitconfig-bypass
+
+### 安装器工程的构建产物（源码 src/ 与 tools/ 仍然入库）
+/NovaFlareEngineInstaller/backup/
+/NovaFlareEngineInstaller/bin/
+/NovaFlareEngineInstaller/dist/
+/NovaFlareEngineInstaller/payload/
+/NovaFlareEngineInstaller/true/
+/NovaFlareEngineInstaller/*.exe
+/NovaFlareEngineInstaller/*.rar
+/NovaFlareEngineInstaller/*.zip
+/NovaFlareEngineInstaller/*.res
+/_crashlogs/

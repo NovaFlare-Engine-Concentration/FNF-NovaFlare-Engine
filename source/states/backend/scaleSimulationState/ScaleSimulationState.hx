@@ -34,7 +34,7 @@ class ScaleSimulationState extends MusicBeatState {
         trace('Running scale simulation test...');
 
         infoText = new FlxText(0, FlxG.height-22, FlxG.width, 'Running scale simulation test...', 16);
-        infoText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, CENTER);
+        infoText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 16, FlxColor.WHITE, CENTER);
         add(infoText);
 
         doScaleSimTest(true);

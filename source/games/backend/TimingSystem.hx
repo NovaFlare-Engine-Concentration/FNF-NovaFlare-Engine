@@ -52,9 +52,21 @@ class TimingSystem {
     }
 
     public function resume():Void {
-        if (isPlaying) return;
         var n:Float = nowSec();
-        if (pauseStartSec > 0) accumulatedPauseSec += (n - pauseStartSec);
+        // 已经在跑的时候不能直接把 timestampBaseSec 挪到 now：那等于把已经走过的时间
+        // 丢掉、时钟瞬间倒退到 positionBaseMs。先把当前位置固化下来再重新锚定，
+        // resume() 就成了幂等操作 —— 「暂停后继续」这条路上即使重复调用也不会跳时间。
+        if (isPlaying) {
+            positionBaseMs = getPositionMs();
+            timestampBaseSec = n;
+            baseTimerMs = nowTimerMs();
+            tickEnabled = true;
+            return;
+        }
+        if (pauseStartSec > 0) {
+            accumulatedPauseSec += (n - pauseStartSec);
+            pauseStartSec = 0;
+        }
         timestampBaseSec = n;
         baseTimerMs = nowTimerMs();
         isPlaying = true;

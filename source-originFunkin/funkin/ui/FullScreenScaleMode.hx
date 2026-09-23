@@ -165,15 +165,11 @@ class FullScreenScaleMode extends flixel.system.scaleModes.BaseScaleMode
   override public function onMeasure(Width:Int, Height:Int):Void
   {
     #if desktop
-    if (mustAwait && enabled)
-    {
-      onMeasureAwait(Width, Height);
-    }
-    else
-    {
-      onMeasureInstant(Width, Height);
-      mustAwait = true;
-    }
+    // mustAwait 机制在自管全屏模式下会导致 onMeasureAwait 用旧 FlxG.width/height
+    // 计算 gameSize，而 onMeasurePostAwait 又依赖外部调用时机，导致全屏后
+    // 画面停在旧逻辑尺寸（1280x720）只显示左上角并被拉伸。
+    // 直接走 onMeasureInstant 即可：每次都用新尺寸计算 scale 与 gameSize。
+    onMeasureInstant(Width, Height);
     #else
     onMeasureInstant(Width, Height);
     #end
@@ -373,20 +369,12 @@ class FullScreenScaleMode extends flixel.system.scaleModes.BaseScaleMode
 
   override public function updateScaleOffset():Void
   {
-    if (finishingAwait)
-    {
-      scale.x = ratioAxis == X ? logicalSize.x / FlxG.width : deviceSize.x / FlxG.width;
-      scale.y = ratioAxis == Y ? logicalSize.y / FlxG.height : deviceSize.y / FlxG.height;
-    }
-    else
-    {
-      scale.x = deviceSize.x / FlxG.width;
-      scale.y = deviceSize.y / FlxG.height;
-
-      if (scale.x > scale.y) scale.x = scale.y;
-      else
-        scale.y = scale.x;
-    }
+    // 原生缩放逻辑：相机以 FlxG.width/height（1280x720）渲染，
+    // flashBitmap/canvas 按 scale 放大铺满物理窗口。
+    // scale = logicalSize / FlxG.width = 1920/1280 = 1.5，
+    // 相机 1280x720 buffer × 1.5 = 1920x1080 满屏显示。
+    scale.x = logicalSize.x / FlxG.width;
+    scale.y = logicalSize.y / FlxG.height;
     updateOffsetX();
     updateOffsetY();
   }
@@ -537,6 +525,7 @@ class FullScreenScaleMode extends flixel.system.scaleModes.BaseScaleMode
   @:noCompletion
   private static function set_enabled(Value:Bool):Bool
   {
+    trace('[FSM.set_enabled] Value=$Value ratioAxis=$ratioAxis stage=${FlxG.stage.stageWidth}x${FlxG.stage.stageHeight} FlxG=${FlxG.width}x${FlxG.height}');
     if (ratioAxis == FlxAxes.X #if android
       && (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P
         || android.Tools.isTablet()) #end)

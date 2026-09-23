@@ -1,0 +1,39 @@
+week => 周目编辑器
+
+# ===== 一级菜单按钮 =====
+menu_week => 周目
+menu_other => 其他
+menu_file => 文件
+
+# ===== 文件菜单动作 =====
+item_load_week => 加载周目
+item_freeplay => 自由游玩编辑器
+item_save_week => 保存周目
+
+# ===== 周目面板（行式标签） =====
+w_songs => 歌曲列表
+w_opponent => 对手
+w_boyfriend => 男友
+w_girlfriend => 女友
+w_background => 背景资源
+w_display_name => 显示名称
+w_week_name => 周目名称(重置菜单)
+w_week_file => 周目文件
+w_hide_story => 在故事模式中隐藏该周目?
+
+# ===== 其他面板 =====
+w_locked => 周目开始时锁定
+w_hidden_unlock => 解锁前保持隐藏
+w_week_before => 解锁需完成周目
+w_difficulties => 难度
+w_difficulties_hint => 默认难度为 "Easy, Normal, Hard"(不带引号)
+
+# ===== 自由游玩编辑器 =====
+fp_editing => 正在编辑
+fp_bg_color => 背景色
+fp_copy => 复制
+fp_paste => 粘贴
+fp_icon => 图标
+fp_hide_freeplay => 在自由游玩中隐藏该周目?
+fp_story_mode => 故事模式
+fp_song_list => 歌曲列表

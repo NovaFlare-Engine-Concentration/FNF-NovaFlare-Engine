@@ -86,6 +86,19 @@ class TitleState extends MusicBeatState
 		GABridge.sendDesign("title:screen");
 		Paths.clearUnusedMemory();
 
+		#if sys
+		// ★ 临时调试引导：设置环境变量 NF_BOOT_MODS=1 可直接进入 Mods 菜单，
+		//   便于在无法操作画面的环境下通过 1145 trace 端口验证界面（删除本块即恢复）
+		if (Sys.getEnv('NF_BOOT_MODS') == '1')
+		{
+			states.modsMenuState.ModsMenuState.debugLog = true;
+			states.modsMenuState.ModsMenuState.dbg('=== NF_BOOT_MODS=1: boot into ModsMenuState ===');
+			trace('[Debug] NF_BOOT_MODS=1 -> boot straight into ModsMenuState');
+			MusicBeatState.switchState(new states.modsMenuState.ModsMenuState());
+			return;
+		}
+		#end
+
 		#if LUA_ALLOWED
 		Mods.pushGlobalMods();
 		#end
@@ -135,7 +148,7 @@ class TitleState extends MusicBeatState
 		#elseif CHARTING
 		MusicBeatState.switchState(new ChartingState());
 		#else
-		if(!ClientPrefs.flashingWarningAcknowledged && !FlashingState.leftState) {
+		if(FlxG.save.data.flashing == null && !FlashingState.leftState) {
 			controls.isInSubstate = false; //idfk what's wrong
 			FlxTransitionableState.skipNextTransIn = true;
 			FlxTransitionableState.skipNextTransOut = true;
@@ -332,13 +345,31 @@ class TitleState extends MusicBeatState
 	var newTitle:Bool = false;
 	var titleTimer:Float = 0;
 
+	// 双击左键跳过（单击不触发，避免误触）
+	var lastMouseClickTime:Float = -999;
+	var mouseDoubleClicked:Bool = false;
+
 	override function update(elapsed:Float)
 	{
 		if (FlxG.sound.music != null)
 			Conductor.songPosition = FlxG.sound.music.time;
 		// FlxG.watch.addQuick('amp', FlxG.sound.music.amplitude);
 
-		var pressedEnter:Bool = FlxG.keys.justPressed.ENTER || controls.ACCEPT || FlxG.mouse.justPressed;
+		// 双击左键 = 跳过（单击不触发）
+		mouseDoubleClicked = false;
+		if (FlxG.mouse.justPressed)
+		{
+			var now:Float = FlxG.game.ticks / 1000;
+			if (now - lastMouseClickTime < 0.35)
+			{
+				lastMouseClickTime = -999;
+				mouseDoubleClicked = true;
+			}
+			else
+				lastMouseClickTime = now;
+		}
+
+		var pressedEnter:Bool = FlxG.keys.justPressed.ENTER || controls.ACCEPT || mouseDoubleClicked;
 
 		#if FLX_TOUCH
 		for (touch in FlxG.touches.list)

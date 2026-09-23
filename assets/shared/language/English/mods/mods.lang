@@ -1,0 +1,79 @@
+﻿# Mods menu (new UI) language keys
+# Key names match the L dictionary in the NewModsMenuState.htm prototype
+title => Mods
+subtitle => MODS
+
+# Tabs at the top of the left list
+tabEnabled => Enabled
+tabDisabled => Disabled
+statTotal => total
+statOn => on
+statOff => off
+
+# Window chrome bar
+hintBar => Wheel scrolls the list · Hold 1s to reorder · ↑↓ select · ←→ zone · Enter confirm · Esc back
+hintBarShort => Wheel scroll · Hold 1s to reorder · Enter confirm
+toastFolder => Mods folder: {path} (open it with a file manager on mobile)
+pressHold => Keep holding 1s to reorder
+pressDrag => Release to drop · drag to an edge to auto-scroll
+openFolder => Open mods folder
+openFolderShort => Open folder
+search => Search mods…
+exitList => Exit mod list
+exitListShort => Exit
+winMin => Minimize
+winMax => Maximize / Restore
+winClose => Close
+dirty => {n} pending change(s) — restart required
+
+# Bottom-left buttons (kept from the original menu)
+reload => Reload
+enableAll => Enable All
+disableAll => Disable All
+
+# Detail panel
+descLabel => DESCRIPTION
+enabledLabel => Enabled
+disabledLabel => Disabled
+toggleHint => Click to toggle
+restartHint => Moving or toggling this mod will restart the game.
+badgeGlobal => Runs globally
+badgeRestart => Needs restart
+badgeSettings => Has settings
+badgeDisabled => Disabled
+chipFolder => Folder
+chipOrder => Order
+chipIcon => Icon
+chipColor => Color
+frames => {n}f @{fps}fps
+noDesc => No description provided.
+
+# Nine tool buttons (hover tooltips)
+toolTop => Move to top
+toolBottom => Move to bottom
+toolUp => Move up
+toolDown => Move down
+toolPrev => Previous mod
+toolNext => Next mod
+toolSettings => Mod settings
+toolToggle => Enable / Disable
+toolExit => Save and exit
+
+# Empty state
+emptyTitle => NO MODS INSTALLED
+emptyBody1 => Drop a mod folder into
+emptyBody2 => — this screen re-checks every second.
+scanning => Auto-scanning mods/ …
+
+# Exit confirmation
+exitTitle => Restart required
+exitBody => You changed mod states or load order. Restart the game now?
+restartNow => Restart now
+stayHere => Keep browsing
+
+# Misc
+srcMain => From: Main Menu
+srcFreeplay => From: Freeplay
+filterNone => Nothing in this tab
+searchNone => No mod matches "{q}"
+marqueeMode => Marquee: {mode}

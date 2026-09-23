@@ -1,5 +1,13 @@
-languageName => Portuguese (Brazil)
+languageName => Português (Brasil)
 fontName => chillax
+langPreview => Quando você muda o idioma nas configurações e depois lê esta mensagem, você percebe que conseguiu definir o idioma. Então você troca de idioma de novo — ah não, por que não entendo mais nada?
 justsayLang => Lang-PT-BR
 play => jogar
 back => voltar
+optionsTitle => Opções
+optionsMenuTitle => Menu de Opções
+rebinding => Reconfigurando
+holdBCancel => Segure B para Cancelar
+holdCDelete => Segure C para Excluir
+holdEscCancel => Segure ESC para Cancelar
+holdBackspaceDelete => Segure Backspace para Excluir

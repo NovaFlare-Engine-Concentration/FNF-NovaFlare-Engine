@@ -59,17 +59,100 @@ class FunkinLua
 
 	public static var customFunctions:Map<String, Dynamic> = new Map<String, Dynamic>();
 
+	/**
+	 * Lua 运行环境加固开关。
+	 *
+	 * LuaL.openlibs() 会打开 LuaJIT 的**全部**标准库，其中若干项对一个
+	 * "只应该操作游戏对象"的 mod 脚本而言是纯粹的越权面：
+	 *   - os.execute / os.exit          → 任意命令执行
+	 *   - os.remove / os.rename         → 任意文件删除/改名
+	 *   - io.popen                      → 命令执行
+	 *   - package.loadlib / loaders[3]  → 加载任意 DLL
+	 *   - debug.setupvalue/setfenv/sethook/getregistry → 篡改任意 upvalue、绕过下面的清理
+	 *   - LuaJIT 的 ffi                 → require('ffi') 即拿到完整 FFI：
+	 *                                     任意内存读写 + 调用任意已加载 DLL 的导出函数
+	 *
+	 * 刻意**保留** io.open / io.lines / require(纯 Lua 模块) 与 os.time/date/clock：
+	 * 现有 mod 生态大量用它们读写自定义数据文件，一刀切掉会大面积破坏兼容性。
+	 * 这里只封堵"代码执行 + 内存破坏 + 动态库加载"三类真正危险的通道。
+	 */
+	public static var sandboxEnabled:Bool = true;
+
+	/** 设为 true 则进一步移除 io.* / require / load*，适用于"只跑可信 mod"的发行版。 */
+	public static var sandboxStrict:Bool = false;
+
+	static final SANDBOX_LUA:String = '
+os.execute = nil
+os.exit = nil
+os.remove = nil
+os.rename = nil
+os.tmpname = nil
+if io ~= nil then
+	io.popen = nil
+end
+if package ~= nil then
+	package.loadlib = nil
+	if package.preload ~= nil then package.preload.ffi = nil end
+	if package.loaded ~= nil then package.loaded.ffi = nil end
+	if package.loaders ~= nil then
+		package.loaders[3] = nil
+		package.loaders[4] = nil
+	end
+end
+if debug ~= nil then
+	debug.setupvalue = nil
+	debug.setfenv = nil
+	debug.sethook = nil
+	debug.getregistry = nil
+end
+if ffi ~= nil then ffi = nil end
+';
+
+	static final SANDBOX_STRICT_LUA:String = '
+io = nil
+require = nil
+package = nil
+dofile = nil
+loadfile = nil
+loadstring = nil
+load = nil
+';
+
+	static function runSandboxChunk(lua:State, code:String):Void
+	{
+		var status:Int = LuaL.dostring(lua, code);
+		if (status != Lua.LUA_OK)
+		{
+			var top:Int = Lua.gettop(lua);
+			var err:String = (top > 0) ? Lua.tostring(lua, -1) : null;
+			if (top > 0)
+				Lua.pop(lua, top);
+			trace('[FunkinLua] 沙箱加固脚本执行失败(status $status)：$err');
+		}
+	}
+
+	static function applySandbox(lua:State):Void
+	{
+		if (!sandboxEnabled)
+			return;
+		runSandboxChunk(lua, SANDBOX_LUA);
+		if (sandboxStrict)
+			runSandboxChunk(lua, SANDBOX_STRICT_LUA);
+	}
+
 	public function new(scriptName:String)
 	{
 		#if LUA_ALLOWED
 		var times:Float = Date.now().getTime();
 		lua = LuaL.newstate();
 		LuaL.openlibs(lua);
+		// openlibs 之后立刻加固，必须早于任何 set() 与 dofile（即早于脚本代码执行）。
+		// 注：原来这里留着一行 `// LuaL.dostring(lua, CLENSE);`，但 CLENSE 在全工程
+		// 从未定义，属于失效的历史残留，已由 applySandbox() 取代。
+		applySandbox(lua);
 
 		// trace('Lua version: ' + Lua.version());
 		// trace("LuaJIT version: " + Lua.versionJIT());
-
-		// LuaL.dostring(lua, CLENSE);
 
 		this.scriptName = scriptName.trim();
 		var game:PlayState = PlayState.instance;
@@ -1885,24 +1968,90 @@ class FunkinLua
 		try
 		{
 			var isString:Bool = !FileSystem.exists(scriptName);
-			var result:Dynamic = null;
-			if (!isString)
-				result = LuaL.dofile(lua, scriptName);
-			else
-				result = LuaL.dostring(lua, scriptName);
+			// LuaL.dofile / dostring 返回的是【状态码】（@:native('luaL_dofile')，
+			// 语义等同 (luaL_loadfile || lua_pcall)，0 == LUA_OK），不是栈索引。
+			// 旧代码把它当成 Lua.tostring(lua, result) 的索引：
+			// 出错时 result 例如为 3，而栈上只有 1 个值，lua_tostring(L, 3) 会越过
+			// 栈顶读取（release 构建下 api_check 为空），通常返回 null。后果有三个：
+			//   1) 语法/运行期出错的脚本被当作"加载成功"；
+			//   2) 失败脚本既不 close 也不移出 luaArray，成为 closed=false / lua!=null
+			//      但 chunk 未加载的 zombie，之后每次 call() 都会命中它；
+			//   3) 错误对象永久留在 Lua 栈上，而 call() 假设栈上只有参数，
+			//      于是每次回调都让栈净增长 1 个值 → 长时间内存增长 + 栈语义串位。
+			var status:Int = isString
+				? LuaL.dostring(lua, scriptName)
+				: LuaL.dofile(lua, scriptName);
 
-			var resultStr:String = Lua.tostring(lua, result);
-			if (resultStr != null && result != 0)
+			// ★ 中文 / 非 ASCII 路径兜底。
+			//   `luaL_dofile` 内部是 CRT 的窄字符 `fopen`，会把路径字节按「进程 ANSI
+			//   代码页」解释。简中系统上那是 936(GBK)，而 Haxe 传下去的是 UTF-8，
+			//   于是 `mods/中文模组/script.lua` 打不开（实测 status=1）。新构建的 exe
+			//   带 windows/NovaFlare.manifest 的 activeCodePage=UTF-8（Win10 1903+），
+			//   已经把这条路径修好了；这里再兜一层，覆盖老系统 / 清单没生效的情况。
+			//
+			//   判定依据：`isString`（= FileSystem.exists 为 false）用的是 hxcpp 的
+			//   Unicode 安全实现，所以「文件存在但 dofile 失败」几乎必然是路径编码问题。
+			//   此时改用 File.getContent（内部 _wfopen，Unicode 安全）读源码再 dostring。
+			//   代价：错误信息里的 chunk 名会变成源码片段而不是文件路径 —— 但总比
+			//   「脚本根本加载不了」好。清单生效的正常情况下这条分支永远不会走到。
+			if (status != Lua.LUA_OK && !isString)
 			{
-				trace(resultStr);
+				// 先把 dofile 压进来的错误对象弹掉，避免污染后面 call() 的栈假设
+				var failedTop:Int = Lua.gettop(lua);
+				if (failedTop > 0)
+					Lua.pop(lua, failedTop);
+
+				var recovered:Bool = false;
+				try
+				{
+					var src:String = File.getContent(scriptName);
+					if (src != null && src.length > 0)
+					{
+						status = LuaL.dostring(lua, src);
+						recovered = (status == Lua.LUA_OK);
+						if (recovered)
+							trace('[Lua] luaL_dofile 失败（路径含非 ASCII 字符？）→ 已用 File.getContent + dostring 兜底加载：$scriptName');
+					}
+				}
+				catch (e:Dynamic)
+				{
+					trace('[Lua] 中文路径兜底加载失败：$scriptName — ' + Std.string(e));
+				}
+
+				if (!recovered && Lua.gettop(lua) > 0)
+					Lua.pop(lua, Lua.gettop(lua));
+			}
+
+			if (status != Lua.LUA_OK)
+			{
+				var stackTop:Int = Lua.gettop(lua);
+				var errorMsg:String = (stackTop > 0) ? Lua.tostring(lua, -1) : null;
+				if (stackTop > 0)
+					Lua.pop(lua, 1);
+
+				var report:String = '$scriptName\n'
+					+ (errorMsg != null ? errorMsg : 'Unknown Lua error (status $status)');
+				trace(report);
 				#if (windows || mobile || js || wasm)
-				SUtil.showPopUp(resultStr, 'Error on lua script!');
+				SUtil.showPopUp(report, 'Error on lua script!');
 				#else
-				luaTrace('$scriptName\n$resultStr', true, false, FlxColor.RED);
+				luaTrace(report, true, false, FlxColor.RED);
 				#end
-				lua = null;
+
+				// 必须真正收尾：关闭 Lua 状态并移出 luaArray，避免留下 zombie。
+				stop();
+				if (PlayState.instance != null)
+					PlayState.instance.luaArray.remove(this);
 				return;
 			}
+
+			// dofile/dostring 走 LUA_MULTRET，chunk 的返回值会留在栈上。
+			// call() 假设栈平衡，这里必须清干净（llua.Lua 未导出 lua_settop，
+			// 用 lua_pop(L, n) 等价于 lua_settop(L, -(n)-1)）。
+			var leftover:Int = Lua.gettop(lua);
+			if (leftover > 0)
+				Lua.pop(lua, leftover);
+
 			if (!isString)
 				DeepDebugTracker.recordScript('Lua', scriptName);
 			else
@@ -1911,6 +2060,9 @@ class FunkinLua
 		catch (e:Dynamic)
 		{
 			trace(e);
+			stop();
+			if (PlayState.instance != null)
+				PlayState.instance.luaArray.remove(this);
 			return;
 		}
 		call('onCreate', []);
@@ -2065,7 +2217,8 @@ class FunkinLua
 		var sourceName:String = scriptName != null && scriptName.length > 0 ? scriptName : 'unknown Lua script';
 		var errorText:String = 'ERROR ($callbackName) [$sourceName]: $message';
 		if (PlayState.instance != null)
-			PlayState.instance.addTextToDebug(errorText, FlxColor.RED);
+			// 走报错专用通道：受「维护设置 › Lua 语法错误提示」控制（关闭时只写日志、不上屏）
+			PlayState.instance.addScriptErrorToDebug(errorText);
 		else
 			trace(errorText);
 	}

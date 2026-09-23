@@ -1,0 +1,14 @@
+User Interface => 用户界面
+
+customFade => 过场动画类型
+customFadeText => 过场文本可见
+customFadeSound => 过场音量
+audioDisplayQuality => 音乐解析质量
+audioDisplayUpdate => 解析反应间隔
+freeplayOld => 旧版自由模式
+skipTitleVideo => 跳过启动动画
+resultsScreen => 结尾结算界面
+loadingScreen => 预加载界面
+loadThreads => 加载线程数
+useFlixelCoords => UI坐标模式
+SelectGameSubState => 引擎切换

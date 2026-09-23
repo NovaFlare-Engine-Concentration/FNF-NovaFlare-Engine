@@ -22,7 +22,10 @@ class StringRect extends FlxSpriteGroup{
         innerX = X;
         innerY = Y;
 
-        bg = new Rect(0, 0, width, height, width / 20, width / 20, 0x000000, 0.3);
+        // web 原型 .selbtn：background:rgba(255,255,255,.06) + border:1px solid rgba(255,255,255,.11)
+        // ★ 原来是 0x000000 / 0.3 —— 在深色面板上就是一块黑砖，和设置项卡片一起
+        //   被用户当成"选项卡变黑了"。这里统一改成极淡的白。
+        bg = new Rect(0, 0, width, height, width / 20, width / 20, 0xFFFFFF, 0.10);
         bg.antialiasing = ClientPrefs.data.antialiasing;
         add(bg);
 
@@ -66,32 +69,44 @@ class StringRect extends FlxSpriteGroup{
 
         if (mouse.overlaps(bg)) {
 
-            bg.color = 0xffffff;
-            bg.alpha = 0.3;
+            bg.color = 0x96B5FF;
+            bg.alpha = 0.16;
 
-            disText.color = EngineSet.mainColor;
+            disText.color = 0xFFFFFF;
             disText.alpha = 1;
 
-            dis.color = EngineSet.mainColor;
+            dis.color = 0xFFFFFF;
             dis.alpha = 1;
 
             if (mouse.justReleased) {
                 change();
             }
         } else {
-            bg.color = 0x000000;
-            bg.alpha = 0.3;
+            bg.color = 0xFFFFFF;
+            bg.alpha = 0.10;
 
-            disText.color = 0xffffff;
-            disText.alpha = 0.3;
+            disText.color = 0xE8EAF6;
+            disText.alpha = 0.55;
 
-            dis.color = 0xffffff;
-            dis.alpha = 0.3;
+            dis.color = 0xFFFFFF;
+            dis.alpha = 0.35;
         }
     }
 
     var alphaTween:Array<FlxTween> = [];
     var changeTimer:Float = 0.45;
+
+    // ── 下拉列表「展开态」的目标 alpha ──────────────────────────────────
+    // ★ 提成常量不是为了好看：内容的整体淡入淡出（Option.setFade）现在**也要
+    //   管到下拉列表**（见 Option.captureLeaf），而它必须知道"展开时该是多少"。
+    //   如果改成"就地采样当前 alpha"，那么在收起/展开补间正好跑到一半时切模式，
+    //   采样到的是中途值（比如 0.5），之后淡入回来就永远停在 0.5 ——
+    //   一块半透明的深色列表底板常驻在内容区，也就是用户报的
+    //   「切竖/横时 Tap to choose 和下拉列表没有正确隐藏」。
+    public static inline var SEL_BG_ALPHA:Float = 0.96;
+    public static inline var SEL_SLIDER_ALPHA:Float = 0.8;
+    public static inline var SEL_TEXT_ALPHA:Float = 1.0;
+
     public function change() {
         for (tween in alphaTween) {
             tween.cancel();
@@ -123,12 +138,12 @@ class StringRect extends FlxSpriteGroup{
             dis.flipY = false;
 
             follow.select.active = follow.select.visible = true;
-            var tween = FlxTween.tween(follow.select.bg, {alpha: 0.1}, changeTimer, {ease: FlxEase.expoIn});
+            var tween = FlxTween.tween(follow.select.bg, {alpha: SEL_BG_ALPHA}, changeTimer, {ease: FlxEase.expoIn});
             alphaTween.push(tween);
-            var tween = FlxTween.tween(follow.select.slider, {alpha: 0.8}, changeTimer, {ease: FlxEase.expoIn});
+            var tween = FlxTween.tween(follow.select.slider, {alpha: SEL_SLIDER_ALPHA}, changeTimer, {ease: FlxEase.expoIn});
             alphaTween.push(tween);
             for (i in 0...follow.select.optionSprites.length) {
-                var tween = FlxTween.tween(follow.select.optionSprites[i].textDis, {alpha: 1}, changeTimer, {ease: FlxEase.expoIn, onComplete: function(twn:FlxTween){ follow.select.optionSprites[i].allowUpdate = true;} });
+                var tween = FlxTween.tween(follow.select.optionSprites[i].textDis, {alpha: SEL_TEXT_ALPHA}, changeTimer, {ease: FlxEase.expoIn, onComplete: function(twn:FlxTween){ follow.select.optionSprites[i].allowUpdate = true;} });
                 alphaTween.push(tween);
             }
 
@@ -136,6 +151,59 @@ class StringRect extends FlxSpriteGroup{
             isOpend = !isOpend;
             follow.select.isOpend = isOpend;
         }
+    }
+
+    /**
+     * 立刻把下拉列表收起来（不走补间）。**幂等**，可以无条件反复调用。
+     *
+     * ★ 为什么不能只靠 change() ★
+     *   change() 收起走的是 0.45s 补间：`bg.alpha → 0`，**要等 onComplete
+     *   才把 `select.visible` 置 false**；而 `isOpend` 是立刻置 false 的。
+     *   切竖/横侧边栏时面板会整体重排、内容重算一次，那条补间要么还没跑完、
+     *   要么被 cancel 掉 → 一块深色底板 + 一列选项行就停在展开态浮在新面板上
+     *   （用户报的"切模式时 Tap to choose 和下拉列表没正确隐藏"）。
+     *   这里直接落位、绕开补间，并把 `disText` 从 "Tap to close" 复位。
+     */
+    public function forceClose():Void
+    {
+        for (t in alphaTween) t.cancel();
+        alphaTween = [];
+
+        // ★ "确实开着"的判据：两个 isOpend 任一为真都算。
+        //   它们正常是同步的，但**收起补间进行中**时 `isOpend` 会先变 false、
+        //   `select.isOpend` 也同步变 false，而 select.visible 还亮着 ——
+        //   所以这里再看一眼 visible / alpha，避免"已经收一半"的下拉被漏判。
+        var wasOpen:Bool = isOpend;
+
+        if (follow.select != null)
+        {
+            if (follow.select.isOpend || follow.select.visible || follow.select.bg.alpha > 0.01) wasOpen = true;
+            follow.select.bg.alpha = 0;
+            follow.select.slider.alpha = 0;
+            for (s in follow.select.optionSprites)
+            {
+                s.textDis.alpha = 0;
+                s.allowUpdate = false;
+            }
+            follow.select.isOpend = false;
+            follow.select.active = follow.select.visible = false;
+            if (OptionsState.instance.stringCount.contains(follow.select))
+                OptionsState.instance.stringCount.remove(follow.select);
+        }
+
+        // ★★ 无条件复位文本 ★★
+        //   收起走的是补间（0.45s），期间用户如果切模式，上面那句
+        //   `t.cancel()` 会把补间掐掉 —— 原本靠 onComplete 复位的东西就全留下了。
+        //   "Tap to close" 留在框上正是用户说的"没有正确隐藏"的一部分。
+        //   这里直接写回占位文本（幂等，本来就是这个值时也不亏）。
+        disText.text = 'Tap to choose';
+        dis.flipY = true;
+
+        isOpend = false;
+
+        if (wasOpen && follow.select != null)
+            // 把展开时占走的版面还回去（会重算分类总高 —— 时间给到最小，等价于立即）
+            follow.follow.optionAdjust(follow, -1 * (follow.select.bg.height + follow.inter), 0.001);
     }
 
     private function createButton(size:Float, color:Int) {

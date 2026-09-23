@@ -1,0 +1,103 @@
+# ===== 对话立绘编辑器顶栏菜单（Adobe 风格）=====
+# ===== 菜单标题 =====
+menu_type => 位置
+menu_char => 角色
+menu_anim => 动画
+menu_view => 视图
+menu_file => 文件
+menu_help => 帮助
+
+# ===== 状态栏 =====
+status_side => 位置:
+status_image => 图像:
+status_anim => 动画:
+status_offset => 偏移:
+status_scale => 缩放:
+
+# ===== 项目: 位置菜单 =====
+item_side_left => 靠左显示
+item_side_center => 居中显示
+item_side_right => 靠右显示
+
+# ===== 项目: 角色菜单 =====
+item_image => 图像文件
+label_image => 图像文件
+item_pos_x => 位置偏移 X
+label_pos_x => 位置 X
+item_pos_y => 位置偏移 Y
+label_pos_y => 位置 Y
+item_scale => 缩放
+label_scale => 缩放
+item_no_aa => 关闭抗锯齿
+item_reload_image => 重新加载图像
+item_load_char => 载入角色 JSON
+item_save_char => 保存角色 JSON
+
+# ===== 项目: 动画菜单 =====
+item_anim => 表情动画
+label_anim => 动画
+item_anim_name => 动画名（JSON）
+label_anim_name => 动画名
+item_loop_name => 循环动画（XML 前缀）
+label_loop_name => 循环前缀
+item_idle_name => 待机动画（XML 前缀）
+label_idle_name => 待机前缀
+item_anim_add_update => 添加 / 更新动画
+item_anim_remove => 删除动画
+
+# ===== 项目: 视图菜单 =====
+item_view_reset => 重置相机与显示
+item_view_bubble => 显示/隐藏对话气泡
+item_view_ghost => 循环显示幽灵（Loop/Idle/关闭）
+
+# ===== 项目: 文件菜单 =====
+item_load => 载入角色（JSON）
+item_save => 保存角色（JSON）
+item_exit => 退出编辑器
+
+# ===== 描述 =====
+desc_side_left => 角色与气泡靠屏幕左侧
+desc_side_center => 角色与气泡居中显示
+desc_side_right => 角色靠屏幕右侧显示
+desc_image => 对话立绘的图集 XML 名（images/dialogue/ 下，不含路径）
+desc_pos_x => 角色在基准位置上的水平偏移
+desc_pos_y => 角色在基准位置上的垂直偏移
+desc_scale => 角色整体缩放倍率
+desc_no_aa => 关闭该角色的抗锯齿渲染
+desc_reload_image => 按当前图像文件重载图集与动画
+desc_load_char => 从磁盘载入对话角色 JSON
+desc_save_char => 把当前角色数据保存为 JSON
+desc_anim => 从列表选择一个动画查看/编辑
+desc_anim_name => 动画在角色 JSON 中的名字
+desc_loop_name => 该动画循环段的 XML 帧前缀
+desc_idle_name => 该动画待机/收尾段的 XML 帧前缀
+desc_anim_add_update => 新增动画；名字已存在则更新其循环/待机前缀
+desc_anim_remove => 删除当前动画条目
+desc_view_reset => 相机缩放恢复 1、内容归零并显示 HUD
+desc_view_bubble => 显示或隐藏对话气泡预览
+desc_view_ghost => 循环切换幽灵显示：Loop 幽灵 → Idle 幽灵 → 关闭
+desc_load => 从磁盘载入对话角色 JSON
+desc_save => 把当前角色保存为 dialogue character JSON
+desc_exit => 退出对话立绘编辑器，返回主编辑器菜单（有未保存修改时先确认）
+
+# ===== 帮助行 =====
+item_help_keys => 偏移微调（动画页）：WASD / 方向键
+item_help_camera => 移动相机：J K L I
+item_help_zoom => 缩放相机：Q / E
+item_help_shift => 按住 Shift：偏移步长 ×10
+item_help_space => 重播当前动画与文字：SPACE
+item_help_f1 => 打开本帮助菜单：F1
+item_help_exit => 退出编辑器：ESC
+
+# ===== 帮助行描述 =====
+desc_help_keys => 动画页微调偏移：WASD=循环偏移，方向键=待机偏移
+desc_help_camera => 按住 J/K/L/I 平移相机（Shift 加速 ×4）
+desc_help_zoom => Q 缩小、E 放大相机（上限 1x）
+desc_help_shift => 按住 Shift 时偏移步长 ×10
+desc_help_space => 重播当前动画并重置对话文字打字
+desc_help_f1 => 打开本帮助菜单：F1
+desc_help_exit => 退出编辑器：ESC（有未保存修改时先确认）
+
+# ===== 退出确认弹窗（覆盖 editors 组的通用文案） =====
+confirm_unsaved_title => 退出对话立绘编辑器
+confirm_unsaved_message => 当前立绘还有未保存的修改，退出后这些改动将会丢失。确定要放弃修改并退出吗？

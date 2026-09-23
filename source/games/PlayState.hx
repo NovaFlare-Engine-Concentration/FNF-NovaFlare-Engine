@@ -57,6 +57,8 @@ import games.backend.Section;
 import games.backend.Rating;
 import games.backend.Replay;
 import games.backend.TimingSystem;
+import games.backend.KeyChange;
+import games.backend.KeyChangePoint;
 
 import games.cutscenes.CutsceneHandler;
 import games.cutscenes.DialogueBoxPsych;
@@ -346,6 +348,20 @@ class PlayState extends MusicBeatState
 	public var keysArray:Array<String>;
 	public var songName:String;
 
+	/**
+	 * KeyChange(MoreKey) 事件时间线（按时间升序）。
+	 * generateSong 用它按段解析音符（轨道归属/方向/颜色），
+	 * 运行时由 updateKeyChangeState 驱动：键数状态跟随歌曲时间，
+	 * 支持时间跳转/回滚（回滚后自动恢复到该时间点应处的段）。
+	 */
+	public var keyChangePoints:Array<KeyChangePoint> = [];
+
+	/** 谱面 json 声明的初始 mania（第一段），状态恢复的兜底参照 */
+	public var baseMania:Int = 3;
+
+	/** 时间线游标：下一个待触发的 KeyChange 点索引（随歌曲时间推进/回退） */
+	public var keyChangeCursor:Int = 0;
+
 	// Callbacks for stages
 	public var startCallback:Void->Void = null;
 	public var endCallback:Void->Void = null;
@@ -386,25 +402,9 @@ class PlayState extends MusicBeatState
 		PauseSubState.songName = null; // Reset to default
 		playbackRate = ClientPrefs.getGameplaySetting('songspeed');
 
-		if (SONG.mania != 3)
-		{
-			keysArray = [];
-			for (i in 0...SONG.mania + 1)
-			{
-				keysArray.push(SONG.mania + '_key_$i');
-			}
-		}
-		else keysArray = ['note_left', 'note_down', 'note_up', 'note_right'];
-
-		_hold = [];
-		_press = [];
-		_release = [];
-		for (i in 0...keysArray.length)
-		{
-			_hold.push(false);
-			_press.push(false);
-			_release.push(false);
-		}
+		// 记录谱面初始 mania（KeyChange 状态机恢复用），并建 keysArray 与按键状态数组
+		baseMania = SONG.mania;
+		rebuildKeyArrays();
 
         if (FlxG.sound.music != null)
             FlxG.sound.music.stop();
@@ -447,6 +447,10 @@ class PlayState extends MusicBeatState
         Conductor.bpm = SONG.bpm;
         timing = new TimingSystem();
         timing.setRate(playbackRate);
+        // ★ 让"外部跳时间"能带动引擎时钟：mod 直接写 Conductor.songPosition /
+        //   FlxG.sound.music.time（过场视频后跳过前奏、自定义跳转等）时，否则会被
+        //   handleInput 每帧写回的 timing 值覆盖掉 —— 表现就是谱面从 0 重新开始。
+        Conductor.onExternalSeek = handleExternalSeek;
 
 		#if DISCORD_ALLOWED
 		// String that contains the mode defined here so it isn't necessary to call changePresence for each mode
@@ -644,10 +648,16 @@ class PlayState extends MusicBeatState
 		uiGroup = new FlxSpriteGroup();
 		add(uiGroup);
 
-		Conductor.songPosition = -5000 / Conductor.songPosition;
+		// 原为 `Conductor.songPosition = -5000 / Conductor.songPosition;`：
+		// songPosition 为 0 时得到 -Infinity，随后 updateCurStep() 会做
+		// Math.floor(-Infinity) 并赋给 Int curStep（hxcpp 下是未定义行为）；
+		// 非 0 时又得到一个接近 0 的除法结果，语义无意义。
+		// 这里只需要一个"负的开场前位置"占位（真正的倒计时起点由
+		// startCountdown()/update() 里的 -Conductor.crochet * 5 设置）。
+		Conductor.songPosition = -5000;
 		var showTime:Bool = (ClientPrefs.data.timeBarType != 'Disabled');
         timeTxt = new FlxText(STRUM_X + (FlxG.width / 2) - 248, 19, 400, "", 32);
-		timeTxt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		timeTxt.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		timeTxt.scrollFactor.set();
 		timeTxt.alpha = 0;
 		timeTxt.borderSize = 2;
@@ -698,7 +708,7 @@ class PlayState extends MusicBeatState
 		add(iconP2);
 
 		scoreTxt = new FlxText(0, healthBar.y + 40, FlxG.width, "", 20);
-		scoreTxt.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		scoreTxt.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 16, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		scoreTxt.scrollFactor.set();
 		scoreTxt.borderSize = 1.25;
 		scoreTxt.visible = !ClientPrefs.data.hideHud;
@@ -746,7 +756,6 @@ class PlayState extends MusicBeatState
 
 		NoteSplash.init();
 		var splash:NoteSplash = new NoteSplash(100, 100);
-		splash.setupNoteSplash(100, 100);
 		grpNoteSplashes.add(splash);
 		noteGroup.add(grpNoteSplashes);
 		splash.alpha = 0.000001; // cant make it invisible or it won't allow precaching
@@ -755,7 +764,7 @@ class PlayState extends MusicBeatState
 		playerStrums = new FlxTypedGroup<StrumNote>();
 
 		botplayTxt = new FlxText(400, timeBar.y + 55, FlxG.width - 800, "BOTPLAY", 32);
-		botplayTxt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		botplayTxt.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		botplayTxt.scrollFactor.set();
 		botplayTxt.borderSize = 1.25;
 		botplayTxt.visible = ClientPrefs.data.playOpponent ? cpuControlled_opponent : cpuControlled;
@@ -764,7 +773,7 @@ class PlayState extends MusicBeatState
 			botplayTxt.y = timeBar.y - 78;
 
 		replayTxt = new FlxText(400, timeBar.y + 55, FlxG.width - 800, "REPLAY", 32);
-		replayTxt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		replayTxt.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		replayTxt.scrollFactor.set();
 		replayTxt.borderSize = 1.25;
 		replayTxt.visible = replayMode;
@@ -955,7 +964,10 @@ class PlayState extends MusicBeatState
 	#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
 	public function addTextToDebug(text:String, color:FlxColor)
 	{
-		//if (!ClientPrefs.data.developerMode) return;
+		// ★ 这条通道对**所有**调用方一律照原样显示，不做任何拦截：
+		//   debugPrint 的输出、luaTrace 的白字/彩字、引擎自身的缺 shader / 缺视频等红字，
+		//   全都走这里。写 mod 的人靠 debugPrint 调脚本，绝不能因为一个显示开关被吞掉。
+		//   需要受「Lua 语法错误提示」控制的只有下面那条 addScriptErrorToDebug()。
 		var newText:DebugLuaText = luaDebugGroup.recycle(DebugLuaText);
 		newText.text = text;
 		#if android
@@ -971,6 +983,63 @@ class PlayState extends MusicBeatState
 			spr.y += newText.height + 2;
 		});
 		luaDebugGroup.add(newText);
+		#if sys
+		Sys.println(text);
+		#else
+		trace(text);
+		#end
+	}
+
+	/**
+	 * 脚本报错专用通道 —— 唯一受「设置 › 维护设置 › Lua 语法错误提示」控制的出口
+	 * （ClientPrefs.luaErrorOverlay，默认关闭）。
+	 *
+	 * 只有真正的报错走这里：FunkinLua.reportRuntimeErrorOnce 的 `ERROR (回调) [脚本]: ...`
+	 * （含 makeLuaSprite 缺图、Lua 运行时错误 "attempt to call global ..." 等），
+	 * 以及 CallbackHandler.reportError 的 `Lua 回调出错 [...]`。
+	 * 所以关掉开关**不会**误伤 debugPrint / luaTrace —— 那些走上面的 addTextToDebug。
+	 *
+	 * 关闭时只是不上屏，日志照留（控制台 / 日志文件里照样查得到），游戏行为完全不变。
+	 */
+	public function addScriptErrorToDebug(text:String):Void
+	{
+		if (ClientPrefs.data.luaErrorOverlay)
+		{
+			addTextToDebug(text, FlxColor.RED);
+			return;
+		}
+
+		#if sys
+		Sys.println(text);
+		#else
+		trace(text);
+		#end
+	}
+
+	/**
+	 * HScript 报错专用通道 —— 受「设置 › 维护设置 › HScript 语法错误提示」控制
+	 * （ClientPrefs.hscriptErrorOverlay，默认关闭），与上面那条 Lua 通道各自独立。
+	 *
+	 * ★ 它管的只有 HScriptBase 里那几处会铺到屏幕上的脚本报错：
+	 *   runHaxeCode 执行抛错、addHaxeLibrary 解析失败（interp 侧 / Lua 回调侧各一处）。
+	 *
+	 * ★ 它管不到、也**不需要**管的：HScript 脚本自身的报错走 Iris ——
+	 *   Iris.error / Iris.warn → Iris.logLevel（Sys.println + 开发者控制台 + 1145 trace 客户端），
+	 *   那条链里根本没有 addTextToDebug，本来就不会上屏。
+	 *   另外「HScript isn't supported on this platform」这类**平台能力提示**、以及
+	 *   「诊断包装器安装失败」这类**引擎自身诊断**也保持常显，不归这个开关管
+	 *   （与 Lua 那条只拦脚本报错、不拦缺 shader / 缺视频的做法一致）。
+	 *
+	 * 关闭时只是不上屏，日志照留（Sys.println → stdout / 日志文件 / 1145 trace 客户端）。
+	 */
+	public function addHScriptErrorToDebug(text:String):Void
+	{
+		if (ClientPrefs.data.hscriptErrorOverlay)
+		{
+			addTextToDebug(text, FlxColor.RED);
+			return;
+		}
+
 		#if sys
 		Sys.println(text);
 		#else
@@ -1243,6 +1312,23 @@ class PlayState extends MusicBeatState
 
 	var startTimer:FlxTimer;
 	var finishTimer:FlxTimer = null;
+
+	/**
+	 * 本局是否已经走过 finishSong()（= 结尾结算只放行一次）。
+	 * 音乐轨的 onComplete 与 update() 里的结尾兜底有可能先后进来；重复执行会把
+	 * finishTimer 重开、并把 endSong() 的 transitioning 状态搅乱。
+	 * setSongTime()（脚本做循环谱面时会 seek 回 0）会把它复位，让下一轮的结尾还能结算。
+	 */
+	private var songFinished:Bool = false;
+
+	/**
+	 * 引擎自己跳时间（setSongTime / resyncVocals）时置位，
+	 * 免得把"外部跳变"那套处理（重新锚定 + 清理已过时音符）也套到引擎自己的跳转上。
+	 */
+	private var engineSeeking:Bool = false;
+
+	/** 上一帧音乐轨的位置，用于识别 mod 只改 `FlxG.sound.music.time` 的跳时间写法。 */
+	private var lastMusicSeekTime:Float = -1;
     
 
 	// For being able to mess with the sprites on Lua
@@ -1290,6 +1376,24 @@ class PlayState extends MusicBeatState
 		if (ret != LuaUtils.Function_Stop)
 		{
 			if (skipCountdown || startOnTime > 0) skipArrowStartTween = true;
+
+			// ★ KeyChange(MoreKey)：从中间（startOnTime）开始时，先在生成 strum 前把键数
+			//   对齐到该时间点所属段，避免 strum 按初始键数生成后再闪切
+			if (startOnTime > 0 && keyChangePoints != null && keyChangePoints.length > 0)
+			{
+				var startMania:Int = KeyChange.maniaAt(startOnTime, keyChangePoints, baseMania);
+				if (startMania != SONG.mania)
+				{
+					SONG.mania = startMania;
+					rebuildKeyArrays();
+					keysPressed = [];
+					strumsBlocked = [];
+					setOnScripts('mania', SONG.mania);
+				}
+				keyChangeCursor = 0;
+				while (keyChangeCursor < keyChangePoints.length && startOnTime >= keyChangePoints[keyChangeCursor].time)
+					keyChangeCursor++;
+			}
 
 			canPause = true;
 			generateStaticArrows(0);
@@ -1575,40 +1679,29 @@ class PlayState extends MusicBeatState
         };
         if (timing != null) timing.pause();
 
-		FlxG.sound.music.time = time;
+		// ★ 显式定位：旧写法 `FlxG.sound.music.time = time; FlxG.sound.music.play();` 里的
+		//   play() 在音轨"没在播、也不是暂停态"（已播完 / 被 stop 过 / 上一次启动失败）时
+		//   会从 0 开始，等于把这次 seek 直接丢掉。play(forceRestart, time) 才是确定行为。
+		FlxG.sound.music.play(true, time);
 		#if FLX_PITCH FlxG.sound.music.pitch = playbackRate; #end
-		FlxG.sound.music.play();
 
-		#if FLX_PITCH
-		vocals.pitch = playbackRate;
-		opponentVocals.pitch = playbackRate;
-		#end
-
-		if (Conductor.songPosition <= vocals.length)
-		{
-			vocals.time = time;
-			if (!vocals.playing) vocals.play();
-		}
-		else
-		{
-			vocals.stop();
-		}
-
-		if (Conductor.songPosition <= opponentVocals.length)
-		{
-			opponentVocals.time = time;
-			if (!opponentVocals.playing) opponentVocals.play();
-		}
-		else
-		{
-			opponentVocals.stop();
-		}
+		// 人声轨：同样显式定位；超出音轨长度时保持停止，不能"从头重播"。
+		// 判定用 time 而不是赋值前的 Conductor.songPosition（旧代码比的是旧位置）。
+		resyncVoiceTrack(vocals, time);
+		resyncVoiceTrack(opponentVocals, time);
 		if (videoCutscene != null)
 		{
 			videoCutscene.resume();
 		};
 		pausedTimePos = time;
+        // 引擎自己的 seek：不要触发"外部跳变"那套处理（否则会把调用方特意留着的
+        // 那点前奏音符也一起清掉 —— 比如 startOnTime 流程只清了 startOnTime 之前的）
+        engineSeeking = true;
         Conductor.songPosition = time;
+        engineSeeking = false;
+        // ★ seek 等于开启新的一段：把"本局已结算"复位，脚本做循环谱面（结尾 seek 回 0）
+        //   时下一轮的结尾才能再走一次 finishSong()；同时把结尾兜底重新武装。
+        songFinished = false;
         if (timing != null) {
 			timing.setPosition(time);
 		    timing.play();
@@ -1767,17 +1860,36 @@ class PlayState extends MusicBeatState
 		notes.active = true;
 		notes.visible = false;
 		//仅仅参加逻辑更新但是不参与渲染
+		var eventsChart:SwagSong = null;
 		try
 		{
-			var eventsChart:SwagSong = Song.getChart('events', songName);
-			if (eventsChart != null)
-				for (event in eventsChart.events) // Event Notes
-					for (i in 0...event[1].length)
-						makeEvent(event, i);
+			eventsChart = Song.getChart('events', songName);
 		}
 		catch (e:Dynamic)
 		{
+			eventsChart = null;
 		}
+		if (eventsChart != null)
+		{
+			try
+			{
+				for (event in eventsChart.events) // Event Notes
+					for (i in 0...event[1].length)
+						makeEvent(event, i);
+			}
+			catch (e:Dynamic)
+			{
+			}
+		}
+
+		// ★ KeyChange(MoreKey)：扫描两个事件源（events chart + 主谱 events），
+		//   构建「段」时间线，供下方按段解析音符（轨道归属/方向/颜色）。
+		//   事件与音符的 strumTime 都加了 noteOffset，处于同一时间坐标系。
+		keyChangePoints = [];
+		if (eventsChart != null)
+			keyChangePoints = keyChangePoints.concat(KeyChange.scanEvents(eventsChart.events, ClientPrefs.data.noteOffset));
+		keyChangePoints = keyChangePoints.concat(KeyChange.scanEvents(songData.events, ClientPrefs.data.noteOffset));
+		KeyChange.sortPoints(keyChangePoints);
 
 		Note.init(instance);
 
@@ -1786,24 +1898,27 @@ class PlayState extends MusicBeatState
 			for (songNotes in section.sectionNotes)
 			{
 				var daStrumTime:Float = songNotes[0];
-				var daNoteData:Int = Std.int(songNotes[1] % (SONG.mania + 1));
+				// ★ 该音符所属「段」的 mania：取它 strumTime 前最近一次 KeyChange 事件的目标键数
+				var noteMania:Int = KeyChange.maniaAt(daStrumTime + ClientPrefs.data.noteOffset, keyChangePoints, SONG.mania);
+				var perSideKeys:Int = noteMania + 1;
+				var daNoteData:Int = Std.int(songNotes[1] % perSideKeys);
 				var gottaHitNote:Bool;
 
 				var isPe104:Bool = (Song.chartEngineVersion == 'Pe-1.0.4');
 				if (isPe104)
 				{
 					// Pe-1.0.4: lanes 0..mania = player, mania+1.. = opponent (no mustHitSection flip)
-					gottaHitNote = (songNotes[1] < (SONG.mania + 1));
+					gottaHitNote = (songNotes[1] < perSideKeys);
 				}
 				else
 				{
 					// Pe-0.7.3: mustHitSection determines base side, flipped for opponent-lane notes
 					gottaHitNote = section.mustHitSection;
-					if (songNotes[1] > SONG.mania)
+					if (songNotes[1] > noteMania)
 						gottaHitNote = !section.mustHitSection;
 				}
 
-				if (ClientPrefs.data.flipChart)
+				if (ClientPrefs.data.flipChart && noteMania == 3)
 					daNoteData -= Std.int((daNoteData - 1.5) * 2);
 
 				var oldNote:Note;
@@ -1812,14 +1927,14 @@ class PlayState extends MusicBeatState
 				else
 					oldNote = null;
 
-				var swagNote:Note = new Note(daStrumTime, daNoteData, oldNote);
+				var swagNote:Note = new Note(daStrumTime, daNoteData, oldNote, false, false, null, noteMania);
 				swagNote.mustPress = gottaHitNote;
 				swagNote.sustainLength = songNotes[2];
 
 				if (isPe104)
 					swagNote.gfNote = (section.gfSection && gottaHitNote == section.mustHitSection);
 				else
-					swagNote.gfNote = (section.gfSection && (songNotes[1] < (SONG.mania + 1)));
+					swagNote.gfNote = (section.gfSection && (songNotes[1] < perSideKeys));
 				// Older Psych charts omit the fourth note entry for the default
 				// note type.  The chart editor already normalizes that legacy form
 				// to noteTypeList[0] (the empty string); gameplay must do the same.
@@ -1849,10 +1964,10 @@ class PlayState extends MusicBeatState
 					{
 						oldNote = unspawnNotes[Std.int(unspawnNotes.length - 1)];
 
-						var sustainNote:Note = new Note(daStrumTime + (Conductor.stepCrochet * susNote), daNoteData, oldNote, true);
+						var sustainNote:Note = new Note(daStrumTime + (Conductor.stepCrochet * susNote), daNoteData, oldNote, true, false, null, noteMania);
 						sustainNote.hitMultUpdate(susNote, floorSus);
 						sustainNote.mustPress = gottaHitNote;
-						sustainNote.gfNote = (section.gfSection && (songNotes[1]<(SONG.mania + 1)));
+						sustainNote.gfNote = (section.gfSection && (songNotes[1] < perSideKeys));
 						sustainNote.noteType = swagNote.noteType;
 						sustainNote.scrollFactor.set();
 						sustainNote.parent = swagNote;
@@ -1988,6 +2103,11 @@ class PlayState extends MusicBeatState
 			value1: event[1][i][1],
 			value2: event[1][i][2]
 		};
+		// ★ KeyChange(MoreKey) 不进入一次性事件队列：由 updateKeyChangeState 时间线状态机驱动，
+		//   键数状态跟随歌曲时间，时间跳转/回滚后自动恢复/重放，不会被“已消费”卡死
+		if (KeyChange.isKeyChangeName(subEvent.event))
+			return;
+
 		eventNotes.push(subEvent);
 		eventPushed(subEvent);
 		callOnScripts('onEventPushed', [
@@ -2128,8 +2248,12 @@ class PlayState extends MusicBeatState
 
 	public var skipArrowStartTween:Bool = false; // for lua
 
-	private function generateStaticArrows(player:Int):Void
+	private function generateStaticArrows(player:Int, ?transition:Float = -1):Void
 	{
+		// transition >= 0 = KeyChange 事件重建 strum：>0 在 transition 秒内逐个淡入，
+		// ==0（value2 填 0/留空无效值按 0）直接显示、跳过渐显动画；<0 走开局原有逻辑
+		var rebuildMode:Bool = (transition != null && transition >= 0);
+		var forceTween:Bool = (rebuildMode && transition > 0);
 		var strumLineX:Float = ClientPrefs.data.middleScroll ? STRUM_X_MIDDLESCROLL : STRUM_X;
 		var strumLineY:Float = ClientPrefs.data.downScroll ? (FlxG.height - 150) : 50;
 		for (i in 0...PlayState.SONG.mania + 1)
@@ -2159,7 +2283,14 @@ class PlayState extends MusicBeatState
 
 			var babyArrow:StrumNote = new StrumNote(strumLineX, strumLineY, i, player);
 			babyArrow.downScroll = ClientPrefs.data.downScroll;
-			if (!isStoryMode && !skipArrowStartTween)
+			if (forceTween)
+			{
+				babyArrow.alpha = 0;
+				var tDur:Float = Math.max(0.05, transition);
+				var tDel:Float = Math.min(0.04, tDur / Math.max(1, PlayState.SONG.mania + 1)) * i;
+				FlxTween.tween(babyArrow, {alpha: targetAlpha}, Math.max(0.05, tDur - tDel), {ease: FlxEase.circOut, startDelay: tDel});
+			}
+			else if (!rebuildMode && !isStoryMode && !skipArrowStartTween)
 			{
 				// babyArrow.y -= 10;
 				babyArrow.alpha = 0;
@@ -2300,6 +2431,16 @@ class PlayState extends MusicBeatState
 			resumeGameplayGcAfterSubstate = false;
 			if (FlxG.sound.music != null && !startingSong)
 				resyncVocals(true, pausedTimePos);
+			if (!startingSong)
+			{
+				// ★ 无论 resyncVocals 有没有提前返回（finishTimer != null 那条早退），歌曲时钟
+				//   都必须重新锚定到暂停点：暂停期间一旦失焦/回焦，TimingSystem.onFocus() 会把
+				//   时钟重新拉起来，而 resume() 不会重置基准 —— 于是 timing.resume() 之后
+				//   Conductor.songPosition 会直接前跳掉整段暂停时长。这里补一次显式对齐。
+				//   倒计时中（startingSong）不动：那时时钟还没接管，位置由 handleInput 的负数分支推进。
+				Conductor.songPosition = pausedTimePos < 0 ? 0 : pausedTimePos;
+				if (timing != null) timing.setPosition(Conductor.songPosition);
+			}
 
 			FlxTimer.globalManager.forEach(function(tmr:FlxTimer) if (!tmr.finished)
 				tmr.active = true);
@@ -2334,7 +2475,11 @@ class PlayState extends MusicBeatState
 		callOnScripts('onFocus');
 		if (health > 0 && !paused)
 			resetRPC(Conductor.songPosition > 0.0);
-		if (timing != null) timing.onFocus();
+		// ★ 暂停中不能把歌曲时钟拉起来：失焦→回焦时 flixel 一样会派发 focusGained，
+		//   而 TimingSystem.onFocus() 只认 FlxG.autoPause。若在这里 resume()，暂停期间
+		//   时钟会一直偷跑，恢复时即使 resyncVocals 被跳过也不会有人纠正它。
+		//   暂停期间的时钟由 openPauseMenu()/closeSubState() 这对函数负责启停。
+		if (timing != null && !paused) timing.onFocus();
 		super.onFocus();
 		callOnScripts('onFocusPost');
 	}
@@ -2392,37 +2537,105 @@ class PlayState extends MusicBeatState
 		if (fixVocals == null)
 			fixVocals = false;
 
-		if (ClientPrefs.data.developerMode) trace('resynced vocals at ' + Math.floor(Conductor.songPosition));
+		// ★ 以「引擎时钟」为准，绝不再从音乐轨反读时间。
+		//   旧写法是 FlxG.sound.music.play() 之后 `Conductor.songPosition = FlxG.sound.music.time`，
+		//   而 FlxSound.play()（flixel 5.9.0 FlxSound.hx:745）在音轨"没在播、也不是暂停态"时
+		//   会用 StartTime = 0 去 startSound()：既可能是播放失败（openfl Sound.play() 在活跃
+		//   声道 >= 32 时返回 null，_time 被写成 0），也可能是音轨已播完 stopped()→cleanup()
+		//   或被 stop() 过。这时 _time = 0，反读回来就把 songPosition（进而 timing）拽到 0 ——
+		//   表现就是「暂停后继续 / 失步自愈后 谱面从头重放」，而且只在那种罕见到来的状态下出现，
+		//   所以是"偶然"发生。这里统一显式定位：play(forceRestart, 目标时间)，读回去的风险消失。
+		var targetPos:Float = (fixVocals && fixTime != null) ? fixTime : Conductor.songPosition;
+		if (targetPos < 0)
+			targetPos = 0;
+
+		if (ClientPrefs.data.developerMode) trace('resynced vocals at ' + Math.floor(targetPos));
 		fixDesyncedStep = 0;
 		checkIfDesynced = false;
 		lastDesyncCheckTime = Lib.getTimer();
 
-		FlxG.sound.music.play();
-		#if FLX_PITCH FlxG.sound.music.pitch = playbackRate; #end
-		if (fixVocals && fixTime != null)
-			FlxG.sound.music.time = Std.int(fixTime);
-        Conductor.songPosition = FlxG.sound.music.time;
-        if (timing != null) timing.setPosition(Conductor.songPosition);
-
-		if (Conductor.songPosition <= vocals.length)
+		if (FlxG.sound.music != null)
 		{
-			if (fixVocals)
-				vocals.time = Conductor.songPosition;
-			#if FLX_PITCH vocals.pitch = playbackRate; #end
+			FlxG.sound.music.play(true, targetPos);
+			#if FLX_PITCH FlxG.sound.music.pitch = playbackRate; #end
+			// 播放失败（声道数打满、资源丢失）时音乐轨会彻底哑掉、onComplete 也永远不会来，
+			// 这里补一条日志，方便排查「结尾不结算」是不是音轨根本没起来。
+			if (!FlxG.sound.music.exists && ClientPrefs.data.developerMode)
+				trace('resyncVocals: instrumental failed to start (exists=false)');
 		}
 
-		if (Conductor.songPosition <= opponentVocals.length)
-		{
-			if (fixVocals)
-				opponentVocals.time = Conductor.songPosition;
-			#if FLX_PITCH opponentVocals.pitch = playbackRate; #end
-		}
-		vocals.play();
-		opponentVocals.play();
+		// 引擎自己的对齐：不要触发"外部跳变"那套处理（会去清音符）
+		engineSeeking = true;
+		Conductor.songPosition = targetPos;
+		engineSeeking = false;
+		if (timing != null) timing.setPosition(targetPos);
+
+		resyncVoiceTrack(vocals, targetPos);
+		resyncVoiceTrack(opponentVocals, targetPos);
 		if (videoCutscene != null)
 		{
 			videoCutscene.resume();
 		};
+	}
+
+	/**
+	 * 把一条人声轨精确定位到 targetPos。
+	 * 已经唱完（时间点越过音轨长度）时必须保持停止 —— 旧实现在这里无条件 vocals.play()，
+	 * 而唱完的音轨处于"没在播、也不是暂停态"，play() 会从 0 重播，于是暂停→继续之后
+	 * 人声整段重来（越界时连 vocals.time 都不会被设置）。
+	 */
+	private function resyncVoiceTrack(track:FlxSound, targetPos:Float):Void
+	{
+		if (track == null)
+			return;
+
+		if (track.length <= 0 || targetPos > track.length)
+		{
+			track.stop();
+			return;
+		}
+
+		track.play(true, targetPos);
+		#if FLX_PITCH track.pitch = playbackRate; #end
+	}
+
+	/**
+	 * 外部（mod 脚本 / 其它代码）把歌曲时间跳到别处时的处理。
+	 *
+	 * 本引擎的歌曲时钟是 timing 这套独立时钟，handleInput 每帧都会执行
+	 * `Conductor.songPosition = timing.getPositionMs()`。所以 mod 里最经典的跳时间写法
+	 *
+	 *     setPropertyFromClass('Conductor', 'songPosition', X)
+	 *     setPropertyFromClass('flixel.FlxG', 'sound.music.time', X)
+	 *
+	 * 会被下一帧覆盖回去 —— 典型症状就是「过场视频播完之后谱面从 0 重新开始，视频却不再播」。
+	 * 这里做两件事：
+	 *   1) 把引擎时钟重新锚定到新位置，让跳转真正生效；
+	 *   2) 向前跳时把已经落在新位置之前的音符清掉（与引擎自带的 Skip Time 完全一致：
+	 *      那些音符已经不可能被打到，留着只会在跳转那一刻集中变成一堆 miss，直接掉血到死）。
+	 * 倒计时中 / 暂停中 / 结算中一律不动手，那些阶段的 songPosition 由各自的流程负责。
+	 */
+	private function handleExternalSeek(newPos:Float):Void
+	{
+		if (engineSeeking || timing == null)
+			return;
+		if (!startedCountdown || startingSong || paused || endingSong || destroying || isDead)
+			return;
+		if (newPos < 0 || Math.isNaN(newPos))
+			return;
+
+		if (newPos > timing.getPositionMs() + 1)
+			clearNotesBefore(newPos);
+
+		timing.setPosition(newPos);
+		if (!timing.isPlaying)
+		{
+			timing.tickEnabled = true;
+			timing.resume();
+		}
+
+		if (ClientPrefs.data.developerMode)
+			trace('external seek -> ' + Math.floor(newPos));
 	}
 
 	public var fixDesyncedStep:Int = 0;
@@ -2456,6 +2669,20 @@ class PlayState extends MusicBeatState
 	{
 		if (startedCountdown && !paused)
         {
+            // ★ mod 另一种常见的跳时间写法是只动音乐轨：`FlxG.sound.music.time = X`。
+            //   音乐轨在一帧里被跳走（正常播放每帧只前进十几毫秒）就说明是外部跳转，
+            //   这时把引擎时钟跟过去；否则下面这行会把时钟写回旧值，而 0.6 秒后的
+            //   失步自愈还会反过来把音乐拽回时钟，跳转等于没发生。
+            if (FlxG.sound.music != null && FlxG.sound.music.playing)
+            {
+                var musicNow:Float = FlxG.sound.music.time;
+                if (lastMusicSeekTime >= 0 && Math.abs(musicNow - lastMusicSeekTime) > Conductor.SEEK_JUMP_EPSILON)
+                    handleExternalSeek(musicNow);
+                lastMusicSeekTime = musicNow;
+            }
+            else
+                lastMusicSeekTime = -1;
+
             if (Conductor.songPosition < 0)
                 Conductor.songPosition += elapsed * 1000 * playbackRate;
             else if (timing != null && (timing.isPlaying || timing.tickEnabled))
@@ -2608,6 +2835,32 @@ class PlayState extends MusicBeatState
 				timeTxt.text = FlxStringUtil.formatTime(secondsTotal, false);
 		}
 
+		// ★ 结尾兜底：正常结算路径只有一条 —— 音乐轨的 onComplete -> finishSong()。
+		//   那条回调一旦不来，玩家就永远卡在最后一小节（endSong 都没跑过，连"结算不了"
+		//   之外还会表现为结尾处没有反应）。实测可行的成因不止一个：
+		//   · openfl Sound.play() 在活跃声道 >= 32 时返回 null（openfl/media/Sound.hx:702），
+		//     FlxSound.startSound() 于是把 exists 置 false —— 音轨自此永久哑掉，onComplete 再也不会来；
+		//   · 脚本/舞台脚本用 FlxG.sound.playMusic 换掉音乐轨，loadEmbedded -> reset() 会清空 onComplete；
+		//   · 音轨加载失败 / 声道被系统回收。
+		//   这里按引擎自己的歌曲时钟兜底：越过尾音 + 宽限时间仍未走过结算，就强制走一次。
+		//   只在 songFinished == false 时触发 —— 也就是说音乐轨的 onComplete 正常来过时，
+		//   这条兜底永远不会介入（脚本刻意拦下结算去循环谱面的场景也照旧不打扰）。
+		if (!paused && !endingSong && !startingSong && !songFinished && startedCountdown && songLength > 0)
+		{
+			var endGrace:Float = 2000 + ClientPrefs.data.noteOffset;
+			if (endGrace < 1000)
+				endGrace = 1000;
+
+			if (Conductor.songPosition > songLength + endGrace)
+			{
+				trace('[NF] song end fallback: songPosition=' + Math.floor(Conductor.songPosition)
+					+ ' songLength=' + Math.floor(songLength)
+					+ ' musicPlaying=' + (FlxG.sound.music != null && FlxG.sound.music.playing)
+					+ ' musicExists=' + (FlxG.sound.music != null && FlxG.sound.music.exists));
+				finishSong(true);
+			}
+		}
+
 		FlxG.watch.addQuick("secShit", curSection);
 		FlxG.watch.addQuick("beatShit", curBeat);
 		FlxG.watch.addQuick("stepShit", curStep);
@@ -2641,6 +2894,20 @@ class PlayState extends MusicBeatState
 				while (k < spawnCount)
 				{
 					var dunceNote:Note = unspawnNotes[k];
+					// ★ KeyChange(MoreKey)：越界判定按音符「自身所属段」的键数。
+					//   事件后的未来段音符（如 4K→6K 的新增轨 4/5）在事件触发前约 2s 就会进入
+					//   spawn 窗口，此时 SONG.mania 还是旧键数——若按旧键数过滤会把它们误杀，
+					//   导致切键后新轨的音符不渲染。只有超出自己段键数的（真·旧段残留）才丢弃。
+					var noteKeys:Int = (dunceNote.generatedMania >= 0 ? dunceNote.generatedMania : SONG.mania) + 1;
+					if (dunceNote.noteData >= noteKeys)
+					{
+						detachNoteRefs(dunceNote);
+						unspawnNotes.remove(dunceNote);
+						dunceNote.destroy();
+						lenUnspawn--;
+						spawnCount--;
+						continue;
+					}
 					addNoteInternal(dunceNote);
 					k++;
 				}
@@ -2652,6 +2919,9 @@ class PlayState extends MusicBeatState
 		{
 			if (!inCutscene)
 			{
+				// ★ KeyChange(MoreKey) 时间线状态机：键数状态跟随歌曲时间（支持跳转/回滚）
+				updateKeyChangeState();
+
 				if (!replayMode) {
 					if (ClientPrefs.data.playOpponent ? !cpuControlled_opponent : !cpuControlled)
 						keysCheck();
@@ -2672,8 +2942,13 @@ class PlayState extends MusicBeatState
 							if (daNote != null && daNote.exists && daNote.alive)
 							{
 								var strumGroup:FlxTypedGroup<StrumNote> = daNote.mustPress ? playerStrums : opponentStrums;
-								var strum:StrumNote = strumGroup.members[daNote.noteData];
-								daNote.followStrumNote(strum, fakeCrochet, songSpeed / playbackRate);
+								// ★ KeyChange(MoreKey)：事件后的未来段音符会提前约 2s spawn，此时 strum 还是旧键数，
+								//   轨号可能超出旧 strum。不能销毁（会丢判定与显示）也不能越界调用——
+								//   strum 不存在时跳过跟随/裁剪：音符停在生成位（屏幕外，不可见）但判定照常，
+								//   事件触发重建 strum 后自动恢复显示（followStrumNote 按绝对时间算位，无跳变）。
+								var strum:StrumNote = (daNote.noteData >= 0 && daNote.noteData < strumGroup.members.length) ? strumGroup.members[daNote.noteData] : null;
+								if (strum != null)
+									daNote.followStrumNote(strum, fakeCrochet, songSpeed / playbackRate);
 								if (daNote.mustPress)
 								{
 									if (!ClientPrefs.data.playOpponent)
@@ -2704,7 +2979,7 @@ class PlayState extends MusicBeatState
 											opponentNoteHitForOpponent(daNote);
 									}
 								}
-								if (daNote.isSustainNote && strum.sustainReduce) daNote.clipToStrumNote(strum);
+								if (strum != null && daNote.isSustainNote && strum.sustainReduce) daNote.clipToStrumNote(strum);
 								if (songPosForNotes - daNote.strumTime > noteKillOffset * 1.5)
 									invalidateNote(daNote);
 								else if (songPosForNotes - daNote.strumTime > noteKillOffset)
@@ -3074,7 +3349,16 @@ class PlayState extends MusicBeatState
 		if (Math.isNaN(flValue2))
 			flValue2 = null;
 
-		switch (eventName)
+		if (KeyChange.isKeyChangeName(eventName))
+		{
+			// KeyChange(MoreKey)：
+			// value1 = 目标键数（1~10，4 = 4K、6 = 6K…）
+			// value2 = 过渡时间（秒，把原本的 strum/note 重新渲染成 value1 键）
+			// 该事件由引擎内部处理（键位读取 ClientPrefs.keyBinds，方向/颜色按 extrakeys.json），
+			// 不依赖 Lua。
+			changeKeyAmount(KeyChange.parseKeyCount(value1, SONG.mania + 1), KeyChange.parseTransition(value2));
+		}
+		else switch (eventName)
 		{
 			case 'Hey!':
 				var value:Int = 2;
@@ -3376,6 +3660,248 @@ class PlayState extends MusicBeatState
 		callOnScripts('onEvent', [eventName, value1, value2, strumTime]);
 	}
 
+	/**
+	 * KeyChange(MoreKey) 事件核心 —— 引擎内部实现，不依赖 Lua：
+	 * 把当前谱面键数切换到 targetKeys（1~10K），并让键盘反馈同步更新。
+	 * @param targetKeys 显示键数（4 = 4K、6 = 6K…，1 ~ 10）
+	 * @param transition 过渡时间（秒）：value2，strum 淡入“重新渲染”用；<=0 用默认值
+	 */
+	/**
+	 * KeyChange(MoreKey) 时间线状态机：每帧把键数状态对齐到当前歌曲时间所在的「段」。
+	 *
+	 * - 正常播放：时间跨过事件点时逐个触发（带 value2 过渡动画），并广播 onEvent
+	 *   （KeyChange 不进入一次性事件队列，见 makeEvent）
+	 * - 时间回滚/跳转（测试工具/调试）：立即把 SONG.mania、strum、键位恢复到该时间点
+	 *   应处的段；之后播放到事件时自然重新触发——不会再出现“事件前的段落被改成事件后
+	 *   键数”或“事件已被消费导致后半段永远错键”的问题
+	 */
+	function updateKeyChangeState():Void
+	{
+		if (keyChangePoints == null || keyChangePoints.length < 1)
+			return;
+
+		var songPos:Float = replayMode ? @:privateAccess replayExam.time : Conductor.songPosition;
+		var targetIdx:Int = 0;
+		while (targetIdx < keyChangePoints.length && songPos >= keyChangePoints[targetIdx].time)
+			targetIdx++;
+
+		if (targetIdx == keyChangeCursor)
+			return;
+
+		if (targetIdx < keyChangeCursor)
+		{
+			// ★ 时间回退：恢复到该时间点所属段（不补发动画/回调，播放到时自然重新触发）
+			keyChangeCursor = targetIdx;
+			var targetMania:Int = KeyChange.maniaAt(songPos, keyChangePoints, baseMania);
+			if (targetMania == SONG.mania)
+				return;
+			trace('KeyChange(MoreKey) 时间回退：${SONG.mania + 1}K -> ${targetMania + 1}K (${songPos}ms)');
+			SONG.mania = targetMania;
+			rebuildKeyArrays();
+			keysPressed = [];
+			strumsBlocked = [];
+			removeOutdatedNotes();
+			rebuildStrumLines(0.08);
+			rebuildKeyboardViewer();
+			setOnScripts('mania', SONG.mania);
+			return;
+		}
+
+		// 前进：逐个触发（正常播放逐帧推进；跳转前进时补触发跳过的点）
+		while (keyChangeCursor < targetIdx)
+		{
+			var point:KeyChangePoint = keyChangePoints[keyChangeCursor];
+			keyChangeCursor++;
+			changeKeyAmount(point.keys, point.trans);
+			callOnScripts('onEvent', ['KeyChange', Std.string(point.keys), Std.string(point.trans), point.time]);
+		}
+	}
+
+	public function changeKeyAmount(targetKeys:Int, transition:Float):Void
+	{
+		targetKeys = KeyChange.clampKeys(targetKeys);
+		var newMania:Int = KeyChange.maniaFromKeys(targetKeys);
+		if (newMania == SONG.mania)
+			return;
+
+		trace('KeyChange(MoreKey): ${SONG.mania + 1}K -> ${targetKeys}K in ${transition}s');
+		SONG.mania = newMania;
+
+		// 1) 键位输入上下文：keysArray 按新键数读取 ClientPrefs.keyBinds（用户设置），
+		//    Controls 每帧直接查 keyBinds Map，改完立刻生效
+		rebuildKeyArrays();
+		keysPressed = [];
+		strumsBlocked = []; // 旧键位的屏蔽状态不再有意义
+
+		// 2) 清理旧段残留的越界音符（轨号 >= 新键数），防止 strum/成员越界崩溃
+		removeOutdatedNotes();
+
+		// 3) strum 按新键数重渲染（value2 秒过渡淡入），键盘反馈（按下高亮）随之更新
+		rebuildStrumLines(transition);
+
+		// 4) 屏幕键盘（KeyboardViewer）按新键数重建，按键文本跟随键位设置
+		rebuildKeyboardViewer();
+
+		// 5) 同步脚本侧状态（仅作通知，功能不依赖脚本）
+		setOnScripts('mania', SONG.mania);
+		setOnScripts('keyAmount', targetKeys);
+		callOnScripts('onKeyChange', [1, targetKeys]);
+	}
+
+	/** 按当前 SONG.mania 重建 keysArray 与按键状态数组（4K 特例沿用 Psych 的 note_left 等） */
+	function rebuildKeyArrays():Void
+	{
+		if (SONG.mania != 3)
+		{
+			keysArray = [];
+			for (i in 0...SONG.mania + 1)
+			{
+				keysArray.push(SONG.mania + '_key_$i');
+			}
+		}
+		else keysArray = ['note_left', 'note_down', 'note_up', 'note_right'];
+
+		_hold = [];
+		_press = [];
+		_release = [];
+		for (i in 0...keysArray.length)
+		{
+			_hold.push(false);
+			_press.push(false);
+			_release.push(false);
+		}
+	}
+
+	/**
+	 * 切键后的音符清理。规则（KeyChange 段谱必须遵守，否则误杀）：
+	 * - 已生成/在场上的音符：只清「轨号超出当前键数 且 判定时间已过」的旧段残留
+	 *   （清掉避免幽灵 miss；事件切换点附近谱面应留空）。轨号超出当前键数但还没到时间的
+	 *   （如 4K→6K 事件的新增轨提前约 2s spawn、或与事件同刻的未来段音符）必须保留——
+	 *   等后续事件触发、strum 重建后它们会正常渲染。
+	 * - 未生成的音符：绝不能用当前键数判断（事件1=4K 时会把事件2=6K 之后未 spawn 的轨 4/5
+	 *   全删掉）——只清「轨号超出它自己所属段键数」的损坏数据，其余留给 spawn 过滤处理。
+	 */
+	function removeOutdatedNotes():Void
+	{
+		var perKeys:Int = SONG.mania + 1;
+		var songPos:Float = replayMode ? @:privateAccess replayExam.time : Conductor.songPosition;
+
+		// 已生成/在场上的音符
+		var i:Int = notes.length - 1;
+		while (i >= 0)
+		{
+			var note:Note = notes.members[i];
+			if (note != null && note.noteData >= perKeys && note.strumTime < songPos - 40)
+			{
+				detachNoteRefs(note);
+				note.kill();
+				notes.remove(note, true);
+				if (note.isSustainNote) sustainLayer.remove(note, true); else tapLayer.remove(note, true);
+				note = FlxDestroyUtil.destroy(note);
+			}
+			i--;
+		}
+
+		// 未生成的音符：只清轨号超出「自身所属段键数」的损坏数据
+		var j:Int = unspawnNotes.length - 1;
+		while (j >= 0)
+		{
+			var n:Note = unspawnNotes[j];
+			var nKeys:Int = (n != null && n.generatedMania >= 0 ? n.generatedMania : SONG.mania) + 1;
+			if (n != null && n.noteData >= nKeys)
+			{
+				detachNoteRefs(n);
+				unspawnNotes.remove(n);
+				n.destroy();
+			}
+			j--;
+		}
+	}
+
+	/** 断开 note 的 prev/next/parent-tail 引用，避免销毁后悬空指针 */
+	function detachNoteRefs(note:Note):Void
+	{
+		if (note.prevNote != null && note.prevNote.nextNote == note)
+			note.prevNote.nextNote = null;
+		if (note.nextNote != null && note.nextNote.prevNote == note)
+			note.nextNote.prevNote = null;
+		if (note.parent != null)
+			note.parent.tail.remove(note);
+	}
+
+	/**
+	 * 按当前 SONG.mania 重建两套 strum：
+	 * 旧 strum 立即销毁（它们属于旧键数布局），新 strum 逐个淡入，
+	 * 总过渡时长为 transition 秒（KeyChange 事件 value2），淡入完成后
+	 * 键盘按下/确认动画（键盘反馈）天然对应新键位。
+	 */
+	function rebuildStrumLines(transition:Float):Void
+	{
+		// strum 还没生成（startCountdown 前）时无需重建：startCountdown 会用新 SONG.mania 生成
+		if (playerStrums.members.length < 1 && opponentStrums.members.length < 1)
+			return;
+
+		// 销毁旧 strum（同时从 strumLineNotes 摘除，防止渲染已销毁对象）
+		while (strumLineNotes.members.length > 0)
+		{
+			var spr:StrumNote = strumLineNotes.members[0];
+			strumLineNotes.remove(spr, true);
+		}
+		for (grp in [opponentStrums, playerStrums])
+		{
+			while (grp.members.length > 0)
+			{
+				var spr:StrumNote = grp.members[0];
+				grp.remove(spr, true);
+				spr.destroy();
+			}
+		}
+
+		// 生成新 strum（强制淡入过渡）
+		generateStaticArrows(0, transition);
+		generateStaticArrows(1, transition);
+
+		for (i in 0...playerStrums.length)
+		{
+			setOnScripts('defaultPlayerStrumX' + i, playerStrums.members[i].x);
+			setOnScripts('defaultPlayerStrumY' + i, playerStrums.members[i].y);
+		}
+		for (i in 0...opponentStrums.length)
+		{
+			setOnScripts('defaultOpponentStrumX' + i, opponentStrums.members[i].x);
+			setOnScripts('defaultOpponentStrumY' + i, opponentStrums.members[i].y);
+		}
+	}
+
+	/** 按当前 SONG.mania 重建屏幕键盘反馈（KeyboardViewer），保留原显示开关与层级 */
+	function rebuildKeyboardViewer():Void
+	{
+		if (keyboardViewer == null)
+			return;
+		var wasVisible:Bool = keyboardViewer.visible;
+		var wasX:Float = ClientPrefs.data.comboOffset[4];
+		var wasY:Float = ClientPrefs.data.comboOffset[5];
+		var idx:Int = members.indexOf(keyboardViewer);
+		if (idx < 0)
+			idx = members.length;
+
+		remove(keyboardViewer);
+		keyboardViewer.destroy();
+
+		keyboardViewer = new KeyboardViewer(wasX, wasY);
+		keyboardViewer.antialiasing = ClientPrefs.data.antialiasing;
+		keyboardViewer.visible = wasVisible;
+		add(keyboardViewer);
+		keyboardViewer.cameras = [camHUD];
+
+		// 尽量放回原绘制层级
+		if (idx < members.length - 1)
+		{
+			members.remove(keyboardViewer);
+			members.insert(idx, keyboardViewer);
+		}
+	}
+
 	public function moveCameraSection(?sec:Null<Int>):Void
 	{
 		if (sec == null)
@@ -3447,15 +3973,31 @@ class PlayState extends MusicBeatState
 
 	public function finishSong(?ignoreNoteOffset:Bool = false)
 	{
+		// ★ 只放行一次。音乐轨 onComplete 与 update() 里的结尾兜底可能先后进来，
+		//   重复执行会重开 finishTimer、并把 endSong() 的 transitioning 状态搅乱，
+		//   反过来又变成新的"结算不了"。脚本做循环谱面时由 setSongTime() 复位本标记。
+		if (songFinished)
+			return;
+		songFinished = true;
+
 		updateTime = false;
 		resumeGameplayGcAfterSubstate = false;
 		GameplayGC.finish();
-		FlxG.sound.music.volume = 0;
 
-		vocals.volume = 0;
-		vocals.pause();
-		opponentVocals.volume = 0;
-		opponentVocals.pause();
+		// 音轨可能已经没了（播放失败 exists=false / 被脚本 playMusic 换掉），这里全部判空。
+		if (FlxG.sound.music != null)
+			FlxG.sound.music.volume = 0;
+
+		if (vocals != null)
+		{
+			vocals.volume = 0;
+			vocals.pause();
+		}
+		if (opponentVocals != null)
+		{
+			opponentVocals.volume = 0;
+			opponentVocals.pause();
+		}
 
 		if (ClientPrefs.data.noteOffset <= 0 || ignoreNoteOffset)
 		{
@@ -3548,7 +4090,17 @@ class PlayState extends MusicBeatState
 						NoteTime, NoteMs
 					]
 				];
-				Highscore.saveGameData(SONG.song, storyDifficulty, details, null);
+				// ★ 存分失败绝不能连累结算：异常抛出去会让 endSong() 在打开结算/退出之前
+				//   就整个中断，而现场已经被设成 canPause=false、endingSong=true，
+				//   玩家就永久卡在结尾。统计写不进去是可以接受的，退不出去不行。
+				try
+				{
+					Highscore.saveGameData(SONG.song, storyDifficulty, details, null);
+				}
+				catch (e:Dynamic)
+				{
+					trace('[NF] saveGameData failed: ' + Std.string(e));
+				}
 				
 				var record:games.backend.Replay.StateRecord = {
 					songName: songName,
@@ -3653,8 +4205,23 @@ class PlayState extends MusicBeatState
 
 			if (ClientPrefs.data.resultsScreen)
 			{
-				openSubState(new ResultsScreen(boyfriend.getScreenPosition().x, boyfriend.getScreenPosition().y));
-				FlxG.sound.playMusic(Paths.music('freakyMenu'), 0.7);
+				// ★ 结算界面构造失败也绝不能让玩家卡在"既结算不了也退不出去"：
+				//   endSong() 到这里已经把 canPause / updateTime / persistentUpdate 全关掉了，
+				//   一旦 new ResultsScreen() 抛异常（缺图、自定义皮肤损坏等），
+				//   异常被 CrashHandler 拦下之后游戏就永久停在这一帧，谁都退不出去。
+				//   这里兜底成"回选歌界面"，保证至少能退出。
+				try
+				{
+					openSubState(new ResultsScreen(boyfriend.getScreenPosition().x, boyfriend.getScreenPosition().y));
+					FlxG.sound.playMusic(Paths.music('freakyMenu'), 0.7);
+				}
+				catch (e:Dynamic)
+				{
+					trace('[NF] ResultsScreen failed, falling back to Freeplay: ' + Std.string(e));
+					Mods.loadTopMod();
+					MusicBeatState.switchState(new FreeplayState());
+					FlxG.sound.playMusic(Paths.music('freakyMenu'), 0.7);
+				}
 			}
 			else
 			{
@@ -3667,18 +4234,52 @@ class PlayState extends MusicBeatState
 			transitioning = true;
 		}
 		}
+		else if (ret == LuaUtils.Function_Stop && !transitioning)
+		{
+			// ★ 脚本用 Function_Stop 拦下结算（循环谱面、脚本自己播结尾等）。
+			//   endSong() 前半段已经把 canPause / updateTime 关掉了，脚本如果只打算
+			//   接管一会儿却没有自己恢复，玩家就永久锁死在"结算不了也退不出去"的状态 ——
+			//   这就是结尾按暂停没反应、也退不出游戏的那类报告。这里把"能不能操作"
+			//   恢复回来；endingSong / songFinished 故意不动，那是脚本自己要接管的状态。
+			if (!destroying && !isDead)
+			{
+				canPause = true;
+				updateTime = ClientPrefs.data.timeBarType != 'Disabled';
+			}
+		}
 		return true;
 	}
 
 	public function KillNotes()
 	{
-		while (notes.length > 0)
+		if (notes == null)
 		{
-			var daNote:Note = notes.members[0];
+			unspawnNotes = [];
+			eventNotes = [];
+			return;
+		}
+
+		// 旧实现是 `while (notes.length > 0) { ...; invalidateNote(daNote); }`，
+		// 但 invalidateNote() 只是把音符压入 killNotes 队列（见下方实现），
+		// 并不会减少 notes.length —— 因此该循环永不退出，是死循环。
+		// KillNotes() 被调试键 1 与 Lua 的 endSong()（FunkinLua 里的 set("endSong", ...)）
+		// 调用，等于任何 mod 脚本调一次 endSong() 且场上有音符就会卡死游戏。
+		// 改为：先对成员快照入队，再临时放开每帧销毁预算把队列一次性抽干。
+		var toKill:Array<Note> = notes.members.copy();
+		for (daNote in toKill)
+		{
+			if (daNote == null)
+				continue;
 			daNote.active = false;
 			daNote.visible = false;
 			invalidateNote(daNote);
 		}
+
+		var savedBudget:Int = killNotesBudget;
+		killNotesBudget = killNotes.length;
+		destroyNotes();
+		killNotesBudget = savedBudget;
+
 		unspawnNotes = [];
 		eventNotes = [];
 	}
@@ -4607,6 +5208,17 @@ class PlayState extends MusicBeatState
 		return 'sing' + ExtraKeysHandler.instance.data.animations[ExtraKeysHandler.instance.data.keys[SONG.mania].notes[noteData]].sing;
 	}
 
+	/**
+	 * 按音符「所属段」的方向播角色动画：KeyChange 切键后，旧段残留音符命中时
+	 * 用其 generatedMania 的方向映射，而不是当前（已切换的）键数映射。
+	 * 未指定段（generatedMania < 0）时回退到 singAnimation（保留 HScript 覆写能力）。
+	 */
+	public inline function singAnimationForNote(note:Note):String {
+		if (note != null && note.generatedMania >= 0 && note.generatedMania != SONG.mania)
+			return 'sing' + ExtraKeysHandler.instance.data.animations[ExtraKeysHandler.instance.data.keys[note.generatedMania].notes[note.noteData]].sing;
+		return singAnimation(note.noteData);
+	}
+
 	public inline function opponentNoteHit(note:Note):Void
 	{
 		var result:Dynamic = callOnLuas('opponentNoteHitPre', [
@@ -4636,7 +5248,7 @@ class PlayState extends MusicBeatState
 					altAnim = '-alt';
 
 			var char:Character = dad;
-			var animToPlay:String = singAnimation(note.noteData) + altAnim;
+			var animToPlay:String = singAnimationForNote(note) + altAnim;
 			if (note.gfNote)
 				char = gf;
 
@@ -4837,7 +5449,7 @@ class PlayState extends MusicBeatState
 
 		if (!note.noAnimation)
 		{
-			var animToPlay:String = singAnimation(note.noteData);
+			var animToPlay:String = singAnimationForNote(note);
 
 			var char:Character = boyfriend;
 			var animCheck:String = 'hey';
@@ -4921,7 +5533,7 @@ class PlayState extends MusicBeatState
 		{
 			var char:Character = boyfriend;
 			//var animToPlay:String = singAnimations[Std.int(Math.abs(Math.min(singAnimations.length - 1, note.noteData)))];
-			var animToPlay:String = singAnimation(note.noteData);
+			var animToPlay:String = singAnimationForNote(note);
 			if (note.gfNote)
 				char = gf;
 
@@ -5014,17 +5626,18 @@ class PlayState extends MusicBeatState
 		{
 			var strum:StrumNote = ClientPrefs.data.playOpponent ? opponentStrums.members[note.noteData] : playerStrums.members[note.noteData];
 			if (strum != null)
-				spawnNoteSplash(strum.x, strum.y, note.noteData, note);
+				spawnNoteSplash(strum.x, strum.y, note.noteData, note, strum);
 		}
 	}
 
-	public function spawnNoteSplash(x:Float, y:Float, data:Int, ?note:Note = null)
+	public function spawnNoteSplash(x:Float, y:Float, data:Int, ?note:Note = null, ?strum:StrumNote = null)
 	{
 		if (!ClientPrefs.data.showSplash)
 			return;
 		
 		var splash:NoteSplash = grpNoteSplashes.recycle(NoteSplash);
-		splash.setupNoteSplash(x, y, data, note);
+		splash.babyArrow = strum;
+		splash.spawnSplashNote(x, y, data, note);
 		grpNoteSplashes.add(splash);
 	}
 
@@ -5042,6 +5655,9 @@ class PlayState extends MusicBeatState
 		destroying = true;
 		resumeGameplayGcAfterSubstate = false;
 		GameplayGC.abort();
+
+		// 不能再让已销毁的 PlayState 去处理外部跳时间（新的 PlayState.create() 会重新挂上）。
+		Conductor.onExternalSeek = null;
 
 		if (DeepDebugTracker.active)
 			DeepDebugTracker.finish(endingSong ? 'song_state_destroyed_after_end' : 'aborted_or_restarted');
@@ -5074,6 +5690,7 @@ class PlayState extends MusicBeatState
 		FlxG.animationTimeScale = 1;
 		#if FLX_PITCH FlxG.sound.music.pitch = 1; #end
 		Note.globalRgbShaders = [];
+		NoteSplash.configs.clear();
 		games.backend.NoteTypesConfig.clearNoteTypesData();
 		instance = null;
 

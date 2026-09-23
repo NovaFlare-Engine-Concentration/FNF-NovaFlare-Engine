@@ -65,17 +65,12 @@ CodeName Engine may automatically create a `.temp` directory at runtime; this is
 - Place V-Slice mods into `Funkin/OriginFunkin/mods-vslice/`.
 - `assets` and `mods-vslice` must be at the same directory level.
 - Do **not** place `mods-vslice` inside `assets`.
-- You need to download the required resources from [Funkin Assets] (https://github.com/FunkinCrew/funkin.assets/tree/b91f1ca5f9ee56ce1a3266c5f22cae7c4f70442b).
-- [Resource Download Direct Link](https://github.com/FunkinCrew/funkin.assets/archive/b91f1ca5f9ee56ce1a3266c5f22cae7c4f70442b.zip)
-- Mod Support: Go to Settings and toggle the option below FPS Settings to enable mod support.
-  
+
 ### CodeName Engine
 
-- Place the official CodeName Engine resource into 'Funkin/CodeName/assets/'.
-- Place the CodeName module into 'Funkin/CodeName/mods-codename/'.
-- 'assets' and 'mods-codename' must be of the same level.
-- You need to download the required resources from [CodeName Engine](https://github.com/CodenameCrew/CodenameEngine/tree/98207cbd2e931ddd267ec834f67c13ccea546863).
-- [Resource Download Direct Link](https://github.com/CodenameCrew/CodenameEngine/archive/98207cbd2e931ddd267ec834f67c13ccea546863.zip). **Note:** extract the `assets` directory after the download completes.
+- Place official CodeName Engine resources into `Funkin/CodeName/assets/`.
+- Place CodeName mods into `Funkin/CodeName/mods-codename/`.
+- `assets` and `mods-codename` must be at the same directory level.
 
 ### NovaFlare Engine's Own Content
 
@@ -105,7 +100,7 @@ When the engine selection screen opens:
 3. NovaFlare Engine will save your selection and exit.
 4. Launch `NovaFlare Engine` again, and the program will boot into the selected engine.
 
-**CodeName Engine is available on both PC and mobile. Mobile builds use NovaFlare's touch controls.**
+**CodeName Engine is available only in the PC version; the mobile version can only enter OriginFunkin or continue using NovaFlare Engine.**
 
 ## Launch Configuration Entry
 
@@ -121,7 +116,7 @@ The `preferredMode` field supports the following values:
 | --- | --- |
 | `novaflare` | NovaFlare Engine |
 | `origin` | OriginFunkin |
-| `codename` | CodeName Engine |
+| `codename` | CodeName Engine (PC only) |
 | `auto` | Attempts OriginFunkin first; falls back to NovaFlare Engine if resources are unavailable |
 
 It is recommended to change this via the in-game engine selection interface. Do **not** manually edit `chain.json` while the program is running.

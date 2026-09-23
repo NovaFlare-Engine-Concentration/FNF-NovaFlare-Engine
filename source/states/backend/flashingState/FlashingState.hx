@@ -55,14 +55,7 @@ class FlashingState extends MusicBeatState
 				if (!virtualPad.buttonA.justPressed)
 					ClientPrefs.data.needMobileControl = false;
 				ClientPrefs.data.flashing = true;
-				ClientPrefs.acknowledgeFlashingWarning();
-				if (!ClientPrefs.saveSettings())
-				{
-					leftState = false;
-					pressed = false;
-					return;
-				}
-				leftState = true;
+				ClientPrefs.saveSettings();
 				FlxG.sound.play(Paths.sound('confirmMenu'));
 				FlxFlicker.flicker(warnText, 1, 0.1, false, true, function(flk:FlxFlicker)
 				{
@@ -77,14 +70,7 @@ class FlashingState extends MusicBeatState
 				if (!virtualPad.buttonB.justPressed)
 					ClientPrefs.data.needMobileControl = false;
 				ClientPrefs.data.flashing = false;
-				ClientPrefs.acknowledgeFlashingWarning();
-				if (!ClientPrefs.saveSettings())
-				{
-					leftState = false;
-					pressed = false;
-					return;
-				}
-				leftState = true;
+				ClientPrefs.saveSettings();
 				FlxG.sound.play(Paths.sound('cancelMenu'));
 				FlxTween.tween(warnText, {alpha: 0}, 1, {
 					onComplete: function(twn:FlxTween)

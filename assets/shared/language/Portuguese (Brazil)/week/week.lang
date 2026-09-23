@@ -1,0 +1,39 @@
+week => Editor de Semana
+
+# ===== Botões do menu principal =====
+menu_week => Semana
+menu_other => Outros
+menu_file => Arquivo
+
+# ===== Ações do menu Arquivo =====
+item_load_week => Carregar Semana
+item_freeplay => Editor Freeplay
+item_save_week => Salvar Semana
+
+# ===== Painel Semana (linhas) =====
+w_songs => Músicas
+w_opponent => Oponente
+w_boyfriend => Boyfriend
+w_girlfriend => Girlfriend
+w_background => Cenário
+w_display_name => Nome Exibido
+w_week_name => Nome da Semana (Reset)
+w_week_file => Arquivo da Semana
+w_hide_story => Esconder Semana no Modo História?
+
+# ===== Painel Outros =====
+w_locked => Semana Começa Bloqueada
+w_hidden_unlock => Escondida até Desbloquear
+w_week_before => Desbloquear Exige Semana
+w_difficulties => Dificuldades
+w_difficulties_hint => Dificuldades padrão: "Easy, Normal, Hard" sem aspas.
+
+# ===== Editor Freeplay =====
+fp_editing => Editando
+fp_bg_color => Cor do Fundo
+fp_copy => Copiar
+fp_paste => Colar
+fp_icon => Ícone
+fp_hide_freeplay => Esconder Semana do Freeplay?
+fp_story_mode => Modo História
+fp_song_list => Músicas

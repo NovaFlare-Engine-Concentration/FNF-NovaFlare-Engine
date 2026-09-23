@@ -186,6 +186,12 @@ class Controls
 	@:noCompletion
 	private function get_mobileC():Bool
 	{
+		// “调整移动端各Editor键位”开启期间：Editor 默认虚拟按键被隐藏并由外部窗口
+		// 自定义按键接管（注入 FlxG.keys），因此这里按桌面键盘分支走，让自定义
+		// 组合键能驱动 Editor 的全部操作。
+		if (ClientPrefs.data.adjustMobileEditorKeys)
+			return false;
+
 		if (ClientPrefs.data.controlsAlpha >= 0.1 #if desktop && ClientPrefs.data.needMobileControl #end)
 			return true;
 		else

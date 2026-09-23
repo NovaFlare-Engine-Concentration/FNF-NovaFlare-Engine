@@ -39,7 +39,11 @@ class StringSelect extends FlxSpriteGroup
         var calcHeight:Float = height;
         if (follow.strGroup.length < 5) calcHeight = calcHeight * (follow.strGroup.length / 5);
 
-        bg = new Rect(0, 0, width, calcHeight, width / 75, width / 75, 0xffffff, 0);
+        // 展开列表的底板：必须是**接近不透明的深色**，否则列表看起来就是一堆
+        // 白字浮在设置面板上（原来这里是 0xffffff + alpha 0.1，淡到几乎看不见，
+        // 对照 HTML 原型 .selmenu{background:rgba(20,19,27,.97)}）。
+        // alpha 由 StringRect.change() 在展开/收起时补间。
+        bg = new Rect(0, 0, width, calcHeight, width / 75, width / 75, 0x14131D, 0);
         add(bg);
 
         var init = 80;
@@ -80,6 +84,15 @@ class StringSelect extends FlxSpriteGroup
     public var allowUpdate:Bool = true;
     override public function update(elapsed:Float):Void
     {
+        // ★ 下拉列表的「可见」只能由 isOpend 决定。
+        //   父级 Option / OptionCata 每次显隐都会把 visible 向下传播（FlxSpriteGroup
+        //   的 visibleTransform），收起状态的下拉列表会被父级重新点亮 —— 它那层
+        //   深色底板（0x14131D）就会在内容区里显形，看起来像"下拉列表默认展开"。
+        //   淡出/淡入也曾经把它的 alpha 放大到 0.96，同样会显形。
+        //   这里在每帧开头把它重新绑回 isOpend；关闭补间还没跑完时（bg 还亮着）
+        //   不打断，等淡到 0 再由补间自己 onComplete 关掉。
+        if (!isOpend && visible && bg.alpha <= 0.02) visible = false;
+
         optionMove.mouseLimit[0] = [follow.followX + follow.innerX + mainX - specX, follow.followX + follow.innerX + mainX - specX + bg.width];
         optionMove.mouseLimit[1] = [follow.y + mainY, follow.y + mainY + bg.height];
         super.update(elapsed);
@@ -183,7 +196,7 @@ class ChooseRect extends FlxSpriteGroup {
 
         optionSort = sort;
 
-        bg = new Rect(0, 0, width, height, height / 5, height / 5, EngineSet.mainColor, 0);
+        bg = new Rect(0, 0, width, height, height / 5, height / 5, 0x96B5FF, 0);
         add(bg);
 
         textDis = new FlxText(0, 0, 0, displayName, Std.int(height * 0.15));

@@ -1,0 +1,278 @@
+charting => 谱面
+
+# ===== 菜单标题 =====
+menu_charting => 谱面
+menu_data => 数据
+menu_event => 事件
+menu_note => 音符
+menu_section => 小节
+menu_song => 歌曲
+menu_test => 测试
+menu_help => 帮助
+
+# ===== 状态栏 =====
+status_zoom => 缩放:
+status_tempo =>
+status_section => 小节:
+status_beat => 节拍:
+status_snap => 吸附:
+status_move => 移动音符模式:
+status_move_on => 开启
+status_move_off => 关闭
+
+# ===== 事件面板 =====
+event_tag => 事件
+event_value1 => 值 1
+event_value2 => 值 2
+
+# ===== 项：谱面菜单 =====
+item_metronome => 节拍器
+item_autoscroll => 禁用自动滚动（不建议）
+item_bpm => BPM
+item_offset => 偏移 (ms)
+item_waveform_inst => 波形图 器乐
+item_waveform_main => 波形图 主音
+item_waveform_opp => 波形图 对手音
+item_mute_inst => 静音器乐
+item_mute_main => 静音主音
+item_mute_opp => 静音对手音
+item_vortex => Vortex 编辑器
+item_ignore_warnings => 忽略进度警告
+item_sfx_bf => 校对 BF 音符
+item_sfx_opp => 校对 对手音符
+
+# ===== 项：数据菜单 =====
+item_go_char => 游戏结束角色
+item_go_sound => 死亡音效
+item_go_loop => 循环音乐
+item_go_end => 重试音乐
+item_no_rgb => 禁用音符 RGB
+item_note_skin => 音符皮肤
+item_note_splash => 音符溅射
+item_apply_notes => 应用音符更改
+
+# ===== 项：事件菜单 =====
+item_event_type => 事件类型
+item_value1 => 值 1
+item_value2 => 值 2
+item_add_event => 添加事件
+item_del_event => 删除事件
+item_prev_event => 上一个
+item_next_event => 下一个
+
+# ===== 项：音符菜单 =====
+item_sustain_len => 持续长度
+item_strum_time => 击打时间 (ms)
+item_note_type => 音符类型
+
+# ===== 项：小节菜单 =====
+item_must_hit => 玩家小节
+item_gf_section => GF 小节
+item_alt_anim => 替身动画
+item_beats_per_section => 每小节节拍
+item_change_bpm => 更改 BPM
+item_section_bpm => 小节 BPM
+item_copy_section => 复制小节
+item_paste_section => 粘贴小节
+item_clear_section => 清空小节
+item_swap_section => 交换小节
+item_do_copy_beat => 执行复制
+item_undo => 撤销上一步
+item_include_notes => 包含音符
+item_include_events => 包含事件
+item_duet_notes => 二重奏音符
+item_mirror_notes => 镜像音符
+
+# ===== 项：歌曲菜单 =====
+item_song_title => 歌曲名
+item_has_voice => 人声轨道
+item_save => 保存
+item_reload_audio => 重载音频
+item_reload_json => 重载 JSON
+item_engine => 引擎
+item_load_autosave => 载入自动保存
+item_load_events => 载入事件
+item_save_events => 保存事件
+item_clear_events => 清空事件
+item_clear_notes => 清空音符
+item_speed => 速度
+item_mania => 键数
+item_opponent => 对手
+item_girlfriend => 女友
+item_player => 玩家
+item_stage => 舞台
+
+# ===== 标签（LabelWidget 用） =====
+label_bpm => BPM
+label_offset => 偏移
+label_inst_vol => 器乐音量
+label_voices_vol => 主音音量
+label_voices_opp_vol => 对手音音量
+label_go_char => 游戏结束角色
+label_go_sound => 死亡音效
+label_go_loop => 循环音乐
+label_go_end => 重试音乐
+label_note_skin => 音符皮肤
+label_note_splash => 音符溅射
+label_event_type => 事件类型
+label_value1 => 值 1
+label_value2 => 值 2
+label_sus_len => 持续长度
+label_strum_time => 击打时间
+label_note_type => 音符类型
+label_beats_per_section => 当前小节节拍
+label_section_bpm => 小节 BPM
+label_song_title => 歌曲名
+label_speed => 速度
+label_mania => 键数
+label_stage => 舞台
+label_player1 => 对手
+label_gf => 女友
+label_player2 => 玩家
+
+# ===== 帮助菜单标题标签 =====
+label_help_nav => 导航操作
+label_help_note => 音符操作
+label_help_play => 播放控制
+label_help_edit => 编辑操作
+
+# ===== 项：测试菜单 =====
+item_test_mode => 以测试模式进行
+item_normal_mode => 以正常模式进行
+
+# ===== 描述（hover 时显示） =====
+desc_metronome => 打谱时按 BPM 周期发出清脆的节拍声（默认 800Hz 短音），帮助快速对齐节奏、检查节拍偏移；若觉得吵可配合试听静音一起关。
+desc_autoscroll => 关闭后谱面不会自动跟随播放位置滚动，需要你手动滚动。这个选项会让整首谱面缩成一张完整的大图，方便整体调整，但是新手不推荐用。
+desc_bpm => 歌曲每分钟节拍数。这个值决定了网格里每一格是多少毫秒，也直接影响节拍器、波形显示、拖拽吸附等一切和时间相关的计算。改了以后建议「重载 JSON」确认效果。
+desc_offset => 音频输出延迟补偿值，单位毫秒。正值把谱面整体往后挪（用来对齐慢一拍的耳机蓝牙延迟），负值把谱面整体往前挪（应对采样设备提前触发）。建议反复微调，±5ms 基本听不出来，±20ms 开始有影响。
+desc_waveform_inst => 在谱面网格上叠加器乐轨道（Inst.ogg）的波形图。器乐波形能帮你快速找到鼓点、贝斯和底鼓落位，适合配鼓点的谱。
+desc_waveform_main => 在谱面网格上叠加主音（玩家）演唱轨道的波形图。和器乐波形一起开时可以同时观察两者的节奏对齐。
+desc_waveform_opp => 在谱面网格上叠加对手演唱轨道（Vocals-dad / Vocals-mom 等）的波形图。适合对手有独立人声段落（比如 rap battle）时使用。
+desc_mute_inst => 试听时静音器乐（Inst.ogg），只听人声轨道。可以用来仔细检查人声段落的谱是否贴合每一个咬字。
+desc_mute_main => 试听时静音主音玩家的演唱，只听器乐 + 对手音。适合需要同时盯对手谱又怕被玩家干扰的情况。
+desc_mute_opp => 试听时静音对手的演唱，只听器乐 + 玩家音。检查玩家谱面的细节精度时可以开。
+desc_vortex => 启用 Vortex 模式编辑器，可在更多轨道上自由编辑（默认 4K 之外），适合 Mania 模式、双人谱或非常规轨数的歌曲。
+desc_ignore_warnings => 关闭谱面进度相关的红色警告，包括：「音符数量偏少」「整首歌 0 音符」「歌曲时长短于标准谱」等。一般只在做 micro-song / 练习小片段时开。
+desc_sfx_bf => 放置 BF（玩家）音符时播放一个「卡」的试听音，让你放音符时就知道音头踩不踩点，非常适合对鼓点做精准对位。
+desc_sfx_opp => 放置对手音符时播放试听音，功能同上。当对手段落和玩家段落节奏不同步时建议开。
+desc_go_char => 游戏结束界面显示的角色精灵名称，和角色表中的对应，比如 bf-pixel、bf、gf-pixel。角色不存在会回退到默认 BF。
+desc_go_sound => 玩家死亡（连击归零）时立刻播放的音效文件名，要先在 metadata 的 sound 列表里注册，没注册的名字会静默不播放。
+desc_go_loop => 游戏结束界面循环播放的背景乐。当玩家连击归零进入 Game Over 屏幕后，这首音乐从头开始循环播放。
+desc_go_end => 玩家选择「重试」时播放的收尾音乐，紧接在 Game Over 循环之后触发。
+desc_no_rgb => 禁用每一个音符的单独 RGB 着色，统一使用音符皮肤原图中的本色。适合皮肤本身已经画好渐变或特定配色的情况，开了之后性能也会轻微提升。
+desc_note_skin => 音符贴图资产文件名，位于 assets/shared/images/notes/ 目录。只需要填文件名（不含扩展名），引擎会自动加 _left/_down/_up/_right 后缀。
+desc_note_splash => 音符击中时溅射效果的资产名。溅射一般是一张透明 PNG，里面放 4 张不同角度的小溅射图，引擎会按方向挑一张随机旋转。
+desc_apply_notes => 把当前选择的音符皮肤 / 溅射 / 禁止 RGB 设置一次性应用到整首歌里已经放好的所有音符上，不用挨个改。改完皮肤直接按这个就行。
+desc_event_type => 选择当前事件的类型，右侧描述面板会跟着更新这个事件的具体用法、取值范围、常用示例。
+desc_event_info => 当前事件类型及其说明：把鼠标悬停在上方下拉列表的选项上，就能预览每个事件的名字和用法，不用先点下去。
+desc_value1 => 事件的第一个参数值，含义完全随事件类型变化：相机事件是缩放量，动画事件是角色名，属性事件是属性路径。
+desc_value2 => 事件的第二个参数值，含义随事件类型变化：相机事件是 HUD 缩放，动画事件是动画名，声音事件是音量。
+desc_add_event => 在当前播放头（那条竖红线）的位置插入一个和当前类型一致的新事件，然后选中它。
+desc_del_event => 删除当前已经选中的事件。删了就没了，不能撤销，删之前先「保存」一次。
+desc_prev_event => 把选中条从当前事件往前跳到时间更小的那一个。
+desc_next_event => 把选中条从当前事件往后跳到时间更大的那一个。
+desc_sustain_len => 当前音符的持续长度（1 等于一小节中的一个标准拍长）。0 就相当于普通短音符，0.5 是半拍长音。
+desc_strum_time => 音符的击打时间（毫秒），即这个音符应该被玩家按下的精确时刻，从歌曲开头 0ms 起算。
+desc_note_type => 音符特殊类型：None = 普通，Alt Animation = 替身动画，Hey! = 播放配音，Hurt Note = 击中丢血，GF Sing = 让女友唱一声，No Animation = 不出动画。
+desc_must_hit => 开启时本小节由玩家（BF）击打；关闭时由对手击打。每一个 Section 只能选一种，别乱混。
+desc_gf_section => 开启时本小节女友（GF）也加入演唱。适合在桥段（Bridge）或副歌时强调女友的参与感。
+desc_alt_anim => 开启时本小节所有角色自动切换到 alt（替身/替代）动画组，比如 BF 戴上墨镜、女友换姿势等。
+desc_beats_per_section => 本小节的节拍数（默认 4）。改这个就能做 3/4、5/4、7/8 拍这种奇怪拍号的谱，但注意 4 拍是绝对主流，别为了炫技乱改。
+desc_change_bpm => 开启后本小节使用独立的「小节 BPM」值，而不是全局 BPM。常用在歌曲中途提速 / 降速的桥段。
+desc_section_bpm => 本小节独立 BPM 值，仅在「更改 BPM」开启时才会生效。如果和全局 BPM 差很多，注意前后两个小节交界处音符吸附会不会错位。
+desc_copy_section => 复制当前小节的全部内容（玩家音符 + 对手音符 + 事件，视「包含音符 / 事件」勾选）到剪贴板。
+desc_paste_section => 把剪贴板中的上一次小节内容完整粘贴到当前小节。粘贴会覆盖掉原来的内容，注意先备份。
+desc_clear_section => 清空当前小节的所有内容（音符、事件全没了）。这是 destructive 操作，无法撤销，记得先保存。
+desc_swap_section => 把当前小节里玩家音符和对手音符交换位置（交换 mustHit 归属 + 左右箭头轨道），相当于把一段 Battle 对调。
+desc_copy_beat => 以当前节拍为基准（设 N），正数就是从 [N－数] 拍直接复制粘贴到当前节拍；负数反之。1 = 复制前一拍，2 = 复制前两拍，以此类推。
+desc_do_copy_beat => 按上方偏移量执行复制：把目标小节的内容（音符 + 事件）复制覆盖到当前小节。动手前先确认数值没错。
+desc_undo => 撤销最近一次破坏性操作（复制 / 粘贴 / 交换 / 复制节拍 / 二重奏 / 镜像等），最多保留 50 步。快捷键 Ctrl+Z 同样有效。
+desc_include_notes => 执行复制 / 粘贴 / 镜像 / 交换 等操作时，是否把音符包含进去。关掉以后只会操作事件。
+desc_include_events => 执行复制 / 粘贴 / 镜像 / 交换 等操作时，是否把事件（相机、动画、属性等）包含进去。关掉以后只会操作音符。
+desc_duet_notes => 把当前小节的音符复制成二重奏：同一时间点玩家和对手都有同样的音符，适合做合唱段落。
+desc_mirror_notes => 把当前小节内的音符左右镜像，左 ↔ 右、下 ↔ 上 互换。镜像的是按键（箭头方向），不是时值。
+desc_song_title => 歌曲标题，也是谱面文件、Inst/Vocals 音频的默认查找名（不含扩展名），所以别瞎写中文，改成英文短名最稳。
+desc_difficulty => 难度后缀（可自由填写，如 Fuck）。留空 = 保存/加载为「歌曲名.json」；填了 Fuck = 保存/重载为「歌曲名-Fuck.json」，用于制作多难度谱面。
+desc_has_voice => 歌曲是否包含独立的人声轨道（Vocals.ogg / Vocals-dad.ogg / Vocals-mom.ogg）。关掉后引擎会尝试只用 Inst.ogg 播放。
+desc_save => 保存当前谱面到 charts/ 目录。文件名默认就是「歌曲名.json」，改完谱先点一次再说别的。快捷键 Ctrl+S。
+desc_reload_audio => 重新从磁盘读取歌曲的音频文件。当你在外部替换了 Inst.ogg / Vocals.ogg 后点这个，不用重启编辑器。
+desc_reload_json => 重新从磁盘读取谱面的 JSON 文件。一般是你用记事本/外部编辑器改了 JSON 内容想刷到编辑器里来，或者因为误操作想回退时用。
+desc_engine => 切换编辑器引擎的版本号 / 兼容模式。不同引擎版本音符的属性、事件的名字可能不同，老谱导入新引擎时选对这个能省很多兼容性头疼事。
+desc_load_autosave => 加载编辑器的自动保存谱面。编辑器每隔一段时间会把谱面写一份备份到 autosave/ 目录，意外崩溃了就靠这个救命。
+desc_load_events => 从 events/ 文件夹加载一份 .json 事件文件并合并到当前谱里。事件不会自动去重，加载重复会叠好几层。
+desc_save_events => 把当前谱中所有的事件单独拎出来保存到 events/ 目录，方便和其他谱共享事件序列（比如同一首歌两套谱用相同相机）。
+desc_clear_events => 清空整首歌的所有事件（相机、动画、SetProperty、声音等全部没了）。这个操作 destructive，不能撤销，一定要先保存。
+desc_clear_notes => 清空整首歌的所有音符（全角色、全轨道、全类型）。谱空了但歌曲、节拍、Section 结构还留着，想重写谱直接用这个就行。
+desc_speed => 歌曲游玩的速度倍率（1.0 = 原速）。只在编辑器里试听时生效，不影响保存出去的真实谱。常用于放慢检查细节，或加速快速走完全曲。
+desc_mania => Mania 键数（2 ~ 9），影响谱面布局、轨道数、对应键位。默认 FNF 是 4K，改了后网格会从 4 轨变成你选的轨数。
+desc_opponent => 对手角色的精灵名，和 assets/shared/images/ 里的角色文件夹名保持一致，不存在会显示成占位黑块。
+desc_girlfriend => 女友角色的精灵名。女友一般站在双人中间当装饰，会根据节拍左右摇头。
+desc_player => 玩家角色的精灵名。大多数谱默认是 BF，但 mod 里可以替换成你自己的主角。
+desc_stage => 舞台背景名，对应 assets/shared/images/stages/ 里的文件夹名，不存在会显示黑色背景。
+desc_test_mode => 进入 EditorPlayState 试玩模式：保留编辑器辅助信息（节拍器、播放头位置、事件高亮），按键不会真的判定死，用来快速走谱。按 Esc 可以从这里返回编辑器。
+desc_normal_mode => 以正常游玩模式从当前播放头位置开始（PlayState）：正常判定、正常连击、正常死 Game Over。想真的打一遍谱就选这个，Enter 快捷键。
+
+# ===== 帮助菜单描述（4 个标题项的描述） =====
+desc_help_nav => 在谱面编辑器里如何浏览和定位：上下滚动播放头、左右切换小节、调整吸附精度。
+desc_help_note => 如何操作音符：左键添加 / 删除，右键拖拽移动，Q / E 调整持续长度。
+desc_help_play => 试玩相关快捷键：Esc 测试模式，Enter 正常游玩，空格暂停，Z / X 缩放。
+desc_help_edit => 通用编辑操作：Ctrl+Z 撤销，Ctrl+S 保存，Tab / Shift+Tab 切换功能面板。
+
+# ===== 项：帮助菜单 =====
+item_help_nav => 导航操作
+item_help_nav_ws => W / S 或 鼠标滚轮 - 上下移动播放头
+item_help_nav_ad => A / D - 切换上一个 / 下一个小节
+item_help_nav_lr => ← / → - 调整吸附精度
+item_help_note => 音符操作
+item_help_note_add => 鼠标左键 - 在当前位置添加音符
+item_help_note_move => 鼠标右键按住 - 拖拽移动音符
+item_help_note_del => 鼠标左键点击已有音符 - 删除
+item_help_note_sus => Q / E - 缩短 / 延长音符持续长度
+item_help_play => 播放控制
+item_help_play_test => Esc - 测试模式试玩
+item_help_play_norm => Enter - 正常模式游玩
+item_help_play_stop => 空格 - 暂停 / 继续播放
+item_help_play_zoom => Z / X - 放大 / 缩小
+item_help_edit => 编辑操作
+item_help_edit_undo => Ctrl+Z - 撤销
+item_help_edit_save => Ctrl+S - 保存当前谱面
+item_help_edit_section => Tab / Shift+Tab - 切换到下一个 / 上一个功能面板
+
+# ===== 项标签（带标签的控件） =====
+label_bpm => BPM:
+label_offset => 偏移 (ms):
+label_inst_vol => 器乐音量:
+label_voices_vol => 主音音量:
+label_voices_opp_vol => 对手音量:
+label_go_char => 结束角色:
+label_go_sound => 死亡音效:
+label_go_loop => 循环音乐:
+label_go_end => 重试音乐:
+label_note_skin => 音符皮肤:
+label_note_splash => 音符溅射:
+label_event_type => 事件类型:
+label_value1 => 值 1:
+label_value2 => 值 2:
+label_sustain_len => 持续长度:
+label_strum_time => 击打时间:
+label_note_type => 音符类型:
+label_beats => 当前小节节拍:
+label_section_bpm => 小节 BPM:
+label_copy_beat => 复制节拍:
+label_song_title => 歌曲名:
+label_difficulty => 难度:
+label_song_bpm => BPM:
+label_song_speed => 速度:
+label_song_mania => 键数:
+label_stage => 舞台:
+label_player1 => 对手:
+label_gf => 女友:
+label_player2 => 玩家:
+
+# ===== 确认弹窗（破坏性操作） =====
+prompt_paste_section => 把剪贴板内容粘贴到当前小节？\n这会覆盖当前小节。
+prompt_clear_section => 清空当前小节的所有音符和事件？
+prompt_swap_section => 把当前小节里玩家音符和对手音符对调？
+prompt_copy_beat => 复制目标节拍并覆盖当前小节？
+prompt_duet_notes => 平衡本小节两侧音符？\n把音符多的一侧复制到少的一侧。
+prompt_mirror_notes => 镜像本小节的所有音符？

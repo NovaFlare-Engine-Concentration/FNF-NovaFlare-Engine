@@ -1,0 +1,76 @@
+# ===== Dialogue Editor top menu (Adobe style) =====
+# ===== Menu titles =====
+menu_line => Line
+menu_char => Character
+menu_text => Text
+menu_file => File
+menu_help => Help
+
+# ===== Status bar =====
+status_line => Line:
+status_char => Char:
+status_anim => Anim:
+status_speed => Speed:
+
+# ===== Items: Line menu =====
+item_prev_line => Previous line
+item_next_line => Next line
+item_add_line => Insert new line after current
+item_remove_line => Delete current line
+
+# ===== Items: Character menu =====
+item_char => Character file
+label_char => Character file
+item_angry => Angry bubble
+label_angry => Angry bubble
+item_speed => Type speed (sec/char)
+label_speed => Type speed
+item_sound => Type sound
+label_sound => Type sound
+item_replay_text => Replay current line text
+item_prev_anim => Previous expression
+item_next_anim => Next expression
+
+# ===== Items: Text menu =====
+item_text => Dialogue text
+label_text => Dialogue text
+
+# ===== Items: File menu =====
+item_load => Load dialogue (JSON)
+item_save => Save dialogue (JSON)
+item_exit => Exit editor
+
+# ===== Descriptions (hover row footer) =====
+desc_prev_line => Switch to the previous dialogue line
+desc_next_line => Switch to the next dialogue line
+desc_add_line => Insert a new dialogue line after the selected one and select it
+desc_remove_line => Delete the currently selected dialogue line
+desc_char => Character JSON file used for the portrait (under images/dialogue/)
+desc_angry => Use the red "angry" speech bubble style for this line
+desc_speed => Type speed: smaller values type faster (sec/char)
+desc_sound => Type sound file name (under sounds/, empty uses default)
+desc_text => The dialogue text shown for this line (Shift+Enter adds a line break)
+desc_replay_text => Replay the typing animation of the current line text
+desc_prev_anim => Switch to the previous expression animation
+desc_next_anim => Switch to the next expression animation
+desc_load => Load a dialogue JSON file from disk
+desc_save => Save the current dialogue as a dialogue JSON file
+desc_exit => Exit the dialogue editor and return to the master editor menu (confirms when unsaved changes exist)
+
+# ===== Help (read-only text rows) =====
+item_help_nav => Previous/next line: A / D
+item_help_anims => Previous/next expression: W / S
+item_help_replay => Replay text: SPACE
+item_help_f1 => Open this help menu: F1
+item_help_exit => Exit editor: ESC
+
+# ===== Help row descriptions =====
+desc_help_nav => Previous/next line: A / D
+desc_help_anims => Previous/next expression: W / S
+desc_help_replay => Replay current line text: SPACE
+desc_help_f1 => Open this help menu: F1
+desc_help_exit => Exit editor: ESC (confirms when unsaved changes exist)
+
+# ===== Exit confirmation popup (overrides the shared keys in the editors group) =====
+confirm_unsaved_title => Exit Dialogue Editor
+confirm_unsaved_message => This dialogue has unsaved changes. Those lines will be lost if you exit. Discard them and exit?

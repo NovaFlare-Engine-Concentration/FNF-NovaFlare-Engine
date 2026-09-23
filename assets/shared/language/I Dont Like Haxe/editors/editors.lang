@@ -1,0 +1,13 @@
+# ===== 编辑器主菜单（主菜单按 7 进入） =====
+chartEditor => 编谱器
+characterEditor => 角色编辑器
+stageEditor => 舞台编辑器
+weekEditor => 章节编辑器
+menuCharEditor => 菜单角色编辑器
+dialogueEditor => 对话编辑器
+dialoguePortraitEditor => 对话立绘编辑器
+noteSplashDebug => 音符溅射调试
+
+# ===== Mod 目录提示（底部状态条） =====
+noModDirectory => < 未加载 Mod 目录 >
+loadedModDirectory => < 已加载 Mod 目录:

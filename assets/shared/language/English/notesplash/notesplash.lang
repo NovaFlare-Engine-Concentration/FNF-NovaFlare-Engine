@@ -1,0 +1,111 @@
+# ===== Note Splash Editor top menu (Adobe style) =====
+# ===== Menu titles =====
+menu_anim => Animation
+menu_props => Properties
+menu_shader => Shader
+menu_file => File
+menu_help => Help
+
+# ===== Status bar =====
+status_skin => Skin:
+status_anim => Anim:
+status_offset => Offset:
+status_note => NoteData:
+status_scale => Scale:
+
+# ===== Items: Animation menu =====
+item_anim => Animations
+label_anim => Animation
+item_anim_name => Animation name
+label_anim_name => Anim name
+item_prefix => XML prefix
+label_prefix => Prefix
+item_note_data => Note Data
+label_note_data => Note Data
+item_indices => Indices (optional)
+label_indices => Indices
+item_min_fps => Minimum FPS
+label_min_fps => Min FPS
+item_max_fps => Maximum FPS
+label_max_fps => Max FPS
+item_anim_add => Add / Update
+item_anim_remove => Remove animation
+item_anim_reset => Reset to template
+
+# ===== Items: Properties menu =====
+item_image => Splash image
+label_image => Skin
+item_reload_image => Reload this skin
+item_scale => Scale
+label_scale => Scale
+item_allow_rgb => Allow RGB tinting
+item_allow_pixel => Allow pixel art
+item_template => New blank template
+item_convert_txt => Convert legacy TXT -> JSON
+
+# ===== Items: Shader menu =====
+item_target => Color to replace
+label_target => Channel
+item_target_red => Red
+item_target_green => Green
+item_target_blue => Blue
+item_r => Replace with R
+label_r => R
+item_g => Replace with G
+label_g => G
+item_b => Replace with B
+label_b => B
+item_no_replace => Do not replace channel
+item_reset_rgb => Reset tint
+
+# ===== Items: File menu =====
+item_save => Save config (JSON)
+item_exit => Exit editor
+
+# ===== Descriptions =====
+desc_anim => Pick an animation from the list to edit; it plays back automatically
+desc_anim_name => Name of this animation inside the config JSON
+desc_prefix => Frame prefix of this animation inside the atlas XML
+desc_note_data => Note data column this animation belongs to (0=Left 1=Down 2=Up 3=Right)
+desc_indices => Only use the given frame indices of the prefix (comma separated; empty = all frames)
+desc_min_fps => Minimum playback FPS for this animation (random lower bound)
+desc_max_fps => Maximum playback FPS for this animation (random upper bound)
+desc_anim_add => Write (or update) the current parameters into the animation list
+desc_anim_remove => Remove the current animation from the list
+desc_anim_reset => Clear the current config and restore the default template
+desc_image => Splash atlas path (under images/, e.g. noteSplashes/noteSplashes)
+desc_reload_image => Reload the atlas & config using the entered path
+desc_scale => Overall splash scale
+desc_allow_rgb => Allow the RGB tint shader
+desc_allow_pixel => Allow pixelated rendering on pixel stages
+desc_template => Start over with a blank config (add animations one by one)
+desc_convert_txt => Read a legacy .txt splash config and save it as JSON
+desc_target => Choose which replacement channel you are editing
+desc_target_red => Edit the replacement color of the red channel
+desc_target_green => Edit the replacement color of the green channel
+desc_target_blue => Edit the replacement color of the blue channel
+desc_r => Red component of the replacement color
+desc_g => Green component of the replacement color
+desc_b => Blue component of the replacement color
+desc_no_replace => When checked, this target channel is not replaced
+desc_reset_rgb => Reset all three replacement colors to zero
+desc_save => Save the current config as JSON (next to the atlas)
+desc_exit => Exit the Note Splash editor and return to the master editor menu
+
+# ===== Help rows =====
+item_help_click => Click a note or press SPACE to spawn a splash
+item_help_offset => Arrow keys nudge the offset
+item_help_shift => Hold Shift: offset steps x10
+item_help_copy => Ctrl+C / Ctrl+V / Ctrl+R: copy / paste / reset offset
+item_help_fps => Every 4 note datas add another set of animations
+item_help_f1 => Open this help menu: F1
+item_help_exit => Exit editor: ESC / Back
+
+# ===== Help row descriptions =====
+desc_help_click => Click any note below, or press SPACE on the Animation page to preview a splash
+desc_help_offset => Arrow keys nudge the current animation offset by 1px
+desc_help_shift => While held, arrow keys move by 10px (auto-repeat)
+desc_help_copy => Ctrl+C copies the current offset, Ctrl+V pastes, Ctrl+R resets to zero
+desc_help_fps => The next set of animation names is generated every 4 note datas
+desc_help_f1 => Open this help menu: F1
+desc_help_exit => Exit back to the master editor menu: ESC / Back

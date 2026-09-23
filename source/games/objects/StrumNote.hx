@@ -39,31 +39,42 @@ class StrumNote extends FlxSprite
 
 	public var useRGBShader:Bool = true;
 
-	public function new(x:Float, y:Float, leData:Int, player:Int)
+	/**
+	 * 该 strum 生效的 mania（每侧键数 - 1）；-1 = 跟随 PlayState.SONG.mania。
+	 * KeyChange(MoreKey) 场景：运行期重建/编辑器预览/试玩时按段传入，
+	 * 保证方向帧、颜色、缩放与排布在该段键数下正确。
+	 */
+	public var strumMania:Int = -1;
+
+	/** 取生效 mania：优先 strumMania（段覆盖），否则当前谱面 mania */
+	inline function curMania():Int
+	{
+		if (strumMania >= 0)
+			return strumMania;
+		return (PlayState.SONG != null) ? PlayState.SONG.mania : 3;
+	}
+
+	public function new(x:Float, y:Float, leData:Int, player:Int, ?maniaOverride:Int = -1)
 	{
 		animation = new PsychAnimationController(this);
 
-		rgbShader = new RGBShaderReference(this, Note.initializeGlobalRGBShader(leData));
+		strumMania = maniaOverride;
+
+		rgbShader = new RGBShaderReference(this, Note.initializeGlobalRGBShader(leData, curMania()));
 		rgbShader.enabled = false;
-		if (PlayState.SONG != null && (PlayState.SONG.disableNoteRGB || !ClientPrefs.data.noteRGB || ClientPrefs.data.noteColorSwap))
-			useRGBShader = false;
+		// ★ 统一策略：谱面 disableNoteRGB / 玩家 noteRGB / 色相替换模式 任一命中即不启用 RGB
+		//   （旧代码在构造器里用 SONG.mania 建调色板、却用 strumMania 取色，两者不一致时
+		//    RGBShaderReference 会克隆私有调色板并把着色器挂回 → 关掉 RGB 的谱面受体照样染色）
+		useRGBShader = Note.noteRGBAllowed();
 		if (ClientPrefs.data.noteColorSwap){
 		colorSwap = new ColorSwap();
 		shader = colorSwap.shader;
 		}
-		//先不改mania，要魔改的玩意好像还不少呢，先加上再说		//算了懒了，能跑起来就不改了————卡昔233
-		var mania = 3;
-		if (PlayState.SONG != null)
-			mania = PlayState.SONG.mania;
 
-		var arrowRGBIndex = getIndex(mania, leData);
-
-		var arr:Array<FlxColor> = ClientPrefs.data.arrowRGB[arrowRGBIndex];
-
-		if (PlayState.isPixelStage)
-			arr = ClientPrefs.data.arrowRGBPixel[arrowRGBIndex];
-
-		@:bypassAccessor
+		// ★ 取色改用统一的 Extra Keys 映射（旧代码用 getIndex() 直读，越界直接 NPE；
+		//   且 clamp 规则与 Note.buildGlobalPalette 不一致 → 额外触发无谓的 palette 克隆）
+		var arr:Array<FlxColor> = Note.colorRow(curMania(), leData);
+		if (arr != null && arr.length > 2)
 		{
 			rgbShader.r = arr[0];
 			rgbShader.g = arr[1];
@@ -95,15 +106,21 @@ class StrumNote extends FlxSprite
 		if (animation.curAnim != null)
 			lastAnim = animation.curAnim.name;
 
-		var mania = 3;
-		if (PlayState.SONG != null) mania = PlayState.SONG.mania;
+		var mania:Int = curMania();
 
 		if (PlayState.isPixelStage)
 		{
-			loadGraphic(Paths.image(texture));
-			width = width / 4;	//idk
-			height = height / 5;
-			loadGraphic(Paths.image(texture), true, Math.floor(width), Math.floor(height));
+			// ★ 防御：皮肤缺像素版贴图时 Paths.image 返回 null，逐级回退到默认像素贴图
+			//   （注意默认皮肤路径含 noteSkins/ 前缀，写错会导致箭头变"空气"）
+			var g = Paths.image(texture);
+			if (g == null) g = Paths.image('pixelUI/noteSkins/NOTE_assets');
+			if (g != null)
+			{
+				loadGraphic(g);
+				width = width / 4;	//idk
+				height = height / 5;
+				loadGraphic(g, true, Math.floor(width), Math.floor(height));
+			}
 
 			antialiasing = false;
 
@@ -116,7 +133,9 @@ class StrumNote extends FlxSprite
 			setGraphicSize((width * (pixelScale + 0.3)) * PlayState.daPixelZoom);
 			trackedScale = pixelScale;
 
-			var noteAnimInt = getAnimSet(getIndex(mania, noteData)).pixel;
+			// ★ 防御：getAnimSet 越界 → .pixel NPE；用 tryGetAnimSet 兜底（取不到时退到 0）
+			var pixelAnimSet:Dynamic = tryGetAnimSet(mania, noteData);
+			var noteAnimInt:Int = (pixelAnimSet != null) ? pixelAnimSet.pixel : 0;
 
 			//animation.add('circle', [11]);
 			//animation.add('rombus', [10]);
@@ -144,9 +163,15 @@ class StrumNote extends FlxSprite
 			trackedScale = ExtraKeysHandler.instance.data.scales != null && mania < ExtraKeysHandler.instance.data.scales.length ? ExtraKeysHandler.instance.data.scales[mania] : 0.7;
 			setGraphicSize(width * trackedScale);
 
-			animation.addByPrefix('static', 'arrow${getAnimSet(getIndex(mania, noteData)).strum}');
-			animation.addByPrefix('pressed', '${getAnimSet(getIndex(mania, noteData)).anim} press', 24, false);
-			animation.addByPrefix('confirm', '${getAnimSet(getIndex(mania, noteData)).anim} confirm', 24, false);
+			// ★ 防御：getAnimSet 越界会 NPE；用 tryGetAnimSet 兜底（动画名取不到时跳过 addByPrefix 即可）
+			var animSet:Dynamic = tryGetAnimSet(mania, noteData);
+			if (animSet != null && animSet.strum != null)
+				animation.addByPrefix('static', 'arrow${animSet.strum}');
+			if (animSet != null && animSet.anim != null)
+			{
+				animation.addByPrefix('pressed', '${animSet.anim} press', 24, false);
+				animation.addByPrefix('confirm', '${animSet.anim} confirm', 24, false);
+			}
 
 		}
 		updateHitbox();
@@ -161,7 +186,6 @@ class StrumNote extends FlxSprite
 	{
 		trackedScale = trackedScale * 0.85;
 		setGraphicSize(initialWidth * (trackedScale * (PlayState.isPixelStage ? PlayState.daPixelZoom /** (1/ExtraKeysHandler.instance.data.pixelScales[PlayState.SONG.mania])) */ : 1)));
-		trace(trackedScale);
 		updateHitbox();
 		postAddedToGroup();
 	}
@@ -172,16 +196,16 @@ class StrumNote extends FlxSprite
 		var padding:Float = 0;
 		var minPaddingStartThresh:Int = 4;
 		// if (PlayState.isPixelStage) minPaddingStartThresh = 3;
-		if (PlayState.SONG.mania > minPaddingStartThresh)
+		if (curMania() > minPaddingStartThresh)
 		{
-			padding = 4 * (PlayState.SONG.mania - minPaddingStartThresh);
+			padding = 4 * (curMania() - minPaddingStartThresh);
 			if (padding > 8)
 				padding = 8;
 		}
 		// trace(padding);
 
 		// x = StrumBoundaries.getMiddlePoint().x;
-		// x += ((Note.swagWidthUnscaled * trackedScale) - padding) * (-((PlayState.SONG.mania + 1) / 2) + noteData);
+		// x += ((Note.swagWidthUnscaled * trackedScale) - padding) * (-((curMania() + 1) / 2) + noteData);
 		// x += 25;
 		// x += ((FlxG.width / 2) * player);
 		ID = noteData;
@@ -196,21 +220,22 @@ class StrumNote extends FlxSprite
 	 */
 	public function centerStrum(maniaThresh:Int, padding:Float)
 	{
-		var sWidth = /*(PlayState.isPixelStage && PlayState.SONG.mania > maniaThresh) ? (180 + ((10 + (5 * (PlayState.SONG.mania - maniaThresh))) * (PlayState.SONG.mania - maniaThresh))) : */ Note.swagWidthUnscaled;
+		var m:Int = curMania();
+		var sWidth = /*(PlayState.isPixelStage && m > maniaThresh) ? (180 + ((10 + (5 * (m - maniaThresh))) * (m - maniaThresh))) : */ Note.swagWidthUnscaled;
 		if (!ClientPrefs.data.middleScroll)
 		{
 			x = player == 0 ? 320 : 960;
-			x += ((sWidth * trackedScale) - padding) * (-((PlayState.SONG.mania + 1) / 2) + noteData);
+			x += ((sWidth * trackedScale) - padding) * (-((m + 1) / 2) + noteData);
 		}
 		else
 		{
 			x = player == 0 ? 320 : 640;
 			if (player == 0)
 			{
-				if (noteData > Math.floor((PlayState.SONG.mania / 2)))
+				if (noteData > Math.floor((m / 2)))
 					x = 960;
 			}
-			x += ((sWidth * trackedScale) - padding) * (-((PlayState.SONG.mania + 1) / 2) + noteData);
+			x += ((sWidth * trackedScale) - padding) * (-((m + 1) / 2) + noteData);
 		}
 		// trace(padding);
 	}
@@ -237,18 +262,60 @@ class StrumNote extends FlxSprite
 			centerOffsets();
 			centerOrigin();
 		}
+
+		var isStatic:Bool = (animation.curAnim == null || animation.curAnim.name == 'static');
+
 		if (useRGBShader)
-			rgbShader.enabled = (animation.curAnim != null && animation.curAnim.name != 'static');
-		else if (ClientPrefs.data.noteColorSwap){
-			if(animation.curAnim == null || animation.curAnim.name == 'static') {
-			colorSwap.hue = 0;
-			colorSwap.saturation = 0;
-			colorSwap.brightness = 0;
-			} else {
-			colorSwap.hue = ClientPrefs.data.arrowHSV[noteData % 4][0] / 360;
-			colorSwap.saturation = ClientPrefs.data.arrowHSV[noteData % 4][1] / 100;
-			colorSwap.brightness = ClientPrefs.data.arrowHSV[noteData % 4][2] / 100;
+		{
+			rgbShader.enabled = !isStatic;
+		}
+		else if (ClientPrefs.data.noteColorSwap && colorSwap != null)
+		{
+			// 色相替换模式：RGB 着色器必须让位（两者抢同一个 sprite.shader 槽）
+			if (rgbShader.enabled) rgbShader.enabled = false;
+			if (shader != colorSwap.shader) shader = colorSwap.shader;
+
+			// ★ 旧代码写死 `noteData % 4`：>4K 时按键轨号 ≠ 基础色下标（见 Note.baseColorIndex）
+			var hsv:Array<Float> = Note.hsvRow(curMania(), noteData);
+			if (isStatic || hsv == null || hsv.length < 3)
+			{
+				colorSwap.hue = 0;
+				colorSwap.saturation = 0;
+				colorSwap.brightness = 0;
 			}
+			else
+			{
+				colorSwap.hue = hsv[0] / 360;
+				colorSwap.saturation = hsv[1] / 100;
+				colorSwap.brightness = hsv[2] / 100;
+			}
+		}
+		else
+		{
+			// 谱面 disableNoteRGB / 玩家 noteRGB 关闭：确保着色器彻底摘除。
+			// 这是「RGB 关不掉」的第二道保险（第一道在 RGBShaderReference.cloneOriginal）。
+			if (rgbShader.enabled) rgbShader.enabled = false;
+		}
+	}
+
+	/**
+	 * RGB 开关（谱面 disableNoteRGB / 玩家选项）在运行期变化后重新套用策略。
+	 * 图表编辑器勾选 "Disable Note RGB" 重建 strumline、或脚本改了 ClientPrefs 之后调用。
+	 */
+	public function applyRGBPolicy():Void
+	{
+		useRGBShader = Note.noteRGBAllowed();
+		var isStatic:Bool = (animation.curAnim == null || animation.curAnim.name == 'static');
+
+		if (useRGBShader)
+		{
+			rgbShader.enabled = !isStatic;
+		}
+		else
+		{
+			rgbShader.enabled = false;
+			if (ClientPrefs.data.noteColorSwap && colorSwap != null && shader != colorSwap.shader)
+				shader = colorSwap.shader;
 		}
 	}
 	
@@ -260,13 +327,39 @@ class StrumNote extends FlxSprite
 		return ExtraKeysHandler.instance.data.animations[index];
 	}
 
+	/**
+	 * 越界安全的 EKAnimation 读取（mania/note/animations 越界返回 null，绝不抛异常）。
+	 * reloadNote 之类的热点路径上避免 `getAnimSet(...).strum` 在 KeyChange 中段/老存档残值时 NPE。
+	 */
+	public function tryGetAnimSet(mania:Int, note:Int):Dynamic
+	{
+		if (ExtraKeysHandler.instance == null || ExtraKeysHandler.instance.data == null) return null;
+		var data = ExtraKeysHandler.instance.data;
+		if (data.keys == null || data.animations == null) return null;
+		if (mania < 0 || mania >= data.keys.length) return null;
+		var notesArr:Array<Int> = data.keys[mania].notes;
+		if (notesArr == null || note < 0 || note >= notesArr.length) return null;
+		var visIdx:Int = notesArr[note];
+		if (visIdx < 0 || visIdx >= data.animations.length) return null;
+		return data.animations[visIdx];
+	}
+
 	private function shaderInit() {
-		if (this.useRGBShader)
+		if (useRGBShader)
 			rgbShader.enabled = false;
-		else if (ClientPrefs.data.noteColorSwap){
+		else if (ClientPrefs.data.noteColorSwap && colorSwap != null)
+		{
+			// ★ `shader = colorSwap.shader` 在构造器里、super() 之前就赋过了；这里再确认一次，
+			//   防止中途被 RGB 分支或脚本覆盖（两者抢同一个 shader 槽）。
+			if (shader != colorSwap.shader) shader = colorSwap.shader;
 			colorSwap.hue = 0;
 			colorSwap.saturation = 0;
 			colorSwap.brightness = 0;
+		}
+		else
+		{
+			// 谱面 disableNoteRGB / 玩家 noteRGB 关闭：静态箭头绝不能带着 RGB 着色器
+			rgbShader.enabled = false;
 		}
 	}
 }
@@ -312,7 +405,7 @@ class KeybindShowcase extends FlxTypedGroup<FlxBasic>
 		var size = 20 - (mania - 3);
 
 		keyText = new FlxText(xOffset + 4, y + 4, InputFormatter.getKeyName(keyCodes[0]));
-		keyText.setFormat(Paths.font("vcr.ttf"), size, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		keyText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), size, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		keyText.x -= keyText.width / 2;
 		xOffset = keyText.x;
 

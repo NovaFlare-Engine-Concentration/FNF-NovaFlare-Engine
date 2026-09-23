@@ -3,8 +3,11 @@ package options.base;
 import flixel.addons.display.FlxBackdrop;
 import flixel.addons.display.FlxGridOverlay;
 import flixel.input.keyboard.FlxKey;
+import flixel.tweens.FlxTween;
+import flixel.tweens.FlxEase;
 
 import general.backend.InputFormatter;
+import general.backend.language.Language;
 
 import general.objects.AttachedSprite;
 
@@ -13,101 +16,105 @@ class ControlsSubState extends MusicBeatSubstate
 	var curSelected:Int = 0;
 	var curAlt:Bool = false;
 
-	// Show on gamepad - Display name - Save file key - Rebind display name
+	// Show on gamepad - Display name - Save file key - Rebind display name - (optional) Language key
 	var options:Array<Dynamic> = [
-		[true, 'NOTES'],
-		[true, '1K', '0_key_0', '0k_0'],
+		[true, 'NOTES', null, null, 'notes'],
 		[true],
-		[true, '2K 0', '1_key_0', '1k_0'],
-		[true, '2K 1', '1_key_1', '1k_1'],
+		[true, '1K+2K+3K', null, null],
+		[true, '1K', null, null, 'key_1k'],
+		[true, '[key]', '0_key_0', '0k_0'],
 		[true],
-		[true, '3K 0', '2_key_0', '2k_0'],
-		[true, '3K 1', '2_key_1', '2k_1'],
-		[true, '3K 2', '2_key_2', '2k_2'],
+		[true, '2K', null, null, 'key_2k'],
+		[true, 'left/左', '1_key_0', '1k_0'],
+		[true, 'right/右', '1_key_1', '1k_1'],
 		[true],
+		[true, '3K', null, null, 'key_3k'],
+		[true, 'left/左', '2_key_0', '2k_0'],
+		[true, 'middle/中', '2_key_1', '2k_1'],
+		[true, 'right/右', '2_key_2', '2k_2'],
 		[true],
-		[true, 'Left', 'note_left', 'Note Left'],
-		[true, 'Down', 'note_down', 'Note Down'],
-		[true, 'Up', 'note_up', 'Note Up'],
-		[true, 'Right', 'note_right', 'Note Right'],
+		[true, '4K+5K', null, null],
+		[true, '4K', null, null, 'key_4k'],
+		[true, 'left/左', 'note_left', 'Note Left', 'note_left'],
+		[true, 'down/下', 'note_down', 'Note Down', 'note_down'],
+		[true, 'up/上面', 'note_up', 'Note Up', 'note_up'],
+		[true, 'right/右', 'note_right', 'Note Right', 'note_right'],
 		[true],
-		[true, '5K 0', '4_key_0', '4k_0'],
-		[true, '5K 1', '4_key_1', '4k_1'],
-		[true, '5K 2', '4_key_2', '4k_2'],
-		[true, '5K 3', '4_key_3', '4k_3'],
-		[true, '5K 4', '4_key_4', '4k_4'],
+		[true, '5K', null, null, 'key_5k'],
+		[true, 'left/左', '4_key_0', '4k_0'],
+		[true, 'down/下', '4_key_1', '4k_1'],
+		[true, 'middle/中', '4_key_2', '4k_2'],
+		[true, 'up/上面', '4_key_3', '4k_3'],
+		[true, 'right/右', '4_key_4', '4k_4'],
 		[true],
-		[true, '6K 0', '5_key_0', '5k_0'],
-		[true, '6K 1', '5_key_1', '5k_1'],
-		[true, '6K 2', '5_key_2', '5k_2'],
-		[true, '6K 3', '5_key_3', '5k_3'],
-		[true, '6K 4', '5_key_4', '5k_4'],
-		[true, '6K 5', '5_key_5', '5k_5'],
+		[true, '6k', null, null, 'key_6k'],
+		[true, 'left1/左1', '5_key_0', '5k_0'],
+		[true, 'down/下', '5_key_1', '5k_1'],
+		[true, 'right1/右1', '5_key_2', '5k_2'],
+		[true, 'left2/左2', '5_key_3', '5k_3'],
+		[true, 'up/上', '5_key_4', '5k_4'],
+		[true, 'right2/右2', '5_key_5', '5k_5'],
 		[true],
-		[true, '7K 0', '6_key_0', '6k_0'],
-		[true, '7K 1', '6_key_1', '6k_1'],
-		[true, '7K 2', '6_key_2', '6k_2'],
-		[true, '7K 3', '6_key_3', '6k_3'],
-		[true, '7K 4', '6_key_4', '6k_4'],
-		[true, '7K 5', '6_key_5', '6k_5'],
-		[true, '7K 6', '6_key_6', '6k_6'],
+		[true, '7k', null, null, 'key_7k'],
+		[true, 'left1/左1', '6_key_0', '6k_0'],
+		[true, 'down/下', '6_key_1', '6k_1'],
+		[true, 'right1/右1', '6_key_2', '6k_2'],
+		[true, 'middle/中', '6_key_3', '6k_3'],
+		[true, 'left2/左2', '6_key_4', '6k_4'],
+		[true, 'up/上', '6_key_5', '6k_5'],
+		[true, 'right2/右2', '6_key_6', '6k_6'],
 		[true],
-		[true, '8K 0', '7_key_0', '7k_0'],
-		[true, '8K 1', '7_key_1', '7k_1'],
-		[true, '8K 2', '7_key_2', '7k_2'],
-		[true, '8K 3', '7_key_3', '7k_3'],
-		[true, '8K 4', '7_key_4', '7k_4'],
-		[true, '8K 5', '7_key_5', '7k_5'],
-		[true, '8K 6', '7_key_6', '7k_6'],
-		[true, '8K 7', '7_key_7', '7k_7'],
+		[true, '8k', null, null, 'key_8k'],
+		[true, 'left1/左1', '7_key_0', '7k_0'],
+		[true, 'down/下1', '7_key_1', '7k_1'],
+		[true, 'up1/上1', '7_key_2', '7k_2'],
+		[true, 'right1/右1', '7_key_3', '7k_3'],
+		[true, 'left2/左2', '7_key_4', '7k_4'],
+		[true, 'down2/下2', '7_key_5', '7k_5'],
+		[true, 'up2/上2', '7_key_6', '7k_6'],
+		[true, 'right2/右2', '7_key_7', '7k_7'],
 		[true],
-		[true, '9K 0', '8_key_0', '8k_0'],
-		[true, '9K 1', '8_key_1', '8k_1'],
-		[true, '9K 2', '8_key_2', '8k_2'],
-		[true, '9K 3', '8_key_3', '8k_3'],
-		[true, '9K 4', '8_key_4', '8k_4'],
-		[true, '9K 5', '8_key_5', '8k_5'],
-		[true, '9K 6', '8_key_6', '8k_6'],
-		[true, '9K 7', '8_key_7', '8k_7'],
-		[true, '9K 8', '8_key_8', '8k_8'],
+		[true, '9k', null, null, 'key_9k'],
+		[true, 'left1/左1', '8_key_0', '8k_0'],
+		[true, 'down/下1', '8_key_1', '8k_1'],
+		[true, 'up1/上1', '8_key_2', '8k_2'],
+		[true, 'right1/右1', '8_key_3', '8k_3'],
+		[true, 'middle/中', '8_key_4', '8k_4'],
+		[true, 'left2/左2', '8_key_5', '8k_5'],
+		[true, 'down2/下2', '8_key_6', '8k_6'],
+		[true, 'up2/上2', '8_key_7', '8k_7'],
+		[true, 'right2/右2', '8_key_8', '8k_8'],
 		[true],
-		[true, '10K 0', '9_key_0', '9k_0'],
-		[true, '10K 1', '9_key_1', '9k_1'],
-		[true, '10K 2', '9_key_2', '9k_2'],
-		[true, '10K 3', '9_key_3', '9k_3'],
-		[true, '10K 4', '9_key_4', '9k_4'],
-		[true, '10K 5', '9_key_5', '9k_5'],
-		[true, '10K 6', '9_key_6', '9k_6'],
-		[true, '10K 7', '9_key_7', '9k_7'],
-		[true, '10K 8', '9_key_8', '9k_8'],
-		[true, '10K 9', '9_key_9', '9k_9'],
+		[true, '10k', null, null, 'key_10k'],
+		[true, 'left1/左1', '9_key_0', '9k_0'],
+		[true, 'down/下1', '9_key_1', '9k_1'],
+		[true, 'up1/上1', '9_key_2', '9k_2'],
+		[true, 'right1/右1', '9_key_3', '9k_3'],
+		[true, 'middle/中1', '9_key_4', '9k_4'],
+		[true, 'middle/中2', '9_key_5', '9k_5'],
+		[true, 'left2/左2', '9_key_6', '9k_6'],
+		[true, 'down2/下2', '9_key_7', '9k_7'],
+		[true, 'up2/上2', '9_key_8', '9k_8'],
+		[true, 'right2/右2', '9_key_9', '9k_9'],
 		[true],
-		[true, 'UI'],
-		[true, 'Left', 'ui_left', 'UI Left'],
-		[true, 'Down', 'ui_down', 'UI Down'],
-		[true, 'Up', 'ui_up', 'UI Up'],
-		[true, 'Right', 'ui_right', 'UI Right'],
+		[true, 'UI', null, null, 'ui'],
+		[true, 'left/左', 'ui_left', 'UI Left', 'ui_left'],
+		[true, 'down/下', 'ui_down', 'UI Down', 'ui_down'],
+		[true, 'up/上面', 'ui_up', 'UI Up', 'ui_up'],
+		[true, 'right/右', 'ui_right', 'UI Right', 'ui_right'],
 		[true],
-		[true, 'Reset', 'reset', 'Reset'],
-		[true, 'Accept', 'accept', 'Accept'],
-		[true, 'Back', 'back', 'Back'],
-		[true, 'Pause', 'pause', 'Pause'],
-		[false],
-		[false, 'VOLUME'],
-		[false, 'Mute', 'volume_mute', 'Volume Mute'],
-		[false, 'Up', 'volume_up', 'Volume Up'],
-		[false, 'Down', 'volume_down', 'Volume Down'],
-		[false],
-		[false, 'DEBUG'],
-		[false, 'Key 1', 'debug_1', 'Debug Key #1'],
-		[false, 'Key 2', 'debug_2', 'Debug Key #2'],
-		[true, 'WINDOW'],
-		[true, 'Fullscreen', 'fullscreen', 'Fullscreen Toggle']
+		[true, 'Reset', 'reset', 'Reset', 'reset'],
+		[true, 'Accept', 'accept', 'Accept', 'accept'],
+		[true, 'Back', 'back', 'Back', 'back'],
+		[true, 'Pause', 'pause', 'Pause', 'pause'],
+		[true],
+		[true, 'WINDOW', null, null, 'window'],
+		[true, 'Fullscreen', 'fullscreen', 'Fullscreen Toggle', 'fullscreen']
 	];
 	var curOptions:Array<Int>;
 	var curOptionsValid:Array<Int>;
 
-	static var defaultKey:String = 'Reset to Default Keys';
+	static var defaultKey:String = 'reset_to_default';
 
 	var bg:FlxSprite;
 	var grpDisplay:FlxTypedGroup<Alphabet>;
@@ -130,11 +137,11 @@ class ControlsSubState extends MusicBeatSubstate
 		options.push([true]);
 		options.push([true, defaultKey]);
 
-		var bg:FlxSprite = new FlxSprite(0, 0).makeGraphic(FlxG.width, FlxG.height, FlxColor.WHITE);
+		var bg:FlxSprite = new FlxSprite(0, 0).makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
 		bg.scrollFactor.set();
 		bg.alpha = 0;
 		add(bg);
-		FlxTween.tween(bg, {alpha: 0.5}, 0.5, {ease: FlxEase.circInOut});
+		FlxTween.tween(bg, {alpha: 0.8}, 0.5, {ease: FlxEase.circInOut});
 
 		grpDisplay = new FlxTypedGroup<Alphabet>();
 		add(grpDisplay);
@@ -143,17 +150,12 @@ class ControlsSubState extends MusicBeatSubstate
 		grpBlacks = new FlxTypedGroup<AttachedSprite>();
 		add(grpBlacks);
 		selectSpr = new AttachedSprite();
-		selectSpr.makeGraphic(250, 78, FlxColor.WHITE);
+		selectSpr.makeGraphic(250, 55, FlxColor.WHITE);
 		selectSpr.copyAlpha = false;
 		selectSpr.alpha = 0.75;
 		add(selectSpr);
 		grpBinds = new FlxTypedGroup<Alphabet>();
 		add(grpBinds);
-
-		var text:Alphabet = new Alphabet(60, 90, 'CTRL', false);
-		text.alignment = CENTERED;
-		text.setScale(0.4);
-		add(text);
 
 		addVirtualPad(OptionStateC, OptionStateC);
 
@@ -183,11 +185,21 @@ class ControlsSubState extends MusicBeatSubstate
 			{
 				if (option.length > 1)
 				{
-					var isCentered:Bool = (option.length < 3);
-					var isDefaultKey:Bool = (option[1] == defaultKey);
-					var isDisplayKey:Bool = (isCentered && !isDefaultKey);
+					var isTitle:Bool = (option.length < 3 || option[2] == null);
+					var isDefaultKey:Bool = (option.length > 1 && option[1] == defaultKey);
+					var isDisplayKey:Bool = (isTitle && !isDefaultKey);
 
-					var text:Alphabet = new Alphabet(200, 300, option[1], !isDisplayKey);
+					// Translation lookup
+					var displayText:String = option[1];
+					if (isDefaultKey) {
+						var translated:String = Language.get(defaultKey, 'controls');
+						if (translated != null && translated != '' && translated != '(404) ' + defaultKey) displayText = translated;
+					} else if (option.length > 4 && option[4] != null) {
+						var translated:String = Language.get(option[4], 'controls');
+						if (translated != null && translated != '' && translated != '(404) ' + option[4]) displayText = translated;
+					}
+
+					var text:Alphabet = new Alphabet(200, 300, displayText, !isDisplayKey);
 					text.isMenuItem = true;
 					text.changeX = false;
 					text.distancePerItem.y = 60;
@@ -203,7 +215,7 @@ class ControlsSubState extends MusicBeatSubstate
 					text.ID = myID;
 					lastID = myID;
 
-					if (isCentered)
+					if (isTitle)
 						addCenteredText(text, option, myID);
 					else
 						addKeyText(text, option, myID);
@@ -220,8 +232,6 @@ class ControlsSubState extends MusicBeatSubstate
 	function addCenteredText(text:Alphabet, option:Array<Dynamic>, id:Int)
 	{
 		text.screenCenter(X);
-		text.y -= 55;
-		text.startPosition.y -= 55;
 	}
 
 	function addKeyText(text:Alphabet, option:Array<Dynamic>, id:Int)
@@ -249,7 +259,7 @@ class ControlsSubState extends MusicBeatSubstate
 
 			// spawn black bars at the right of the key name
 			var black:AttachedSprite = new AttachedSprite();
-			black.makeGraphic(250, 78, FlxColor.BLACK);
+			black.makeGraphic(250, 55, FlxColor.BLACK);
 			black.alphaMult = 0.4;
 			black.sprTracker = text;
 			black.yAdd = -6;
@@ -299,15 +309,13 @@ class ControlsSubState extends MusicBeatSubstate
 		{
 			if (controls.BACK)
 			{
+				visible = false;
 				ClientPrefs.saveSettings();
 				close();
-				//FlxTransitionableState.skipNextTransIn = true;
-				//FlxTransitionableState.skipNextTransOut = true;
-				//MusicBeatState.switchState(new options.OptionsState());
 				return;
 			}
 
-			if (controls.UI_LEFT_P)
+			if (controls.UI_LEFT_P || controls.UI_RIGHT_P)
 				updateAlt(true);
 
 			if (controls.UI_UP_P)
@@ -338,7 +346,9 @@ class ControlsSubState extends MusicBeatSubstate
 					FlxTween.tween(bindingBlack, {alpha: 0.6}, 0.35, {ease: FlxEase.linear});
 					add(bindingBlack);
 
-					bindingText = new Alphabet(FlxG.width / 2, 160, "Rebinding " + options[curOptions[curSelected]][3], false);
+					var rebindText:String = Language.get('rebinding', 'controls');
+					if (rebindText == '' || rebindText == '(404) rebinding') rebindText = 'Rebinding: ';
+					bindingText = new Alphabet(FlxG.width / 2, 160, rebindText + "[ 请在这里键入你的按键 ]", false);
 					bindingText.alignment = CENTERED;
 					add(bindingText);
 
@@ -346,11 +356,19 @@ class ControlsSubState extends MusicBeatSubstate
 
 					if (controls.mobileC)
 					{
-						funnyText = "Hold B to Cancel\nHold C to Delete";
+						var bCancel:String = Language.get('holdBCancel', 'controls');
+						if (bCancel == '' || bCancel.indexOf('(404)') >= 0) bCancel = 'Hold B to Cancel';
+						var cDelete:String = Language.get('holdCDelete', 'controls');
+						if (cDelete == '' || cDelete.indexOf('(404)') >= 0) cDelete = 'Hold C to Delete';
+						funnyText = bCancel + '\n' + cDelete;
 					}
 					else
 					{
-						funnyText = "Hold ESC to Cancel\nHold Backspace to Delete";
+						var escCancel:String = Language.get('holdEscCancel', 'controls');
+						if (escCancel == '' || escCancel.indexOf('(404)') >= 0) escCancel = 'Hold ESC 2 Seconds to Cancel';
+						var backDelete:String = Language.get('holdBackspaceDelete', 'controls');
+						if (backDelete == '' || backDelete.indexOf('(404)') >= 0) backDelete = 'Hold Backspace to Delete the key';
+						funnyText = '（' + escCancel + '）\n（' + backDelete + '）';
 					}
 
 					bindingText2 = new Alphabet(FlxG.width / 2, 340, funnyText, true);
@@ -382,7 +400,7 @@ class ControlsSubState extends MusicBeatSubstate
 			if (virtualPad.buttonB.pressed || controls.BACK)
 			{
 				holdingEsc += elapsed;
-				if (holdingEsc > 0.5)
+				if (holdingEsc > 2.0)
 				{
 					FlxG.sound.play(Paths.sound('cancelMenu'));
 					closeBinding();
@@ -447,14 +465,15 @@ class ControlsSubState extends MusicBeatSubstate
 	function closeBinding()
 	{
 		binding = false;
-		bindingBlack.destroy();
+
 		remove(bindingBlack);
+		bindingBlack.destroy();
 
-		bindingText.destroy();
 		remove(bindingText);
+		bindingText.destroy();
 
-		bindingText2.destroy();
 		remove(bindingText2);
+		bindingText2.destroy();
 		ClientPrefs.reloadVolumeKeys();
 	}
 
@@ -510,4 +529,3 @@ class ControlsSubState extends MusicBeatSubstate
 		selectSpr.visible = (selectSpr.sprTracker != null);
 	}
 }
-

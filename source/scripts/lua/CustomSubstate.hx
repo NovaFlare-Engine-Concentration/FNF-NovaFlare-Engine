@@ -31,6 +31,11 @@ class CustomSubstate extends MusicBeatSubstate
 			{
 				FlxG.sound.music.pause();
 				PlayState.instance.vocals.pause();
+				// ★ 分离人声（Opponent 音轨）也要一起停：openCustomSubstate 是 mod 自定义
+				//   暂停菜单的入口（openCustomSubstate('pause', true)），只停 vocals 的话
+				//   对手人声会继续唱，恢复后与伴奏错位。
+				if (PlayState.instance.opponentVocals != null)
+					PlayState.instance.opponentVocals.pause();
 			}
 		}
 		PlayState.instance.openSubState(new CustomSubstate(name));

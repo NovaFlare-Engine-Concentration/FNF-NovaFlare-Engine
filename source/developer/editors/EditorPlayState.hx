@@ -14,6 +14,8 @@ import games.objects.Character;
 import games.backend.Song;
 import games.backend.Section;
 import games.backend.Rating;
+import games.backend.KeyChange;
+import games.backend.KeyChangePoint;
 import games.objects.Note;
 import games.objects.NoteSplash;
 import games.objects.StrumNote;
@@ -76,12 +78,19 @@ class EditorPlayState extends MusicBeatSubstate
 	var scoreTxt:FlxText;
 	var dataTxt:FlxText;
 	var guitarHeroSustains:Bool = false;
+	// ★ 3,2,1,GO 倒计时文字
+	var countdownText:FlxText;
 
 	var _hold:Array<Bool> = [];
 	var _press:Array<Bool> = [];
 	var _release:Array<Bool> = [];
 	var strumsBlocked:Array<Bool> = [];
 	var keysPressed:Array<Int> = [];
+
+	// ★ KeyChange(MoreKey) 段支持：试玩跟随谱面事件切换键数（与正式玩法一致）
+	var keyChangePoints:Array<KeyChangePoint> = [];
+	var keyChangeIdx:Int = 0;
+	var currentMania:Int = 3;
 
 	public function new(playbackRate:Float)
 	{
@@ -90,29 +99,6 @@ class EditorPlayState extends MusicBeatSubstate
 
 		Note.init(instance);
 
-		keysArray = [];
-		if (PlayState.SONG.mania != 3)
-		{
-			for (i in 0...PlayState.SONG.mania + 1)
-			{
-				keysArray.push(PlayState.SONG.mania + '_key_$i');
-			}
-		}
-		else keysArray = ['note_left', 'note_down', 'note_up', 'note_right'];
-
-		_hold = [];
-		_press = [];
-		_release = [];
-		strumsBlocked = [];
-		keysPressed = [];
-		for (i in 0...keysArray.length)
-		{
-			_hold.push(false);
-			_press.push(false);
-			_release.push(false);
-			strumsBlocked.push(false);
-		}
-
 		/* setting up some important data */
 		this.playbackRate = playbackRate;
 		this.startPos = Conductor.songPosition;
@@ -120,7 +106,19 @@ class EditorPlayState extends MusicBeatSubstate
 		Conductor.safeZoneOffset = (ClientPrefs.data.safeFrames / 60) * 1000 * playbackRate;
 		Conductor.songPosition -= startOffset;
 		startOffset = Conductor.crochet;
-		timerToStart = startOffset;
+		// ★ 试玩从歌曲开头开始并先走 3,2,1,GO 倒计时（共 4 拍）
+		timerToStart = startOffset * 4;
+
+		// ★ KeyChange(MoreKey) 段支持：构建事件时间线，试玩从 startPos 所在段开始；
+		//   keyChangeIdx 指向倒计时起点之后的下一个事件（倒计时窗口内的事件播放到才切）
+		keyChangePoints = KeyChange.scanEvents(PlayState.SONG != null ? PlayState.SONG.events : null, ClientPrefs.data.noteOffset);
+		KeyChange.sortPoints(keyChangePoints);
+		currentMania = KeyChange.maniaAt(startPos + ClientPrefs.data.noteOffset, keyChangePoints, PlayState.SONG != null ? PlayState.SONG.mania : 3);
+		setupKeysForMania(currentMania);
+		var countdownStart:Float = startPos - startOffset * 4;
+		keyChangeIdx = 0;
+		while (keyChangeIdx < keyChangePoints.length && keyChangePoints[keyChangeIdx].time <= countdownStart)
+			keyChangeIdx++;
 
 		/* borrowed from PlayState */
 		if (FlxG.sound.music != null)
@@ -157,14 +155,14 @@ class EditorPlayState extends MusicBeatSubstate
 		/***************/
 
 		scoreTxt = new FlxText(10, FlxG.height - 50, FlxG.width - 20, "", 20);
-		scoreTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		scoreTxt.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 20, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		scoreTxt.scrollFactor.set();
 		scoreTxt.borderSize = 1.25;
 		scoreTxt.visible = !ClientPrefs.data.hideHud;
 		add(scoreTxt);
 
 		dataTxt = new FlxText(10, 580, FlxG.width - 20, "Section: 0", 20);
-		dataTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		dataTxt.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 20, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		dataTxt.scrollFactor.set();
 		dataTxt.borderSize = 1.25;
 		add(dataTxt);
@@ -180,11 +178,19 @@ class EditorPlayState extends MusicBeatSubstate
 		#end
 
 		var tipText:FlxText = new FlxText(10, FlxG.height - 24, 0, 'Press ' + daButton + ' to Go Back to Chart Editor', 16);
-		tipText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		tipText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		tipText.borderSize = 2;
 		tipText.scrollFactor.set();
 		add(tipText);
 		FlxG.mouse.visible = false;
+
+		// ★ 3,2,1,GO 倒计时文字（居中大字，开始时显示）
+		countdownText = new FlxText(0, 0, FlxG.width, '', 96);
+		countdownText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 96, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		countdownText.borderSize = 5;
+		countdownText.scrollFactor.set();
+		countdownText.y = FlxG.height / 2 - 110;
+		add(countdownText);
 
 		generateSong(PlayState.SONG.song);
 
@@ -202,6 +208,106 @@ class EditorPlayState extends MusicBeatSubstate
 		mobileControls.visible = true;
 
 		RecalculateRating();
+	}
+
+	/** 按 mania 重建键位输入上下文（读取 ClientPrefs.keyBinds，4K 特例 note_left 等） */
+	function setupKeysForMania(mania:Int):Void
+	{
+		keysArray = [];
+		if (mania != 3)
+		{
+			for (i in 0...mania + 1)
+			{
+				keysArray.push(mania + '_key_$i');
+			}
+		}
+		else keysArray = ['note_left', 'note_down', 'note_up', 'note_right'];
+
+		_hold = [];
+		_press = [];
+		_release = [];
+		strumsBlocked = [];
+		keysPressed = [];
+		for (i in 0...keysArray.length)
+		{
+			_hold.push(false);
+			_press.push(false);
+			_release.push(false);
+			strumsBlocked.push(false);
+		}
+	}
+
+	/** 断开 note 的 prev/next/parent-tail 引用，避免销毁后悬空指针 */
+	function detachNoteRefs(note:Note):Void
+	{
+		if (note.prevNote != null && note.prevNote.nextNote == note)
+			note.prevNote.nextNote = null;
+		if (note.nextNote != null && note.nextNote.prevNote == note)
+			note.nextNote.prevNote = null;
+		if (note.parent != null)
+			note.parent.tail.remove(note);
+	}
+
+	/** ★ KeyChange(MoreKey)：播放跨过事件点时切换试玩键数（键位/strum/音符清理，与正式一致） */
+	function applyEditorKeyChange(displayKeys:Int):Void
+	{
+		displayKeys = KeyChange.clampKeys(displayKeys);
+		var newMania:Int = KeyChange.maniaFromKeys(displayKeys);
+		if (newMania == currentMania)
+			return;
+		trace('EditorPlayState KeyChange(MoreKey): ${currentMania + 1}K -> ${displayKeys}K');
+		currentMania = newMania;
+		setupKeysForMania(currentMania);
+
+		// ★ 清理规则与正式 PlayState.removeOutdatedNotes 一致：
+		//   场上只清「轨号超当前键数且判定时间已过」的旧段残留；轨号超当前键数但还没到时间
+		//   （未来段提前 spawn / 与事件同刻）必须保留，等后续事件触发重建 strum 后正常渲染；
+		//   unspawn 队列绝不用当前键数判断（会误杀后续事件的新段音符），只清超出自身段的损坏数据
+		var perKeys:Int = currentMania + 1;
+		var i:Int = notes.length - 1;
+		while (i >= 0)
+		{
+			var note:Note = notes.members[i];
+			if (note != null && note.noteData >= perKeys && note.strumTime < Conductor.songPosition - 40)
+			{
+				detachNoteRefs(note);
+				note.kill();
+				notes.remove(note, true);
+				note = FlxDestroyUtil.destroy(note);
+			}
+			i--;
+		}
+		var j:Int = unspawnNotes.length - 1;
+		while (j >= 0)
+		{
+			var n:Note = unspawnNotes[j];
+			var nKeys:Int = (n != null && n.generatedMania >= 0 ? n.generatedMania : currentMania) + 1;
+			if (n != null && n.noteData >= nKeys)
+			{
+				detachNoteRefs(n);
+				unspawnNotes.remove(n);
+				n.destroy();
+			}
+			j--;
+		}
+
+		// 重建 strum（当前段键数）
+		while (strumLineNotes.members.length > 0)
+		{
+			var spr:StrumNote = strumLineNotes.members[0];
+			strumLineNotes.remove(spr, true);
+		}
+		for (grp in [opponentStrums, playerStrums])
+		{
+			while (grp.members.length > 0)
+			{
+				var spr:StrumNote = grp.members[0];
+				grp.remove(spr, true);
+				spr.destroy();
+			}
+		}
+		generateStaticArrows(0);
+		generateStaticArrows(1);
 	}
 
     override function update(elapsed:Float)
@@ -225,11 +331,51 @@ class EditorPlayState extends MusicBeatSubstate
             }
             timing.setPosition(Conductor.songPosition);
             timing.enableTick();
-            if (timerToStart < 0)
+
+			// ★ 3,2,1,GO 倒计时显示（4 拍：3 / 2 / 1 / GO，各 1 拍；结束即从 startPos 开播）
+			if (countdownText != null)
+			{
+				var beatsLeft:Float = timerToStart / startOffset; // 4 → 0
+				var lbl:String = '';
+				var col:Int = 0xFFFFFFFF;
+				if (beatsLeft > 3) { lbl = '3'; col = 0xFFFF6B6B; }
+				else if (beatsLeft > 2) { lbl = '2'; col = 0xFFFFD166; }
+				else if (beatsLeft > 1) { lbl = '1'; col = 0xFF4EC9F0; }
+				else if (beatsLeft > 0) { lbl = 'GO'; col = 0xFF7CFC8E; }
+				// ★ 只在真实倒计时文字切换时播放音效；lbl==''（归零收尾帧）不触发，
+				//   否则 'GO'→'' 会把 switch('') 落到 default 再播一次 introGo
+				if (lbl != '' && countdownText.text != lbl)
+				{
+					countdownText.text = lbl;
+					countdownText.color = col;
+					// ★ 3/2/1/GO 倒计时音效（Paths.sound 自动优先 mod 目录，
+					//   mod 放 mods/<mod>/sounds/intro3.ogg 等即可覆盖默认音效）
+					var sndName:String = switch (lbl)
+					{
+						case '3': 'intro3';
+						case '2': 'intro2';
+						case '1': 'intro1';
+						default: 'introGo';
+					};
+					try { FlxG.sound.play(Paths.sound(sndName), 0.6); } catch (e:Dynamic) {}
+				}
+			}
+            if (timerToStart <= 0)
+			{
+				if (countdownText != null) countdownText.text = '';
                 startSong();
+			}
         }
         else
             Conductor.songPosition = timing != null ? timing.getPositionMs() : Conductor.songPosition;
+
+		// ★ KeyChange(MoreKey)：播放跨过事件点 → 切换键数（与正式玩法一致）
+		while (keyChangeIdx < keyChangePoints.length && Conductor.songPosition >= keyChangePoints[keyChangeIdx].time)
+		{
+			var point:KeyChangePoint = keyChangePoints[keyChangeIdx];
+			keyChangeIdx++;
+			applyEditorKeyChange(point.keys);
+		}
 
 		if (unspawnNotes[0] != null)
 		{
@@ -242,6 +388,15 @@ class EditorPlayState extends MusicBeatSubstate
 			while (unspawnNotes.length > 0 && unspawnNotes[0].strumTime - Conductor.songPosition < time)
 			{
 				var dunceNote:Note = unspawnNotes[0];
+				// ★ KeyChange(MoreKey)：越界判定按音符「自身所属段」的键数——
+				//   事件后的未来段音符（如 4K→6K 新增轨）提前进入 spawn 窗口时不能被当前旧键数误杀
+				var noteKeys:Int = (dunceNote.generatedMania >= 0 ? dunceNote.generatedMania : currentMania) + 1;
+				if (dunceNote.noteData >= noteKeys)
+				{
+					unspawnNotes.shift();
+					dunceNote.destroy();
+					continue;
+				}
 				notes.insert(0, dunceNote);
 				dunceNote.spawned = true;
 
@@ -260,13 +415,16 @@ class EditorPlayState extends MusicBeatSubstate
 				if (!daNote.mustPress)
 					strumGroup = opponentStrums;
 
-				var strum:StrumNote = strumGroup.members[daNote.noteData];
-				daNote.followStrumNote(strum, fakeCrochet, songSpeed / playbackRate);
+				// ★ KeyChange(MoreKey)：事件前的未来段音符提前 spawn 时 strum 还是旧键数，
+				//   轨号可能超界。不销毁（保留判定），strum 就绪后自动恢复显示
+				var strum:StrumNote = (daNote.noteData >= 0 && daNote.noteData < strumGroup.members.length) ? strumGroup.members[daNote.noteData] : null;
+				if (strum != null)
+					daNote.followStrumNote(strum, fakeCrochet, songSpeed / playbackRate);
 
 				if (!daNote.mustPress && daNote.wasGoodHit && !daNote.hitByOpponent && !daNote.ignoreNote)
 					opponentNoteHit(daNote);
 
-				if (daNote.isSustainNote && strum.sustainReduce)
+				if (strum != null && daNote.isSustainNote && strum.sustainReduce)
 					daNote.clipToStrumNote(strum);
 
 				// Kill extremely late notes and cause misses
@@ -438,12 +596,23 @@ class EditorPlayState extends MusicBeatSubstate
 				if (daStrumTime < startPos)
 					continue;
 
-				var daNoteData:Int = Std.int(songNotes[1] % (PlayState.SONG.mania + 1));
-				var gottaHitNote:Bool = section.mustHitSection;
+				// ★ KeyChange(MoreKey) 段支持：按该音符自身时间所属段解析（与正式 PlayState 一致）
+				var noteMania:Int = KeyChange.maniaAt(daStrumTime + ClientPrefs.data.noteOffset, keyChangePoints, currentMania);
+				var perSideKeys:Int = noteMania + 1;
 
-				if (songNotes[1] > PlayState.SONG.mania)
+				var daNoteData:Int = Std.int(songNotes[1] % perSideKeys);
+				// ★ 与正式 PlayState 解析保持一致：Pe-1.0.4 谱面 lane 0..mania 恒为玩家、
+				//   mania+1.. 恒为对手（不随 mustHitSection 翻转）；Pe-0.7.3 谱面才翻转。
+				//   原来这里永远按 0.7.3 语义 → 非 4K 的 1.0.4 谱 ESC 试玩时 BF/Opp 归属错乱
+				var gottaHitNote:Bool;
+				var isPe104:Bool = (Song.chartEngineVersion == 'Pe-1.0.4');
+				if (isPe104)
+					gottaHitNote = (songNotes[1] < perSideKeys);
+				else
 				{
-					gottaHitNote = !section.mustHitSection;
+					gottaHitNote = section.mustHitSection;
+					if (songNotes[1] > noteMania)
+						gottaHitNote = !section.mustHitSection;
 				}
 
 				var oldNote:Note;
@@ -452,10 +621,14 @@ class EditorPlayState extends MusicBeatSubstate
 				else
 					oldNote = null;
 
-				var swagNote:Note = new Note(daStrumTime, daNoteData, oldNote, false, false, instance);
+				var swagNote:Note = new Note(daStrumTime, daNoteData, oldNote, false, false, instance, noteMania);
 				swagNote.mustPress = gottaHitNote;
 				swagNote.sustainLength = songNotes[2];
-				swagNote.gfNote = (section.gfSection && (songNotes[1] < (PlayState.SONG.mania + 1)));
+				// gfNote 语义也跟随引擎版本（与 PlayState 一致）
+				if (isPe104)
+					swagNote.gfNote = (section.gfSection && gottaHitNote == section.mustHitSection);
+				else
+					swagNote.gfNote = (section.gfSection && (songNotes[1] < perSideKeys));
 				swagNote.noteType = songNotes[3];
 				if (!Std.isOfType(songNotes[3], String))
 					swagNote.noteType = ChartingState.noteTypeList[songNotes[3]]; // Backward compatibility + compatibility with Week 7 charts
@@ -473,10 +646,13 @@ class EditorPlayState extends MusicBeatSubstate
 					{
 						oldNote = unspawnNotes[Std.int(unspawnNotes.length - 1)];
 
-						var sustainNote:Note = new Note(daStrumTime + (Conductor.stepCrochet * susNote), daNoteData, oldNote, true, false, instance);
+						var sustainNote:Note = new Note(daStrumTime + (Conductor.stepCrochet * susNote), daNoteData, oldNote, true, false, instance, noteMania);
 						sustainNote.hitMultUpdate(susNote, floorSus);
 						sustainNote.mustPress = gottaHitNote;
-						sustainNote.gfNote = (section.gfSection && (songNotes[1] < (PlayState.SONG.mania + 1)));
+						if (isPe104)
+							sustainNote.gfNote = (section.gfSection && gottaHitNote == section.mustHitSection);
+						else
+							sustainNote.gfNote = (section.gfSection && (songNotes[1] < perSideKeys));
 						sustainNote.noteType = swagNote.noteType;
 						sustainNote.scrollFactor.set();
 						sustainNote.parent = swagNote;
@@ -535,7 +711,7 @@ class EditorPlayState extends MusicBeatSubstate
 	{
 		var strumLineX:Float = ClientPrefs.data.middleScroll ? PlayState.STRUM_X_MIDDLESCROLL : PlayState.STRUM_X;
 		var strumLineY:Float = ClientPrefs.data.downScroll ? (FlxG.height - 150) : 50;
-		for (i in 0...PlayState.SONG.mania + 1)
+		for (i in 0...currentMania + 1)
 		{
 			// FlxG.log.add(i);
 			var targetAlpha:Float = 1;
@@ -547,7 +723,8 @@ class EditorPlayState extends MusicBeatSubstate
 					targetAlpha = 0.35;
 			}
 
-			var babyArrow:StrumNote = new StrumNote(strumLineX, strumLineY, i, player);
+			// ★ KeyChange 段支持：strum 按试玩当前段键数渲染（方向/颜色/缩放/排布正确）
+			var babyArrow:StrumNote = new StrumNote(strumLineX, strumLineY, i, player, currentMania);
 			babyArrow.downScroll = ClientPrefs.data.downScroll;
 			babyArrow.alpha = targetAlpha;
 
@@ -583,7 +760,7 @@ class EditorPlayState extends MusicBeatSubstate
 			{
 				var keyShowcase = new KeybindShowcase(playerStrums.members[i].x - 280,
 					ClientPrefs.data.downScroll ? playerStrums.members[i].y - 390 : playerStrums.members[i].y + playerStrums.members[i].height - 350,
-					ClientPrefs.keyBinds.get(keysArray[i]), FlxG.camera, playerStrums.members[i].width / 2, PlayState.SONG.mania);
+					ClientPrefs.keyBinds.get(keysArray[i]), FlxG.camera, playerStrums.members[i].width / 2, currentMania);
 				keyShowcase.onComplete = function()
 				{
 					remove(keyShowcase);
@@ -1189,14 +1366,15 @@ class EditorPlayState extends MusicBeatSubstate
 		{
 			var strum:StrumNote = playerStrums.members[note.noteData];
 			if (strum != null)
-				spawnNoteSplash(strum.x, strum.y, note.noteData, note);
+				spawnNoteSplash(strum.x, strum.y, note.noteData, note, strum);
 		}
 	}
 
-	function spawnNoteSplash(x:Float, y:Float, data:Int, ?note:Note = null)
+	function spawnNoteSplash(x:Float, y:Float, data:Int, ?note:Note = null, ?strum:StrumNote = null)
 	{
 		var splash:NoteSplash = grpNoteSplashes.recycle(NoteSplash);
-		splash.setupNoteSplash(x, y, data, note);
+		splash.babyArrow = strum;
+		splash.spawnSplashNote(x, y, data, note);
 		grpNoteSplashes.add(splash);
 	}
 

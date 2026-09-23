@@ -9,6 +9,9 @@ import flixel.addons.ui.FlxUIButton;
 import flixel.addons.ui.FlxUIPopup;
 import flixel.ui.FlxButton;
 
+import general.backend.Paths;
+import general.backend.ClientPrefs;
+
 /**
  * ...
  * @author 
@@ -98,6 +101,8 @@ class Prompt extends MusicBeatSubstate
 			add(buttonNo);
 			// add(buttons);
 			var textshit:FlxText = new FlxText(buttonNo.width * 2, panel.y, 300, theText, 16);
+			// ★ 按语言加载对应 TTF：中文用 Lang-ZH.ttf，否则默认字体渲染中文全变豆腐块
+			textshit.font = Paths.font((ClientPrefs.data.language == 'Chinese') ? 'Lang-ZH.ttf' : 'chillax.ttf');
 			textshit.alignment = 'center';
 			add(textshit);
 			textshit.screenCenter();

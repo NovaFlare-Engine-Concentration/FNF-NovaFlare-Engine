@@ -78,14 +78,14 @@ class MobileControls extends FlxTypedSpriteGroup<FlxMobileInputManager>
 		{
 			FlxG.save.data.buttons = new Array();
 			for (buttons in virtualPad)
-				FlxG.save.data.buttons.push(FlxPoint.get(buttons.x, buttons.y));
+				FlxG.save.data.buttons.push({x: buttons.x, y: buttons.y});
 		}
 		else
 		{
 			var tempCount:Int = 0;
 			for (buttons in virtualPad)
 			{
-				FlxG.save.data.buttons[tempCount] = FlxPoint.get(buttons.x, buttons.y);
+				FlxG.save.data.buttons[tempCount] = {x: buttons.x, y: buttons.y};
 				tempCount++;
 			}
 		}
@@ -113,20 +113,30 @@ class MobileControls extends FlxTypedSpriteGroup<FlxMobileInputManager>
 		return virtualPad;
 	}
 
+	// NOTE: store plain `{x, y}` objects here, never `FlxPoint` instances.
+	// `FlxPoint` is an abstract over the runtime `flixel.math.FlxBasePoint` class, so a
+	// FlxPoint pushed into save data is serialized as a `FlxBasePoint` class instance
+	// (with its pool internals `_weak` / `_inPool` and its computed properties). Loading
+	// it back requires haxe.Unserializer to rebuild that class instance, which does not
+	// succeed, and the failure is not limited to this one field: the whole save file
+	// becomes unreadable. `FlxSave.bind()` then returns false and leaves
+	// `FlxG.save.data` null, so the next `FlxG.save.data.<field>` read crashes the engine
+	// with EXCEPTION_ACCESS_VIOLATION during boot. Anonymous `{x, y}` objects are plain
+	// data and always serialize/unserialize cleanly.
 	public static function setExtraCustomMode(virtualPad:FlxVirtualPad):Void
 	{
 		if (FlxG.save.data.extraButtons == null)
 		{
 			FlxG.save.data.extraButtons = new Array();
 			for (btn in virtualPad.extraKeys)
-				FlxG.save.data.extraButtons.push(FlxPoint.get(btn.x, btn.y));
+				FlxG.save.data.extraButtons.push({x: btn.x, y: btn.y});
 		}
 		else
 		{
 			var tempCount:Int = 0;
 			for (btn in virtualPad.extraKeys)
 			{
-				FlxG.save.data.extraButtons[tempCount] = FlxPoint.get(btn.x, btn.y);
+				FlxG.save.data.extraButtons[tempCount] = {x: btn.x, y: btn.y};
 				tempCount++;
 			}
 		}
@@ -199,10 +209,19 @@ class MobileControls extends FlxTypedSpriteGroup<FlxMobileInputManager>
 		else
 			data = ClientPrefs.defaultData;
 
-		buttonsColors.push(data.arrowRGB[0][0]);
-		buttonsColors.push(data.arrowRGB[1][0]);
-		buttonsColors.push(data.arrowRGB[2][0]);
-		buttonsColors.push(data.arrowRGB[3][0]);
+		// ★ 防御：配色表可能少于 4 项（老存档 / 模组只提供部分配色）—— 旧代码直接
+		//   `data.arrowRGB[3][0]` 会越界读到 null 继而 NPE。
+		var tbl:Array<Array<FlxColor>> = data.arrowRGB;
+		for (i in 0...4)
+		{
+			var row:Array<FlxColor> = null;
+			if (tbl != null && tbl.length > 0)
+			{
+				var idx:Int = (i < tbl.length) ? i : tbl.length - 1;
+				row = tbl[idx];
+			}
+			buttonsColors.push((row != null && row.length > 0) ? row[0] : 0xFFFFFFFF);
+		}
 		if (mode == 3)
 		{
 			virtualPad.buttonLeft2.color = buttonsColors[0];

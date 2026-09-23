@@ -752,7 +752,11 @@ class PauseSubState extends MusicBeatSubstate
 						missingText.text = 'ERROR WHILE LOADING CHART: ' + PlayState.SONG.song + '-Engine';
 						missingText.screenCenter(X);
 						FlxG.sound.play(Paths.sound('cancelMenu'));
-						if (missingTextTimer == null && missingTextTween != null)
+						// 原条件为 `missingTextTimer == null && missingTextTween != null`：
+						// 首次触发时二者都是 null，条件恒为 false，于是错误文字永远不会
+						// 从 y=720（屏外）动画到 680 —— 玩家看到的是"切换难度毫无反应"。
+						// 这里真正要判断的只是"是否已有一次提示动画在跑"。
+						if (missingTextTimer == null)
 						{
 							missingTextTween = FlxTween.tween(missingText, {y: 680}, 0.5, {ease: FlxEase.quartOut});
 							missingTextTimer = new FlxTimer().start(2, function(tmr:FlxTimer)
@@ -808,7 +812,9 @@ class PauseSubState extends MusicBeatSubstate
 					missingText.screenCenter(X);
 					FlxG.sound.play(Paths.sound('cancelMenu'));
 
-					if (missingTextTimer == null && missingTextTween != null)
+					// 同上：原条件 `missingTextTimer == null && missingTextTween != null`
+					// 在首次失败时恒为 false，导致错误提示不显示。
+					if (missingTextTimer == null)
 					{
 						missingTextTween = FlxTween.tween(missingText, {y: 680}, 0.5, {ease: FlxEase.quartOut});
 						missingTextTimer = new FlxTimer().start(2, function(tmr:FlxTimer)

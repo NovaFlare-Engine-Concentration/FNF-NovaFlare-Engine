@@ -20,7 +20,6 @@ import flixel.math.FlxRect;
 import flixel.graphics.frames.FlxFrame;
 
 //import general.backend.Cache; 用于拆分path代码功能过于冗杂的问题
-
 class Paths
 {
 	inline public static var SOUND_EXT = #if web "mp3" #else "ogg" #end;
@@ -43,10 +42,13 @@ class Paths
 		graphic.destroyOnNoUse = true;
 	}
 
+	/** ★ 置 true 后下一次 returnSound（inst/voices 等）会跳过声音缓存、强制从磁盘重新加载
+	 *  （用于编谱器"重载音频"：用户改了 Inst/Voices 文件后点重载要听到新文件） */
+	public static var forceReloadSounds:Bool = false;
+
 	public static function clearStoredMemory()
 	{
 		var clearStarted:Float = haxe.Timer.stamp();
-		// clear anything not in the tracked assets list
 		@:privateAccess
 		for (key in FlxG.bitmap._cache.keys())
 		{
@@ -138,7 +140,6 @@ class Paths
 	}
 
 	///////////////////////////////////////////上面是缓存清除功能，下面是路径功能
-
 	static public var currentLevel:String;
 	static public function setCurrentLevel(name:String)
 	{
@@ -437,10 +438,17 @@ class Paths
 
 		if (Cache.currentTrackedAssets.exists(file))
 		{
-			Cache.trackLocalAsset(file);
-			return Cache.currentTrackedAssets.get(file);
+			// 缓存可能已被释放（如 clearStoredMemory 标记 persist=false 后精灵销毁触发 destroy），
+			// 命中已销毁的 graphic 会导致渲染崩溃，这里校验 bitmap 有效性
+			var cached:FlxGraphic = Cache.currentTrackedAssets.get(file);
+			if (cached != null && cached.bitmap != null)
+			{
+				Cache.trackLocalAsset(file);
+				return cached;
+			}
+			Cache.currentTrackedAssets.remove(file);
 		}
-		else if (FileSystem.exists(file))
+		if (FileSystem.exists(file))
 			bitmap = BitmapData.fromFile(file, disposeOnUpload);
 		else
 		#end
@@ -448,8 +456,13 @@ class Paths
 			file = getPath('images/$key.png', IMAGE, library);
 			if (Cache.currentTrackedAssets.exists(file))
 			{
-				Cache.trackLocalAsset(file);
-				return Cache.currentTrackedAssets.get(file);
+				var cached:FlxGraphic = Cache.currentTrackedAssets.get(file);
+				if (cached != null && cached.bitmap != null)
+				{
+					Cache.trackLocalAsset(file);
+					return cached;
+				}
+				Cache.currentTrackedAssets.remove(file);
 			}
 			else if (Assets.exists(file, IMAGE)) {
 				bitmap = Assets.getBitmapData(file);
@@ -460,7 +473,6 @@ class Paths
 		if (bitmap != null)
 			return cacheBitmap(file, bitmap, allowGPU);
 
-		trace('oh no its returning null NOOOO ($file)');
 		return null;
 	}
 
@@ -474,10 +486,15 @@ class Paths
 
 		if (Cache.currentTrackedAssets.exists(file))
 		{
-			Cache.trackLocalAsset(file);
-			return Cache.currentTrackedAssets.get(file);
+			var cached:FlxGraphic = Cache.currentTrackedAssets.get(file);
+			if (cached != null && cached.bitmap != null)
+			{
+				Cache.trackLocalAsset(file);
+				return cached;
+			}
+			Cache.currentTrackedAssets.remove(file);
 		}
-		else if (FileSystem.exists(file))
+		if (FileSystem.exists(file))
 			bitmap = BitmapData.fromFile(file, disposeOnUpload);
 		else
 		#end
@@ -485,8 +502,13 @@ class Paths
 			file = getPath('images/$key.png', IMAGE, library);
 			if (Cache.currentTrackedAssets.exists(file))
 			{
-				Cache.trackLocalAsset(file);
-				return Cache.currentTrackedAssets.get(file);
+				var cached:FlxGraphic = Cache.currentTrackedAssets.get(file);
+				if (cached != null && cached.bitmap != null)
+				{
+					Cache.trackLocalAsset(file);
+					return cached;
+				}
+				Cache.currentTrackedAssets.remove(file);
 			}
 			else if (Assets.exists(file, IMAGE)) {
 				bitmap = Assets.getBitmapData(file);
@@ -497,7 +519,6 @@ class Paths
 		if (bitmap != null)
 			return cacheBitmap(file, bitmap, allowGPU);
 
-		trace('oh no its returning null NOOOO ($file)');
 		return null;
 	}
 
@@ -787,6 +808,9 @@ class Paths
 
 		if (FileSystem.exists(file))
 		{
+			// ★ 强制重载：清除该文件的缓存条目，下次直接重新解码磁盘文件
+			if (forceReloadSounds && Cache.currentTrackedSounds.exists(file))
+				Cache.currentTrackedSounds.remove(file);
 			if (!Cache.currentTrackedSounds.exists(file))
 			{
 				var sound = Sound.fromFile(file);
@@ -810,6 +834,9 @@ class Paths
 		gottenPath = gottenPath.substring(gottenPath.indexOf(':') + 1, gottenPath.length);
 		// trace(gottenPath);
 
+		// ★ 强制重载：清除缓存条目后重新解码磁盘文件
+		if (forceReloadSounds && Cache.currentTrackedSounds.exists(gottenPath))
+			Cache.currentTrackedSounds.remove(gottenPath);
 		if (!Cache.currentTrackedSounds.exists(gottenPath))
 		{
 			var retKey:String = (path != null) ? '$path/$key' : key;
@@ -896,20 +923,17 @@ class Paths
 				return trackedPath(fileToCheck);
 			}
 		} //检测当前mods有没有这个文件
-
 		for (mod in Mods.getGlobalMods())
 		{
 			var fileToCheck:String = mods(mod + '/' + key);
 			if (FileSystem.exists(fileToCheck))
 				return trackedPath(fileToCheck);
 		} //检测全部mods有没有这个文件
-
 		var fileToCheck:String = mods(key);
 		if (FileSystem.exists(fileToCheck))
 		{
 			return trackedPath(fileToCheck);
 		} //检测mod的根目录有没有这个文件（列如mods/images）
-
 		return trackedPath(#if mobile Sys.getCwd() + #end 'assets/shared/' + key);
 	}
 

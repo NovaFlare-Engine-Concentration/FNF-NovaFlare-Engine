@@ -1,0 +1,32 @@
+# ===== Editor de Personagem de Menu (nova UI) =====
+
+# ===== Botoes da barra inferior =====
+menu_type => Tipo de Personagem
+menu_char => Personagem
+menu_hint => Dica
+
+# ===== Nomes dos tipos de personagem =====
+type_opponent => Oponente
+type_boyfriend => Namorado
+type_girlfriend => Namorada
+
+# ===== Texto de status acima do painel (personagem atual + offset) =====
+cur_role => Personagem Atual: 
+
+# ===== Rottulos dos campos do painel de personagem =====
+lbl_image => Nome do arquivo de imagem:
+lbl_idle => Animacao Idle (.XML):
+lbl_confirm => Animacao "Start Press" (.XML):
+lbl_scale => Escala:
+
+# ===== Acoes do painel de personagem =====
+chk_flip_x => Inverter X
+btn_reload => Recarregar Personagem
+
+# ===== Painel de dicas =====
+btn_load => Carregar Personagem
+btn_save => Salvar Personagem
+h_arrow => Setas - Alterar Offset (Segure Shift para x10)
+h_space1 => Espaco - Tocar animacao "Start Press"
+h_space2 => (Apenas para o tipo Namorado)
+h_esc => Esc - Fechar painel / Sair do editor

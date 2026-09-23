@@ -1,4 +1,4 @@
-﻿package developer.editors;
+package developer.editors;
 
 import haxe.Json;
 import haxe.format.JsonParser;
@@ -32,6 +32,7 @@ import flixel.util.FlxStringUtil;
 import general.objects.AttachedSprite;
 
 import substates.Prompt;
+import mobile.objects.EditorMobileKeys;
 
 import games.backend.Song;
 import games.backend.Section;
@@ -132,6 +133,15 @@ class ChartingState extends MusicBeatState
 
 	var bpmTxt:FlxText;
 
+	// 提升为类变量的 UI 控件（用于注册到菜单系统）
+	var songBpmStepper:FlxUINumericStepper;
+	var stepperSpeed:FlxUINumericStepper;
+	var stepperMania:FlxUINumericStepper;
+	var player1DropDown:FlxUIDropDownMenu;
+	var gfVersionDropDown:FlxUIDropDownMenu;
+	var player2DropDown:FlxUIDropDownMenu;
+	var selectedEventIdx:Int = -1;
+
 	var camPos:FlxObject;
 	var strumLine:FlxSprite;
 	var quant:AttachedSprite;
@@ -163,6 +173,8 @@ class ChartingState extends MusicBeatState
 	var curEventSelected:Int = 0;
 	var curUndoIndex = 0;
 	var curRedoIndex = 0;
+	// 事件类型下拉：当前 hover 的选项索引（-1 = 未 hover），菜单里显示事件信息用
+	var hoveringEventIdx:Int = -1;
 	var _song:SwagSong;
 	/*
 	 * WILL BE THE CURRENT / LAST PLACED NOTE
@@ -182,6 +194,14 @@ class ChartingState extends MusicBeatState
 	var currentSongName:String;
 
 	var zoomTxt:FlxText;
+
+	// Adobe 风格顶栏菜单（替代 zoomTxt 的零散显示）
+	var menuBar:ChartEditorMenuBar;
+	#if (cpp && windows)
+	var windowChrome:EditorChromeUI;
+	var modInfoPopup:general.objects.ModInfoPopup;
+	var camHUD:flixel.FlxCamera;
+	#end
 
 	var zoomList:Array<Float> = [0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 16, 24];
 	var curZoom:Int = 2;
@@ -205,13 +225,15 @@ class ChartingState extends MusicBeatState
 	var leftKeys:Int = 4;
 	var rightKeys:Int = 4;
 	var totalKeys:Int = 8;
-
 	var gridOffsetX:Float = 0;
 
 	public var mouseQuant:Bool = false;
 
 	override function create()
 	{
+		// 强制刷新语言数据，确保 charting 等新分组被正确加载
+		general.backend.language.Language.resetData();
+
 		if (PlayState.SONG != null)
 		{
 			_song = PlayState.SONG;
@@ -237,7 +259,10 @@ class ChartingState extends MusicBeatState
 			PlayState.SONG = _song;
 		}
 
-		updateKeyAmounts();
+		// ★ 进入编辑器时数据与 mania 视为配套：先按数据自检 mania（防 json 缺 mania 字段默认 4K），
+		//   再只重算键数——绝不平移数据（平移只用于用户主动改 mania，见 updateKeyAmounts）
+		autoFixManiaFromData();
+		recalcKeyAmounts();
 
 		new FlxTimer().start(60, function(tmr:FlxTimer)
 		{
@@ -256,7 +281,7 @@ class ChartingState extends MusicBeatState
 		var bg:FlxSprite = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
 		bg.antialiasing = ClientPrefs.data.antialiasing;
 		bg.scrollFactor.set();
-		bg.color = 0xFF222222;
+		bg.color = 0xFF12141A; // ★ NovaFlare 规范：页面底层背景
 		add(bg);
 
 		gridLayer = new FlxTypedGroup<FlxSprite>();
@@ -281,8 +306,8 @@ class ChartingState extends MusicBeatState
 		add(leftIcon);
 		add(rightIcon);
 
-		leftIcon.setPosition(GRID_SIZE * (leftKeys + 1) / 2 - leftIcon.width / 2 + GRID_SIZE / 2, -100);
-		rightIcon.setPosition(GRID_SIZE * (3 * leftKeys + 1) / 2 - rightIcon.width / 2 + GRID_SIZE / 2, -100);
+		// ★ 头像初始位置统一由 positionSideIcons 负责（makeStrumNotes / reloadGridLayer / updateHeads 都会调用）
+		positionSideIcons();
 
 		curRenderedSustains = new FlxTypedGroup<FlxSprite>();
 		curRenderedNotes = new FlxTypedGroup<Note>();
@@ -301,14 +326,21 @@ class ChartingState extends MusicBeatState
 		updateJsonData();
 		currentSongName = Paths.formatToSongPath(_song.song);
 		loadSong();
+		// ★ 先预热 Note 贴图/动画缓存：reloadGridLayer 内部的 updateGrid 会创建 Note，
+		//   若此时 loadedNote 还是空的，reloadPath('') 会算出空 skin 并缓存空贴图 →
+		//   启动后第一次打开编谱器时所有音符显示第一帧（全左箭头）。
+		//   （原顺序：makeStrumNotes 里的 StrumNote 才会触发 Note.init，但它在 reloadGridLayer 之后）
+		Note.init();
 		reloadGridLayer();
 		Conductor.bpm = _song.bpm;
 		Conductor.mapBPMChanges(_song);
 		if (curSec >= _song.notes.length)
 			curSec = _song.notes.length - 1;
 
+		// 原生谱面信息文本（时间/Section/Beat/Step/Beat Snap/Move）已由顶栏状态栏替代，直接隐藏
 		bpmTxt = new FlxText(10, 75, 0, "", 16);
 		bpmTxt.scrollFactor.set();
+		bpmTxt.visible = false;
 		add(bpmTxt);
 
 		strumLine = new FlxSprite(0, 50).makeGraphic(Std.int(GRID_SIZE * (totalKeys + 1)), 4);
@@ -342,12 +374,10 @@ class ChartingState extends MusicBeatState
 			{name: "Data", label: 'Data'},
 		];
 
+		// ★ UI_box 仅存为逻辑引用（tab 管理），不加入场景，不渲染
+		// widget 全部独立存在，不依赖 FlxGroup 容器
 		UI_box = new FlxUITabMenu(null, tabs, true);
-
 		UI_box.resize(300, 400);
-		UI_box.x = 640 + GRID_SIZE / 2;
-		UI_box.y = 25;
-		UI_box.scrollFactor.set();
 
 		if (controls.mobileC)
 		{
@@ -370,7 +400,6 @@ class ChartingState extends MusicBeatState
 				+ #if FLX_PITCH "\nLeft Bracket / Right Bracket - Change Song Playback Rate (SHIFT to go Faster)
 		\nALT + Left Bracket / Right Bracket - Reset Song Playback Rate"
 				+ #end "\nHold Shift to move 4x faster
-		\nHold Control and click on an arrow to select it
 		\nZ/X - Zoom in/out
 		\n
 		\nEsc - Test your chart inside Chart Editor
@@ -379,17 +408,7 @@ class ChartingState extends MusicBeatState
 		\nSpace - Stop/Resume song";
 		}
 
-		var tipTextArray:Array<String> = text.split('\n');
-		for (i in 0...tipTextArray.length)
-		{
-			var tipText:FlxText = new FlxText(UI_box.x, UI_box.y + UI_box.height + 8, 0, tipTextArray[i], 16);
-			tipText.y += i * 12;
-			tipText.setFormat(Paths.font("vcr.ttf"), 14, FlxColor.WHITE, LEFT /*, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK*/);
-			// tipText.borderSize = 2;
-			tipText.scrollFactor.set();
-			add(tipText);
-		}
-		add(UI_box);
+		// 操作提示已移到【帮助】菜单，不再在屏幕上显示 tipText
 
 		addSongUI();
 		addSectionUI();
@@ -399,7 +418,8 @@ class ChartingState extends MusicBeatState
 		addDataUI();
 		updateHeads();
 		updateWaveform();
-		// UI_box.selected_tab = 4;
+
+		// ===== 旧 FlxUITabMenu 不再加入场景，无需显式隐藏 =====
 
 		add(curRenderedSustains);
 		add(curRenderedNotes);
@@ -413,33 +433,330 @@ class ChartingState extends MusicBeatState
 		}
 		lastSong = currentSongName;
 
+		// 原版 zoomTxt（屏幕左上角单独一行）已废弃；改为整条顶栏 + 状态栏
+		// zoomTxt 字段仍保留，updateZoom() 内会更新 menuBar.statusBar 的 zoom 显示
 		zoomTxt = new FlxText(10, 10, 0, "Zoom: 1 / 1", 16);
 		zoomTxt.scrollFactor.set();
+		zoomTxt.visible = false;
 		add(zoomTxt);
 
+		// ===== 顶栏菜单栏（Adobe 风格）=====
+		menuBar = new ChartEditorMenuBar();
+		menuBar.scrollFactor.set();
+		menuBar.uiCamera = FlxG.camera;
+		menuBar.onSelectTab = function(idx:Int) {
+			UI_box.selected_tab = idx;
+		};
+		menuBar.onPlaytest = function(testMode:Bool) {
+			if (testMode) startPlaytest();
+			else startNormalPlay();
+		};
+		menuBar.onAction = function(actionKey:String) {
+			handleMenuAction(actionKey);
+		};
+		// ★ 事件下拉 hover：悬停在选项上时在菜单里显示该事件的名字+描述
+		menuBar.onDropdownHoverOption = function(ctrl:Dynamic, optIdx:Int) {
+			if (ctrl == null || ctrl.key != 'w_event_type') return;
+			hoveringEventIdx = optIdx;
+			menuBar.refreshDynTexts();
+		};
+		// ★ 事件信息动态文本行（菜单里事件类型下拉下方）
+		menuBar.registerDynText('dyn_event_info', function():String {
+			var idx:Int = hoveringEventIdx;
+			if (idx < 0)
+			{
+				idx = 0;
+				var parsed:Null<Int> = null;
+				try { parsed = Std.parseInt(eventDropDown.selectedId); } catch (e:Dynamic) {}
+				if (parsed != null) idx = parsed;
+			}
+			if (idx < 0 || idx >= eventStuff.length) return '';
+			var name:String = eventStuff[idx][0];
+			var desc:String = eventStuff[idx][1];
+			if (desc == null) desc = '';
+			// ★ 描述完整返回（右侧信息面板高度弹性自适应，不截断成 …）
+			return (name != null && name != '') ? (name + '\n' + desc) : desc;
+		});
+		// ★ 菜单打开后刷新 widget 显示值
+		//   widget 在 visible=false 时被赋值后显示不会刷新，需要在菜单打开时强制同步
+		menuBar.onMenuOpened = function(menuKey:String) {
+			refreshMenuWidgets(menuKey);
+		};
+		// 不再需要 onRequestUIBox —— menuBar 自己管理 widget 面板的显示/隐藏
+
+		// 注册 widget 引用（仅用于下拉菜单显示状态文本）
+		menuBar.registerWidget('w_metronome', metronome);
+		menuBar.registerWidget('w_autoscroll', disableAutoScrolling);
+		menuBar.registerWidget('w_waveform_inst', waveformUseInstrumental);
+		menuBar.registerWidget('w_waveform_main', waveformUseVoices);
+		menuBar.registerWidget('w_waveform_opp', waveformUseOppVoices);
+		menuBar.registerWidget('w_mute_inst', check_mute_inst);
+		menuBar.registerWidget('w_mute_main', check_mute_vocals);
+		menuBar.registerWidget('w_mute_opp', check_mute_vocals_opponent);
+		menuBar.registerWidget('w_vortex', check_vortex);
+		menuBar.registerWidget('w_ignore_warnings', check_warnings);
+		menuBar.registerWidget('w_sfx_bf', playSoundBf);
+		menuBar.registerWidget('w_sfx_opp', playSoundDad);
+		menuBar.registerWidget('w_no_rgb', check_disableNoteRGB);
+		menuBar.registerWidget('w_must_hit', check_mustHitSection);
+		menuBar.registerWidget('w_gf_section', check_gfSection);
+		menuBar.registerWidget('w_alt_anim', check_altAnim);
+		menuBar.registerWidget('w_change_bpm', check_changeBPM);
+		menuBar.registerWidget('w_include_notes', check_notesSec);
+		menuBar.registerWidget('w_include_events', check_eventsSec);
+		menuBar.registerWidget('w_has_voice', check_voices);
+
+		menuBar.registerWidget('w_bpm_stepper', metronomeStepper);
+		menuBar.registerWidget('w_metronome_offset', metronomeOffsetStepper);
+		menuBar.registerWidget('w_inst_volume', instVolume);
+		menuBar.registerWidget('w_voices_volume', voicesVolume);
+		menuBar.registerWidget('w_voices_opp_volume', voicesOppVolume);
+		menuBar.registerWidget('w_beats_per_section', stepperBeats);
+		menuBar.registerWidget('w_section_bpm', stepperSectionBPM);
+		menuBar.registerWidget('w_copy_beat', copyBeatStepper);
+		menuBar.registerWidget('w_sus_length', stepperSusLength);
+		menuBar.registerWidget('w_strum_time', strumTimeInputText);
+		menuBar.registerWidget('w_note_type', noteTypeDropDown);
+		menuBar.registerWidget('w_event_type', eventDropDown);
+		menuBar.registerWidget('w_value1', value1InputText);
+		menuBar.registerWidget('w_value2', value2InputText);
+		menuBar.registerWidget('w_song_title', UI_songTitle);
+		menuBar.registerWidget('w_bpm', songBpmStepper);
+		menuBar.registerWidget('w_speed', stepperSpeed);
+		menuBar.registerWidget('w_mania', stepperMania);
+		menuBar.registerWidget('w_stage', stageDropDown);
+		menuBar.registerWidget('w_player1', player1DropDown);
+		menuBar.registerWidget('w_gf', gfVersionDropDown);
+		menuBar.registerWidget('w_player2', player2DropDown);
+		menuBar.registerWidget('w_go_char', gameOverCharacterInputText);
+		menuBar.registerWidget('w_go_sound', gameOverSoundInputText);
+		menuBar.registerWidget('w_go_loop', gameOverLoopInputText);
+		menuBar.registerWidget('w_go_end', gameOverEndInputText);
+		menuBar.registerWidget('w_note_skin', noteSkinInputText);
+		menuBar.registerWidget('w_note_splash', noteSplashesInputText);
+		menuBar.registerWidget('w_difficulty', difficultyInputText);
+
+		add(menuBar);
+
+		// ===== 控件加入场景 =====
+		addLegacyWidgetsToScene();
+		// ===== 自绘菜单系统接管 UI：旧 6 列布局的原生控件全部隐藏（只作数据源）=====
+		hideAllLegacyWidgets();
 
 		updateGrid();
-
-		// Bring all input fields to front so they receive touches on Android
-		for (i in 0...6) {
-			var group = UI_box.getTabGroup(null, i);
-			if (group != null) {
-				var inputs:Array<FlxSprite> = [];
-				for (member in group.members) {
-					if (Std.isOfType(member, FlxUIInputText) || Std.isOfType(member, FlxUINumericStepper)) {
-						inputs.push(member);
-					}
-				}
-				for (input in inputs) {
-					group.remove(input, true);
-					group.add(input);
-				}
-			}
-		}
 
 		addVirtualPad(ChartingStateC, ChartingStateC);
 
 		super.create();
+
+		#if (cpp && windows)
+		// Charting 主相机跟随网格滚动，自绘窗口条必须挂独立的固定 HUD 相机。
+		// 注意：必须在 super.create() 之后创建 —— MusicBeatState.create 里的
+		// initPsychCamera() 会 FlxG.cameras.reset，提前创建会被清掉。
+		camHUD = new flixel.FlxCamera();
+		camHUD.bgColor.alpha = 0;
+		flixel.FlxG.cameras.add(camHUD, false);
+
+		// 引擎自绘窗口控制组（右上角：图标+标题 / - □ ×，可拖动窗口）
+		windowChrome = new EditorChromeUI();
+		windowChrome.scrollFactor.set();
+		windowChrome.cameras = [camHUD];
+		add(windowChrome);
+		// 点击标题 → Mod 信息下拉面板
+		modInfoPopup = new general.objects.ModInfoPopup();
+		modInfoPopup.scrollFactor.set();
+		modInfoPopup.cameras = [camHUD];
+		add(modInfoPopup);
+		windowChrome.onTitleClick = () -> modInfoPopup.openUnder(windowChrome);
+		// 顶栏左侧「退出 编谱器」按钮
+		windowChrome.setupExitButton('chartEditor', doExitEditor);
+		#end
+	}
+
+	/** 6 列从左到右，每列控件纯纵向排列。不用容器，直接裸坐标。 */
+	function layoutAllWidgetsVertical():Void
+	{
+		var colCount:Int = 6;
+		var colW:Float = FlxG.width / colCount;
+		var startY:Float = ChartEditorMenuBar.BAR_HEIGHT + ChartEditorMenuBar.STATUS_HEIGHT + 8;
+		var gapY:Float = 26;
+		var cursors:Array<Float> = [startY, startY, startY, startY, startY, startY];
+
+		function placeIn(col:Int, w:Dynamic):Void {
+			if (w == null) return;
+			try {
+				try { w.scrollFactor.set(0, 0); } catch(e:Dynamic) {}
+				try { w.setScrollFactor(0, 0); } catch(e:Dynamic) {}
+				w.x = col * colW + 8;
+				w.y = cursors[col];
+				w.visible = true;
+				cursors[col] += Math.max(w.height + 4, gapY);
+			} catch(e:Dynamic) {}
+		}
+
+		// col 0 (最左): 歌曲
+		placeIn(0, UI_songTitle);
+		placeIn(0, check_voices);
+		placeIn(0, songBpmStepper);
+		placeIn(0, stepperSpeed);
+		placeIn(0, stepperMania);
+		placeIn(0, stageDropDown);
+		placeIn(0, player1DropDown);
+		placeIn(0, gfVersionDropDown);
+		placeIn(0, player2DropDown);
+
+		// col 1: 小节
+		placeIn(1, check_mustHitSection);
+		placeIn(1, check_gfSection);
+		placeIn(1, check_altAnim);
+		placeIn(1, stepperBeats);
+		placeIn(1, check_changeBPM);
+		placeIn(1, stepperSectionBPM);
+		placeIn(1, check_notesSec);
+		placeIn(1, check_eventsSec);
+
+		// col 2: 音符
+		placeIn(2, stepperSusLength);
+		placeIn(2, strumTimeInputText);
+		placeIn(2, noteTypeDropDown);
+
+		// col 3: 事件
+		placeIn(3, eventDropDown);
+		placeIn(3, value1InputText);
+		placeIn(3, value2InputText);
+
+		// col 4: 谱面
+		placeIn(4, metronome);
+		placeIn(4, disableAutoScrolling);
+		placeIn(4, metronomeStepper);
+		placeIn(4, metronomeOffsetStepper);
+		placeIn(4, waveformUseInstrumental);
+		placeIn(4, waveformUseVoices);
+		placeIn(4, waveformUseOppVoices);
+		placeIn(4, check_mute_inst);
+		placeIn(4, check_mute_vocals);
+		placeIn(4, check_mute_vocals_opponent);
+		placeIn(4, check_vortex);
+		placeIn(4, check_warnings);
+		placeIn(4, playSoundBf);
+		placeIn(4, playSoundDad);
+		placeIn(4, instVolume);
+		placeIn(4, voicesVolume);
+		placeIn(4, voicesOppVolume);
+
+		// col 5 (最右): 数据
+		placeIn(5, gameOverCharacterInputText);
+		placeIn(5, gameOverSoundInputText);
+		placeIn(5, gameOverLoopInputText);
+		placeIn(5, gameOverEndInputText);
+		placeIn(5, check_disableNoteRGB);
+		placeIn(5, noteSkinInputText);
+		placeIn(5, noteSplashesInputText);
+	}
+	function hideAllLegacyWidgets():Void
+	{
+		// ---- CheckBox ----
+		var checks:Array<Dynamic> = [
+			check_mute_inst, check_mute_vocals, check_mute_vocals_opponent,
+			check_vortex, check_warnings, playSoundBf, playSoundDad,
+			check_voices, check_eventsSec, check_notesSec, check_disableNoteRGB,
+			waveformUseInstrumental, waveformUseVoices, waveformUseOppVoices,
+			check_mustHitSection, check_gfSection, check_altAnim, check_changeBPM,
+			metronome, disableAutoScrolling, mouseScrollingQuant
+		];
+		for (c in checks) if (c != null) EditorInputStyle.deepHide(c);
+
+		// ---- InputText ----
+		var inputs:Array<Dynamic> = [
+			UI_songTitle, difficultyInputText, value1InputText, value2InputText, strumTimeInputText,
+			gameOverCharacterInputText, gameOverSoundInputText, gameOverLoopInputText, gameOverEndInputText,
+			noteSkinInputText, noteSplashesInputText
+		];
+		for (i in inputs) if (i != null) EditorInputStyle.deepHide(i);
+
+		// ---- NumericStepper ----
+		var steppers:Array<Dynamic> = [
+			songBpmStepper, stepperSpeed, stepperMania,
+			metronomeStepper, metronomeOffsetStepper,
+			instVolume, voicesVolume, voicesOppVolume,
+			stepperBeats, stepperSectionBPM, stepperSusLength
+		];
+		for (s in steppers) if (s != null) EditorInputStyle.deepHide(s);
+
+		// ---- DropDown ----
+		var drops:Array<Dynamic> = [
+			player1DropDown, gfVersionDropDown, player2DropDown,
+			stageDropDown, noteTypeDropDown, eventDropDown
+		];
+		for (d in drops) if (d != null) EditorInputStyle.deepHide(d);
+
+		// ---- 零散 FlxText（事件描述等） ----
+		if (descText != null) { descText.visible = false; descText.active = false; }
+		if (selectedEventText != null) { selectedEventText.visible = false; selectedEventText.active = false; }
+		// sliderRate（如果有）
+		#if FLX_PITCH
+		if (sliderRate != null) try { sliderRate.visible = false; sliderRate.active = false; } catch(e) {}
+		#end
+	}
+
+	/**
+	 * 与 BACKSPACE / B 键等价的退出动作（顶栏「退出 编谱器」按钮共用）：
+	 *   - 自动 autosave 一份
+	 *   - 还原 PlayState.chartingMode / isFreePlay 状态
+	 *   - 回到 MasterEditorMenu 或 FreeplayState（取决于 isFreePlay）
+	 *   - 播放 freakyMenu BGM
+	 */
+	function doExitEditor():Void
+	{
+		autosaveSong();
+		PlayState.chartingMode = false;
+		if (!isFreePlay)
+			MusicBeatState.switchState(new developer.editors.MasterEditorMenu());
+		else
+			MusicBeatState.switchState(new states.freeplayState.FreeplayState());
+		isFreePlay = false;
+		FlxG.sound.playMusic(Paths.music('freakyMenu'));
+		FlxG.mouse.visible = false;
+	}
+
+	/**
+	 * 把所有原生 widget add 到场景，保证它们进入 FlxG.update() 循环。
+	 * 之前只 new 不 add → widget 的 update() 从没被调 → 点了没反应，纯贴图。
+	 * 用 try/catch 防御性处理重复 add 的情况。
+	 */
+	function addLegacyWidgetsToScene():Void
+	{
+		function addOne(w:Dynamic):Void {
+			if (w == null) return;
+			try { add(w); } catch (e:Dynamic) {}
+			// ★ 创建时就设 scrollFactor=0，之后 positionWidget 只需设坐标
+			try { w.scrollFactor.set(0, 0); } catch (e:Dynamic) {}
+			try { w.setScrollFactor(0, 0); } catch (e:Dynamic) {}
+		}
+		// CheckBox
+		addOne(check_mute_inst); addOne(check_mute_vocals); addOne(check_mute_vocals_opponent);
+		addOne(check_vortex); addOne(check_warnings); addOne(playSoundBf); addOne(playSoundDad);
+		addOne(check_voices); addOne(check_eventsSec); addOne(check_notesSec); addOne(check_disableNoteRGB);
+		addOne(waveformUseInstrumental); addOne(waveformUseVoices); addOne(waveformUseOppVoices);
+		addOne(check_mustHitSection); addOne(check_gfSection); addOne(check_altAnim); addOne(check_changeBPM);
+		addOne(metronome); addOne(disableAutoScrolling); addOne(mouseScrollingQuant);
+		// InputText
+		addOne(UI_songTitle); addOne(difficultyInputText); addOne(value1InputText); addOne(value2InputText); addOne(strumTimeInputText);
+		addOne(gameOverCharacterInputText); addOne(gameOverSoundInputText);
+		addOne(gameOverLoopInputText); addOne(gameOverEndInputText);
+		addOne(noteSkinInputText); addOne(noteSplashesInputText);
+		// NumericStepper
+		addOne(songBpmStepper); addOne(stepperSpeed); addOne(stepperMania);
+		addOne(metronomeStepper); addOne(metronomeOffsetStepper);
+		addOne(instVolume); addOne(voicesVolume); addOne(voicesOppVolume);
+		addOne(stepperBeats); addOne(stepperSectionBPM); addOne(stepperSusLength);
+		// DropDown
+		addOne(player1DropDown); addOne(gfVersionDropDown); addOne(player2DropDown);
+		addOne(stageDropDown); addOne(noteTypeDropDown); addOne(eventDropDown);
+		// sliderRate
+		#if FLX_PITCH
+		addOne(sliderRate);
+		#end
 	}
 
 	var check_mute_inst:FlxUICheckBox = null;
@@ -449,7 +766,19 @@ class ChartingState extends MusicBeatState
 	var check_warnings:FlxUICheckBox = null;
 	var playSoundBf:FlxUICheckBox = null;
 	var playSoundDad:FlxUICheckBox = null;
+	// 以下 4 个原本是 add*UI 内的局部变量，为接通新顶栏菜单的 check 项提升为成员
+	var check_voices:FlxUICheckBox = null;
+	var check_eventsSec:FlxUICheckBox = null;
+	var check_notesSec:FlxUICheckBox = null;
+	var check_disableNoteRGB:FlxUICheckBox = null;
+	// 波形图 3 个 checkbox，原是 addChartingUI 内的局部变量
+	var waveformUseInstrumental:FlxUICheckBox = null;
+	var waveformUseVoices:FlxUICheckBox = null;
+	var waveformUseOppVoices:FlxUICheckBox = null;
 	var UI_songTitle:FlxUIInputText;
+	/** ★ 难度输入框（【歌曲】菜单）：留空 = 无难度后缀；填了如 Fuck →
+	 *  保存为 song-Fuck.json，重载/打开也按 song-Fuck 加载 */
+	var difficultyInputText:FlxUIInputText;
 	var stageDropDown:FlxUIDropDownMenu;
 	#if FLX_PITCH
 	var sliderRate:FlxUISlider;
@@ -458,8 +787,21 @@ class ChartingState extends MusicBeatState
 	function addSongUI():Void
 	{
 		UI_songTitle = new FlxUIInputText(10, 10, 70, _song.song, 8);
+		// ★ 加入 blockPressWhileTypingOn，防止输入框内按 Backspace 触发全局退出快捷键
+		blockPressWhileTypingOn.push(UI_songTitle);
 
-		var check_voices = new FlxUICheckBox(10, 25, null, null, "Has voice track", 100);
+		// ★ 难度输入框：初始取当前全局难度（非默认难度时带入，方便继续编辑该难度）
+		var initDiff:String = '';
+		try
+		{
+			var curDiff:String = Difficulty.getString();
+			if (curDiff != null && curDiff != Difficulty.getDefault()) initDiff = curDiff;
+		}
+		catch (e:Dynamic) {}
+		difficultyInputText = new FlxUIInputText(10, 55, 70, initDiff, 8);
+		blockPressWhileTypingOn.push(difficultyInputText);
+
+		check_voices = new FlxUICheckBox(10, 25, null, null, "Has voice track", 100);
 		check_voices.checked = _song.needsVoices;
 		// _song.needsVoices = check_voices.checked;
 		check_voices.callback = function()
@@ -495,12 +837,13 @@ class ChartingState extends MusicBeatState
 			Song.forceEngineVersion = nextEngine;
 			var songName:String = Paths.formatToSongPath(_song.song);
 			try { _song = Song.loadFromJson(songName, songName); } catch(e) {}
-			updateKeyAmounts();
+			autoFixManiaFromData(); // 重载的 json 可能缺 mania 字段 → 按数据恢复
+			recalcKeyAmounts();
 			reloadGridLayer();
 			makeStrumNotes();
 			changeSection(curSec);
 		});
-		engineBtn.label.setFormat(Paths.font('vcr.ttf'), 8, CENTER);
+		engineBtn.label.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 8, CENTER);
 
 		var loadAutosaveBtn:FlxButton = new FlxButton(reloadSongJson.x, engineBtn.y + 30, 'Load Autosave', function()
 		{
@@ -555,18 +898,23 @@ class ChartingState extends MusicBeatState
 		clear_notes.color = FlxColor.RED;
 		clear_notes.label.color = FlxColor.WHITE;
 
-		var stepperBPM:FlxUINumericStepper = new FlxUINumericStepper(10, 70, 1, 1, 1, 400, 3);
-		stepperBPM.value = Conductor.bpm;
-		stepperBPM.name = 'song_bpm';
-		blockPressWhileTypingOnStepper.push(stepperBPM);
+		songBpmStepper = new FlxUINumericStepper(10, 70, 1, 1, 1, 400, 3, FlxUINumericStepper.STACK_VERTICAL);
+		songBpmStepper.value = Conductor.bpm;
+		songBpmStepper.name = 'song_bpm';
+		blockPressWhileTypingOnStepper.push(songBpmStepper);
 
-		var stepperSpeed:FlxUINumericStepper = new FlxUINumericStepper(10, stepperBPM.y + 35, 0.1, 1, 0.1, 10, 2);
+		stepperSpeed = new FlxUINumericStepper(10, songBpmStepper.y + 35, 0.1, 1, 0.1, 10, 2, FlxUINumericStepper.STACK_VERTICAL);
 		stepperSpeed.value = _song.speed;
 		stepperSpeed.name = 'song_speed';
 		blockPressWhileTypingOnStepper.push(stepperSpeed);
 
-		var stepperMania:FlxUINumericStepper = new FlxUINumericStepper(100, stepperSpeed.y, 1, 3, ExtraKeysHandler.instance.data.minKeys, ExtraKeysHandler.instance.data.maxKeys, 1);
-		stepperMania.value = _song.mania;
+		// ★ mania 在 UI 上显示「键数」（4K=4），内部仍是「每边键数-1」（4K=mania 3）。
+		//   stepper 范围也整体 +1，从「键数 1..10」而不是「mania 0..9」。
+		// ★ Mania 步进器阈值：extrakeys.json 缺失时兜底 1~10，避免 ± 越界崩溃
+		var maniaMinK:Int = 1;
+		var maniaMaxK:Int = extraMaxKeys();
+		stepperMania = new FlxUINumericStepper(100, stepperSpeed.y, 1, _song.mania + 1, maniaMinK + 1, maniaMaxK + 1, 1, FlxUINumericStepper.STACK_VERTICAL);
+		stepperMania.value = _song.mania + 1;
 		stepperMania.name = 'song_mania';
 		blockPressWhileTypingOnStepper.push(stepperMania);
 
@@ -614,17 +962,18 @@ class ChartingState extends MusicBeatState
 		#end
 		tempArray = [];
 
-		var player1DropDown = new FlxUIDropDownMenu(10, stepperSpeed.y + 45, FlxUIDropDownMenu.makeStrIdLabelArray(characters, true),
+		player1DropDown = new FlxUIDropDownMenu(10, stepperSpeed.y + 45, FlxUIDropDownMenu.makeStrIdLabelArray(characters, true),
 			function(character:String)
 			{
 				_song.player1 = characters[Std.parseInt(character)];
 				updateJsonData();
 				updateHeads();
+				reloadGridLayer(); // ★ 换角色后背景/波形颜色立即跟随
 			});
 		player1DropDown.selectedLabel = _song.player1;
 		blockPressWhileScrolling.push(player1DropDown);
 
-		var gfVersionDropDown = new FlxUIDropDownMenu(player1DropDown.x, player1DropDown.y + 40, FlxUIDropDownMenu.makeStrIdLabelArray(characters, true),
+		gfVersionDropDown = new FlxUIDropDownMenu(player1DropDown.x, player1DropDown.y + 40, FlxUIDropDownMenu.makeStrIdLabelArray(characters, true),
 			function(character:String)
 			{
 				_song.gfVersion = characters[Std.parseInt(character)];
@@ -634,12 +983,13 @@ class ChartingState extends MusicBeatState
 		gfVersionDropDown.selectedLabel = _song.gfVersion;
 		blockPressWhileScrolling.push(gfVersionDropDown);
 
-		var player2DropDown = new FlxUIDropDownMenu(player1DropDown.x, gfVersionDropDown.y + 40, FlxUIDropDownMenu.makeStrIdLabelArray(characters, true),
+		player2DropDown = new FlxUIDropDownMenu(player1DropDown.x, gfVersionDropDown.y + 40, FlxUIDropDownMenu.makeStrIdLabelArray(characters, true),
 			function(character:String)
 			{
 				_song.player2 = characters[Std.parseInt(character)];
 				updateJsonData();
 				updateHeads();
+				reloadGridLayer(); // ★ 换角色后背景/波形颜色立即跟随
 			});
 		player2DropDown.selectedLabel = _song.player2;
 		blockPressWhileScrolling.push(player2DropDown);
@@ -700,37 +1050,9 @@ class ChartingState extends MusicBeatState
 		stageDropDown.selectedLabel = _song.stage;
 		blockPressWhileScrolling.push(stageDropDown);
 
-		var tab_group_song = new FlxUI(null, UI_box);
-		tab_group_song.name = "Song";
-		tab_group_song.add(UI_songTitle);
-
-		tab_group_song.add(check_voices);
-		tab_group_song.add(clear_events);
-		tab_group_song.add(clear_notes);
-		tab_group_song.add(saveButton);
-		tab_group_song.add(saveEvents);
-		tab_group_song.add(reloadSong);
-		tab_group_song.add(reloadSongJson);
-		tab_group_song.add(engineBtn);
-		tab_group_song.add(loadAutosaveBtn);
-		tab_group_song.add(loadEventJson);
-		tab_group_song.add(stepperBPM);
-		tab_group_song.add(stepperSpeed);
-		tab_group_song.add(stepperMania);
-		tab_group_song.add(new FlxText(stepperBPM.x, stepperBPM.y - 15, 0, 'Song BPM:'));
-		//tab_group_song.add(new FlxText(stepperBPM.x + 100, stepperBPM.y - 15, 0, 'Song Offset:'));	//论ShadowMario写这行是想干啥
-		tab_group_song.add(new FlxText(stepperSpeed.x, stepperSpeed.y - 15, 0, 'Song Speed:'));
-		tab_group_song.add(new FlxText(stepperMania.x, stepperMania.y - 15, 0, 'Mania:'));
-		tab_group_song.add(new FlxText(player2DropDown.x, player2DropDown.y - 15, 0, 'Opponent:'));
-		tab_group_song.add(new FlxText(gfVersionDropDown.x, gfVersionDropDown.y - 15, 0, 'Girlfriend:'));
-		tab_group_song.add(new FlxText(player1DropDown.x, player1DropDown.y - 15, 0, 'Boyfriend:'));
-		tab_group_song.add(new FlxText(stageDropDown.x, stageDropDown.y - 15, 0, 'Stage:'));
-		tab_group_song.add(player2DropDown);
-		tab_group_song.add(gfVersionDropDown);
-		tab_group_song.add(player1DropDown);
-		tab_group_song.add(stageDropDown);
-
-		UI_box.addGroup(tab_group_song);
+		// 隐藏所有局部 FlxButton（只保留回调功能，不在旧 UI 上显示）
+		var songButtons:Array<FlxButton> = [saveButton, reloadSong, reloadSongJson, engineBtn, loadAutosaveBtn, loadEventJson, saveEvents, clear_events, clear_notes];
+		for (b in songButtons) if (b != null) try { b.visible = false; } catch(e) {}
 
 		initPsychCamera().follow(camPos, LOCKON, 999);
 	}
@@ -747,22 +1069,36 @@ class ChartingState extends MusicBeatState
 
 	function addSectionUI():Void
 	{
-		var tab_group_section = new FlxUI(null, UI_box);
-		tab_group_section.name = 'Section';
-
 		check_mustHitSection = new FlxUICheckBox(10, 15, null, null, "Must hit section", 100);
 		check_mustHitSection.name = 'check_mustHit';
 		check_mustHitSection.checked = _song.notes[curSec].mustHitSection;
+		// ★ 新菜单系统不经过 UI_box 事件广播，必须在这里补 callback（原逻辑在 getEvent）
+		check_mustHitSection.callback = function()
+		{
+			_song.notes[curSec].mustHitSection = check_mustHitSection.checked;
+			updateHeads();
+			reloadGridLayer(); // ★ 背景/网格/波形归属整体跟随 mustHit
+		};
 
 		check_gfSection = new FlxUICheckBox(10, check_mustHitSection.y + 22, null, null, "GF section", 100);
 		check_gfSection.name = 'check_gf';
 		check_gfSection.checked = _song.notes[curSec].gfSection;
 		// _song.needsVoices = check_mustHit.checked;
+		check_gfSection.callback = function()
+		{
+			_song.notes[curSec].gfSection = check_gfSection.checked;
+			updateGrid();
+			updateHeads();
+		};
 
 		check_altAnim = new FlxUICheckBox(check_gfSection.x + 120, check_gfSection.y, null, null, "Alt Animation", 100);
 		check_altAnim.checked = _song.notes[curSec].altAnim;
+		check_altAnim.callback = function()
+		{
+			_song.notes[curSec].altAnim = check_altAnim.checked;
+		};
 
-		stepperBeats = new FlxUINumericStepper(10, 100, 1, 4, 1, 7, 2);
+		stepperBeats = new FlxUINumericStepper(10, 100, 1, 4, 1, 7, 2, FlxUINumericStepper.STACK_VERTICAL);
 		stepperBeats.value = getSectionBeats();
 		stepperBeats.name = 'section_beats';
 		blockPressWhileTypingOnStepper.push(stepperBeats);
@@ -771,8 +1107,17 @@ class ChartingState extends MusicBeatState
 		check_changeBPM = new FlxUICheckBox(10, stepperBeats.y + 30, null, null, 'Change BPM', 100);
 		check_changeBPM.checked = _song.notes[curSec].changeBPM;
 		check_changeBPM.name = 'check_changeBPM';
+		// ★ 新菜单系统不经过 UI_box 事件广播，必须在这里补 callback（原逻辑在 getEvent）
+		check_changeBPM.callback = function()
+		{
+			_song.notes[curSec].changeBPM = check_changeBPM.checked;
+			if (check_changeBPM.checked)
+				stepperSectionBPM.value = _song.notes[curSec].bpm;
+			else
+				stepperSectionBPM.value = Conductor.bpm;
+		};
 
-		stepperSectionBPM = new FlxUINumericStepper(10, check_changeBPM.y + 20, 1, Conductor.bpm, 0, 999, 1);
+		stepperSectionBPM = new FlxUINumericStepper(10, check_changeBPM.y + 20, 1, Conductor.bpm, 0, 999, 1, FlxUINumericStepper.STACK_VERTICAL);
 		if (check_changeBPM.checked)
 		{
 			stepperSectionBPM.value = _song.notes[curSec].bpm;
@@ -784,8 +1129,8 @@ class ChartingState extends MusicBeatState
 		stepperSectionBPM.name = 'section_bpm';
 		blockPressWhileTypingOnStepper.push(stepperSectionBPM);
 
-		var check_eventsSec:FlxUICheckBox = null;
-		var check_notesSec:FlxUICheckBox = null;
+		check_eventsSec = null;
+		check_notesSec = null;
 		var copyButton:FlxButton = new FlxButton(10, 190, "Copy Section", function()
 		{
 			notesCopied = [];
@@ -901,10 +1246,9 @@ class ChartingState extends MusicBeatState
 			updateGrid();
 		});
 
-		var stepperCopy:FlxUINumericStepper = null;
 		var copyLastButton:FlxButton = new FlxButton(10, swapSection.y + 30, "Copy last section", function()
 		{
-			var value:Int = Std.int(stepperCopy.value);
+			var value:Int = Std.int(copyBeatStepper.value);
 			if (value == 0)
 				return;
 
@@ -940,8 +1284,8 @@ class ChartingState extends MusicBeatState
 		copyLastButton.setGraphicSize(80, 30);
 		copyLastButton.updateHitbox();
 
-		stepperCopy = new FlxUINumericStepper(copyLastButton.x + 100, copyLastButton.y, 1, 1, -999, 999, 0);
-		blockPressWhileTypingOnStepper.push(stepperCopy);
+		copyBeatStepper = new FlxUINumericStepper(copyLastButton.x + 100, copyLastButton.y, 1, 1, -99, 99, 0, FlxUINumericStepper.STACK_VERTICAL);
+		blockPressWhileTypingOnStepper.push(copyBeatStepper);
 
 		var duetButton:FlxButton = new FlxButton(10, copyLastButton.y + 45, "Duet Notes", function()
 		{
@@ -992,45 +1336,26 @@ class ChartingState extends MusicBeatState
 			updateGrid();
 		});
 
-		tab_group_section.add(new FlxText(stepperBeats.x, stepperBeats.y - 15, 0, 'Beats per Section:'));
-		tab_group_section.add(stepperBeats);
-		tab_group_section.add(stepperSectionBPM);
-		tab_group_section.add(check_mustHitSection);
-		tab_group_section.add(check_gfSection);
-		tab_group_section.add(check_altAnim);
-		tab_group_section.add(check_changeBPM);
-		tab_group_section.add(copyButton);
-		tab_group_section.add(pasteButton);
-		tab_group_section.add(clearSectionButton);
-		tab_group_section.add(check_notesSec);
-		tab_group_section.add(check_eventsSec);
-		tab_group_section.add(swapSection);
-		tab_group_section.add(stepperCopy);
-		tab_group_section.add(copyLastButton);
-		tab_group_section.add(duetButton);
-		tab_group_section.add(mirrorButton);
-
-		UI_box.addGroup(tab_group_section);
+		// 隐藏所有局部 button/stepper（只保留回调功能，不在旧 UI 上显示）
+		var sectionWidgets:Array<Dynamic> = [copyButton, pasteButton, clearSectionButton, swapSection, copyLastButton, duetButton, mirrorButton, copyBeatStepper];
+		for (w in sectionWidgets) if (w != null) try { w.visible = false; } catch(e) {}
 	}
 
 	var stepperSusLength:FlxUINumericStepper;
+	var copyBeatStepper:FlxUINumericStepper; // 复制节拍：相对当前小节的偏移（正数=从[N-数]拍复制过来，负数反之）
 	var strumTimeInputText:FlxUIInputText; // I wanted to use a stepper but we can't scale these as far as i know :(
 	var noteTypeDropDown:FlxUIDropDownMenu;
 	var currentType:Int = 0;
 
 	function addNoteUI():Void
 	{
-		var tab_group_note = new FlxUI(null, UI_box);
-		tab_group_note.name = 'Note';
-
-		stepperSusLength = new FlxUINumericStepper(10, 25, Conductor.stepCrochet / 2, 0, 0, Conductor.stepCrochet * 64);
+		stepperSusLength = new FlxUINumericStepper(10, 25, Conductor.stepCrochet / 2, 0, 0, Conductor.stepCrochet * 64, 1, FlxUINumericStepper.STACK_VERTICAL);
 		stepperSusLength.value = 0;
 		stepperSusLength.name = 'note_susLength';
 		blockPressWhileTypingOnStepper.push(stepperSusLength);
 
 		strumTimeInputText = new FlxUIInputText(10, 65, 180, "0");
 		blockPressWhileTypingOn.push(strumTimeInputText);
-		tab_group_note.add(strumTimeInputText);
 
 		var key:Int = 0;
 		while (key < noteTypeList.length)
@@ -1076,14 +1401,6 @@ class ChartingState extends MusicBeatState
 		});
 		blockPressWhileScrolling.push(noteTypeDropDown);
 
-		tab_group_note.add(new FlxText(10, 10, 0, 'Sustain length:'));
-		tab_group_note.add(new FlxText(10, 50, 0, 'Strum time (in miliseconds):'));
-		tab_group_note.add(new FlxText(10, 90, 0, 'Note type:'));
-		tab_group_note.add(stepperSusLength);
-		tab_group_note.add(strumTimeInputText);
-		tab_group_note.add(noteTypeDropDown);
-
-		UI_box.addGroup(tab_group_note);
 	}
 
 	var eventDropDown:FlxUIDropDownMenu;
@@ -1092,9 +1409,6 @@ class ChartingState extends MusicBeatState
 
 	function addEventsUI():Void
 	{
-		var tab_group_event = new FlxUI(null, UI_box);
-		tab_group_event.name = 'Events';
-
 		#if LUA_ALLOWED
 		var eventPushedMap:Map<String, Bool> = new Map<String, Bool>();
 		var directories:Array<String> = [];
@@ -1139,16 +1453,26 @@ class ChartingState extends MusicBeatState
 		}
 
 		var text:FlxText = new FlxText(20, 30, 0, "Event:");
-		tab_group_event.add(text);
+		text.visible = false;
 		eventDropDown = new FlxUIDropDownMenu(20, 50, FlxUIDropDownMenu.makeStrIdLabelArray(leEvents, true), function(pressed:String)
 		{
-			var selectedEvent:Int = Std.parseInt(pressed);
+			// ★ 防御：pressed 可能非数字 → Std.parseInt 返回 null → eventStuff[null] 空指针崩溃
+			var selectedEvent:Null<Int> = null;
+			try { selectedEvent = Std.parseInt(pressed); } catch(e:Dynamic) { selectedEvent = null; }
+			if (selectedEvent == null || selectedEvent < 0 || selectedEvent >= eventStuff.length) return;
 			descText.text = eventStuff[selectedEvent][1];
 			if (curSelectedNote != null && eventStuff != null)
 			{
-				if (curSelectedNote != null && curSelectedNote[2] == null)
+				// ★ 事件音符判定用 [1] 是否为数组（[2]==null 对旧谱面普通音符不可靠 → 空指针崩溃）
+				if (Std.is(curSelectedNote[1], Array))
 				{
-					curSelectedNote[1][curEventSelected][0] = eventStuff[selectedEvent][0];
+					var evGroup:Array<Dynamic> = cast curSelectedNote[1];
+					if (evGroup != null && evGroup.length > 0
+						&& curEventSelected >= 0 && curEventSelected < evGroup.length
+						&& Std.is(evGroup[curEventSelected], Array))
+					{
+						evGroup[curEventSelected][0] = eventStuff[selectedEvent][0];
+					}
 				}
 				updateGrid();
 			}
@@ -1156,35 +1480,37 @@ class ChartingState extends MusicBeatState
 		blockPressWhileScrolling.push(eventDropDown);
 
 		var text:FlxText = new FlxText(20, 90, 0, "Value 1:");
-		tab_group_event.add(text);
+		text.visible = false;
 		value1InputText = new FlxUIInputText(20, 110, 100, "");
 		blockPressWhileTypingOn.push(value1InputText);
 
 		var text:FlxText = new FlxText(20, 130, 0, "Value 2:");
-		tab_group_event.add(text);
+		text.visible = false;
 		value2InputText = new FlxUIInputText(20, 150, 100, "");
 		blockPressWhileTypingOn.push(value2InputText);
 
 		// New event buttons
 		var removeButton:FlxButton = new FlxButton(eventDropDown.x + eventDropDown.width + 10, eventDropDown.y, '-', function()
 		{
-			if (curSelectedNote != null && curSelectedNote[2] == null) // Is event note
+			// ★ 事件音符判定用 [1] 是否为数组（[2]==null 对旧谱面普通音符不可靠 → 空指针崩溃）
+			if (curSelectedNote != null && Std.is(curSelectedNote[1], Array))
 			{
-				if (curSelectedNote[1].length < 2)
+				var eventsGroup:Array<Dynamic> = cast curSelectedNote[1];
+				if (eventsGroup == null) return;
+				if (eventsGroup.length < 2)
 				{
 					_song.events.remove(curSelectedNote);
 					curSelectedNote = null;
 				}
 				else
 				{
-					curSelectedNote[1].remove(curSelectedNote[1][curEventSelected]);
+					eventsGroup.remove(eventsGroup[curEventSelected]);
 				}
 
-				var eventsGroup:Array<Dynamic>;
 				--curEventSelected;
 				if (curEventSelected < 0)
 					curEventSelected = 0;
-				else if (curSelectedNote != null && curEventSelected >= (eventsGroup = curSelectedNote[1]).length)
+				else if (curSelectedNote != null && curEventSelected >= eventsGroup.length)
 					curEventSelected = eventsGroup.length - 1;
 
 				changeEventSelected();
@@ -1197,13 +1523,14 @@ class ChartingState extends MusicBeatState
 		removeButton.label.color = FlxColor.WHITE;
 		removeButton.label.size = 12;
 		setAllLabelsOffset(removeButton, -30, 0);
-		tab_group_event.add(removeButton);
 
 		var addButton:FlxButton = new FlxButton(removeButton.x + removeButton.width + 10, removeButton.y, '+', function()
 		{
-			if (curSelectedNote != null && curSelectedNote[2] == null) // Is event note
+			// ★ 事件音符判定用 [1] 是否为数组（[2]==null 对旧谱面普通音符不可靠 → 空指针崩溃）
+			if (curSelectedNote != null && Std.is(curSelectedNote[1], Array))
 			{
-				var eventsGroup:Array<Dynamic> = curSelectedNote[1];
+				var eventsGroup:Array<Dynamic> = cast curSelectedNote[1];
+				if (eventsGroup == null) return;
 				eventsGroup.push(['', '', '']);
 
 				changeEventSelected(1);
@@ -1216,7 +1543,6 @@ class ChartingState extends MusicBeatState
 		addButton.label.color = FlxColor.WHITE;
 		addButton.label.size = 12;
 		setAllLabelsOffset(addButton, -30, 0);
-		tab_group_event.add(addButton);
 
 		var moveLeftButton:FlxButton = new FlxButton(addButton.x + addButton.width + 20, addButton.y, '<', function()
 		{
@@ -1226,7 +1552,6 @@ class ChartingState extends MusicBeatState
 		moveLeftButton.updateHitbox();
 		moveLeftButton.label.size = 12;
 		setAllLabelsOffset(moveLeftButton, -30, 0);
-		tab_group_event.add(moveLeftButton);
 
 		var moveRightButton:FlxButton = new FlxButton(moveLeftButton.x + moveLeftButton.width + 10, moveLeftButton.y, '>', function()
 		{
@@ -1236,30 +1561,35 @@ class ChartingState extends MusicBeatState
 		moveRightButton.updateHitbox();
 		moveRightButton.label.size = 12;
 		setAllLabelsOffset(moveRightButton, -30, 0);
-		tab_group_event.add(moveRightButton);
 
 		selectedEventText = new FlxText(addButton.x - 100, addButton.y + addButton.height + 6, (moveRightButton.x - addButton.x) + 186, 'Selected Event: None');
 		selectedEventText.alignment = CENTER;
-		tab_group_event.add(selectedEventText);
 
-		tab_group_event.add(eventDropDown);
-		tab_group_event.add(descText);
-		tab_group_event.add(value1InputText);
-		tab_group_event.add(value2InputText);
-
-		UI_box.addGroup(tab_group_event);
+		// 隐藏所有局部 button（只保留回调功能，不在旧 UI 上显示）
+		var eventButtons:Array<FlxButton> = [removeButton, addButton, moveLeftButton, moveRightButton];
+		for (b in eventButtons) if (b != null) try { b.visible = false; } catch(e) {}
 	}
 
 	function changeEventSelected(change:Int = 0)
 	{
-		if (curSelectedNote != null && curSelectedNote[2] == null) // Is event note
+		// ★ 事件音符判定用 [1] 是否为数组（[2]==null 不可靠，旧谱面普通音符 susLength 可能缺失）
+		if (curSelectedNote != null && Std.is(curSelectedNote[1], Array))
 		{
-			curEventSelected += change;
-			if (curEventSelected < 0)
-				curEventSelected = Std.int(curSelectedNote[1].length) - 1;
-			else if (curEventSelected >= curSelectedNote[1].length)
+			var eventsGroup:Array<Dynamic> = cast curSelectedNote[1];
+			if (eventsGroup == null || eventsGroup.length < 1)
+			{
 				curEventSelected = 0;
-			selectedEventText.text = 'Selected Event: ' + (curEventSelected + 1) + ' / ' + curSelectedNote[1].length;
+				selectedEventText.text = 'Selected Event: None';
+			}
+			else
+			{
+				curEventSelected += change;
+				if (curEventSelected < 0)
+					curEventSelected = eventsGroup.length - 1;
+				else if (curEventSelected >= eventsGroup.length)
+					curEventSelected = 0;
+				selectedEventText.text = 'Selected Event: ' + (curEventSelected + 1) + ' / ' + eventsGroup.length;
+			}
 		}
 		else
 		{
@@ -1288,8 +1618,6 @@ class ChartingState extends MusicBeatState
 
 	function addChartingUI()
 	{
-		var tab_group_chart = new FlxUI(null, UI_box);
-		tab_group_chart.name = 'Charting';
 
 		#if (desktop || mobile)
 		if (FlxG.save.data.chart_waveformInst == null)
@@ -1299,42 +1627,32 @@ class ChartingState extends MusicBeatState
 		if (FlxG.save.data.chart_waveformOppVoices == null)
 			FlxG.save.data.chart_waveformOppVoices = false;
 
-		var waveformUseInstrumental:FlxUICheckBox = null;
-		var waveformUseVoices:FlxUICheckBox = null;
-		var waveformUseOppVoices:FlxUICheckBox = null;
+		// 这三个原是局部变量，提升到类成员以便顶栏菜单 registerCheck / toggle
+		waveformUseInstrumental = null;
+		waveformUseVoices = null;
+		waveformUseOppVoices = null;
 
 		waveformUseInstrumental = new FlxUICheckBox(10, 90, null, null, "Waveform\n(Instrumental)", 85);
 		waveformUseInstrumental.checked = FlxG.save.data.chart_waveformInst;
+		// ★ 互斥已取消：BF / Inst / Opp 波形可同时开启（BF 画左侧、Opp 画右侧、Inst 全宽）
 		waveformUseInstrumental.callback = function()
 		{
-			waveformUseVoices.checked = false;
-			waveformUseOppVoices.checked = false;
-			FlxG.save.data.chart_waveformVoices = false;
-			FlxG.save.data.chart_waveformOppVoices = false;
 			FlxG.save.data.chart_waveformInst = waveformUseInstrumental.checked;
 			updateWaveform();
 		};
 
 		waveformUseVoices = new FlxUICheckBox(waveformUseInstrumental.x + 100, waveformUseInstrumental.y, null, null, "Waveform\n(Main Vocals)", 85);
-		waveformUseVoices.checked = FlxG.save.data.chart_waveformVoices && !waveformUseInstrumental.checked;
+		waveformUseVoices.checked = FlxG.save.data.chart_waveformVoices;
 		waveformUseVoices.callback = function()
 		{
-			waveformUseInstrumental.checked = false;
-			waveformUseOppVoices.checked = false;
-			FlxG.save.data.chart_waveformInst = false;
-			FlxG.save.data.chart_waveformOppVoices = false;
 			FlxG.save.data.chart_waveformVoices = waveformUseVoices.checked;
 			updateWaveform();
 		};
 
 		waveformUseOppVoices = new FlxUICheckBox(waveformUseInstrumental.x + 200, waveformUseInstrumental.y, null, null, "Waveform\n(Opp. Vocals)", 85);
-		waveformUseOppVoices.checked = FlxG.save.data.chart_waveformOppVoices && !waveformUseVoices.checked;
+		waveformUseOppVoices.checked = FlxG.save.data.chart_waveformOppVoices;
 		waveformUseOppVoices.callback = function()
 		{
-			waveformUseInstrumental.checked = false;
-			waveformUseVoices.checked = false;
-			FlxG.save.data.chart_waveformInst = false;
-			FlxG.save.data.chart_waveformVoices = false;
 			FlxG.save.data.chart_waveformOppVoices = waveformUseOppVoices.checked;
 			updateWaveform();
 		};
@@ -1431,8 +1749,9 @@ class ChartingState extends MusicBeatState
 			FlxG.save.data.chart_metronome = false;
 		metronome.checked = FlxG.save.data.chart_metronome;
 
-		metronomeStepper = new FlxUINumericStepper(15, 55, 5, _song.bpm, 1, 1500, 1);
-		metronomeOffsetStepper = new FlxUINumericStepper(metronomeStepper.x + 100, metronomeStepper.y, 25, 0, 0, 1000, 1);
+		// ★ 节拍器 BPM：默认步长 1（Shift+点击 ±5 由菜单栏 stepperStep 处理），不再固定 ±5
+		metronomeStepper = new FlxUINumericStepper(15, 55, 1, _song.bpm, 1, 1500, 1, FlxUINumericStepper.STACK_VERTICAL);
+		metronomeOffsetStepper = new FlxUINumericStepper(metronomeStepper.x + 100, metronomeStepper.y, 25, 0, 0, 1000, 1, FlxUINumericStepper.STACK_VERTICAL);
 		blockPressWhileTypingOnStepper.push(metronomeStepper);
 		blockPressWhileTypingOnStepper.push(metronomeOffsetStepper);
 
@@ -1444,17 +1763,17 @@ class ChartingState extends MusicBeatState
 			FlxG.save.data.chart_noAutoScroll = false;
 		disableAutoScrolling.checked = FlxG.save.data.chart_noAutoScroll;
 
-		instVolume = new FlxUINumericStepper(metronomeStepper.x, 250, 0.1, 1, 0, 1, 1);
+		instVolume = new FlxUINumericStepper(metronomeStepper.x, 250, 0.1, 1, 0, 1, 1, FlxUINumericStepper.STACK_VERTICAL);
 		instVolume.value = FlxG.sound.music.volume;
 		instVolume.name = 'inst_volume';
 		blockPressWhileTypingOnStepper.push(instVolume);
 
-		voicesVolume = new FlxUINumericStepper(instVolume.x + 100, instVolume.y, 0.1, 1, 0, 1, 1);
+		voicesVolume = new FlxUINumericStepper(instVolume.x + 100, instVolume.y, 0.1, 1, 0, 1, 1, FlxUINumericStepper.STACK_VERTICAL);
 		voicesVolume.value = vocals.volume;
 		voicesVolume.name = 'voices_volume';
 		blockPressWhileTypingOnStepper.push(voicesVolume);
 
-		voicesOppVolume = new FlxUINumericStepper(instVolume.x + 200, instVolume.y, 0.1, 1, 0, 1, 1);
+		voicesOppVolume = new FlxUINumericStepper(instVolume.x + 200, instVolume.y, 0.1, 1, 0, 1, 1, FlxUINumericStepper.STACK_VERTICAL);
 		voicesOppVolume.value = vocals.volume;
 		voicesOppVolume.name = 'voices_opp_volume';
 		blockPressWhileTypingOnStepper.push(voicesOppVolume);
@@ -1462,35 +1781,8 @@ class ChartingState extends MusicBeatState
 		#if FLX_PITCH
 		sliderRate = new FlxUISlider(this, 'playbackSpeed', 120, 120, 0.5, 3, 150, #if !hl null #else 0 #end, 5, FlxColor.WHITE, FlxColor.BLACK);
 		sliderRate.nameLabel.text = 'Playback Rate';
-		tab_group_chart.add(sliderRate);
 		#end
 
-		tab_group_chart.add(new FlxText(metronomeStepper.x, metronomeStepper.y - 15, 0, 'BPM:'));
-		tab_group_chart.add(new FlxText(metronomeOffsetStepper.x, metronomeOffsetStepper.y - 15, 0, 'Offset (ms):'));
-		tab_group_chart.add(new FlxText(instVolume.x, instVolume.y - 15, 0, 'Inst Volume'));
-		tab_group_chart.add(new FlxText(voicesVolume.x, voicesVolume.y - 15, 0, 'Main Vocals'));
-		tab_group_chart.add(new FlxText(voicesOppVolume.x, voicesOppVolume.y - 15, 0, 'Opp. Vocals'));
-		tab_group_chart.add(metronome);
-		tab_group_chart.add(disableAutoScrolling);
-		tab_group_chart.add(metronomeStepper);
-		tab_group_chart.add(metronomeOffsetStepper);
-		#if (desktop || mobile)
-		tab_group_chart.add(waveformUseInstrumental);
-		tab_group_chart.add(waveformUseVoices);
-		tab_group_chart.add(waveformUseOppVoices);
-		#end
-		tab_group_chart.add(instVolume);
-		tab_group_chart.add(voicesVolume);
-		tab_group_chart.add(voicesOppVolume);
-		tab_group_chart.add(check_mute_inst);
-		tab_group_chart.add(check_mute_vocals);
-		tab_group_chart.add(check_mute_vocals_opponent);
-		tab_group_chart.add(check_vortex);
-		tab_group_chart.add(mouseScrollingQuant);
-		tab_group_chart.add(check_warnings);
-		tab_group_chart.add(playSoundBf);
-		tab_group_chart.add(playSoundDad);
-		UI_box.addGroup(tab_group_chart);
 	}
 
 	var gameOverCharacterInputText:FlxUIInputText;
@@ -1503,9 +1795,6 @@ class ChartingState extends MusicBeatState
 
 	function addDataUI()
 	{
-		var tab_group_data = new FlxUI(null, UI_box);
-		tab_group_data.name = 'Data';
-
 		//
 		gameOverCharacterInputText = new FlxUIInputText(10, 25, 150, _song.gameOverChar != null ? _song.gameOverChar : '', 8);
 		blockPressWhileTypingOn.push(gameOverCharacterInputText);
@@ -1520,12 +1809,15 @@ class ChartingState extends MusicBeatState
 		blockPressWhileTypingOn.push(gameOverEndInputText);
 		//
 
-		var check_disableNoteRGB:FlxUICheckBox = new FlxUICheckBox(10, 170, null, null, "Disable Note RGB", 100);
+		check_disableNoteRGB = new FlxUICheckBox(10, 170, null, null, "Disable Note RGB", 100);
 		check_disableNoteRGB.checked = (_song.disableNoteRGB == true);
 		check_disableNoteRGB.callback = function()
 		{
 			_song.disableNoteRGB = check_disableNoteRGB.checked;
+			// ★ 必须同时重建网格音符与顶部受体箭头：只 updateGrid() 的话
+			//   strumline 仍是勾选前的着色状态，勾上「禁用 RGB」看起来毫无效果。
 			updateGrid();
+			makeStrumNotes();
 			// trace('CHECKED!');
 		};
 
@@ -1542,31 +1834,17 @@ class ChartingState extends MusicBeatState
 			updateGrid();
 		});
 		//
+	}
 
-		tab_group_data.add(gameOverCharacterInputText);
-		tab_group_data.add(gameOverSoundInputText);
-		tab_group_data.add(gameOverLoopInputText);
-		tab_group_data.add(gameOverEndInputText);
-
-		tab_group_data.add(check_disableNoteRGB);
-
-		tab_group_data.add(reloadNotesButton);
-
-		tab_group_data.add(noteSkinInputText);
-		tab_group_data.add(noteSplashesInputText);
-
-		tab_group_data.add(new FlxText(gameOverCharacterInputText.x, gameOverCharacterInputText.y - 15, 0, 'Game Over Character Name:'));
-		tab_group_data.add(new FlxText(gameOverSoundInputText.x, gameOverSoundInputText.y - 15, 0, 'Game Over Death Sound (sounds/):'));
-		tab_group_data.add(new FlxText(gameOverLoopInputText.x, gameOverLoopInputText.y - 15, 0, 'Game Over Loop Music (music/):'));
-		tab_group_data.add(new FlxText(gameOverEndInputText.x, gameOverEndInputText.y - 15, 0, 'Game Over Retry Music (music/):'));
-
-		tab_group_data.add(new FlxText(noteSkinInputText.x, noteSkinInputText.y - 15, 0, 'Note Texture:'));
-		tab_group_data.add(new FlxText(noteSplashesInputText.x, noteSplashesInputText.y - 15, 0, 'Note Splashes Texture:'));
-		UI_box.addGroup(tab_group_data);
+	function disableAllOldUI():Void
+	{
+		// 不再需要 —— 旧 UI 体系已完全移除
 	}
 
 	function loadSong():Void
 	{
+		// ★ 重载音频 = 强制绕过声音缓存重新解码磁盘文件（否则改了 Inst/Voices 后点重载还是旧音频）
+		Paths.forceReloadSounds = true;
 		if (FlxG.sound.music != null)
 			FlxG.sound.music.stop();
 
@@ -1609,16 +1887,15 @@ class ChartingState extends MusicBeatState
 		FlxG.sound.music.time = Conductor.songPosition;
 
 		var curTime:Float = 0;
-		// trace(_song.notes.length);
 		if (_song.notes.length <= 1) // First load ever
 		{
-			trace('first load ever!!');
 			while (curTime < FlxG.sound.music.length)
 			{
 				addSection();
 				curTime += (60 / _song.bpm) * 4000;
 			}
 		}
+		Paths.forceReloadSounds = false;
 	}
 
 	var playtesting:Bool = false;
@@ -1629,6 +1906,10 @@ class ChartingState extends MusicBeatState
 	{
 		if (playtesting)
 		{
+			// ★ 一次性恢复：ESC 试玩结束只恢复这一次，随后必须复位标志——
+			//   否则之后任何 substate 关闭（粘贴/清除等确认 Prompt）都会再次把
+			//   播放位置跳回 ESC 试玩前的时刻（表现为"粘贴完回到测试那个小节"）
+			playtesting = false;
 			FlxG.sound.music.pause();
 			FlxG.sound.music.time = playtestingTime;
 			FlxG.sound.music.onComplete = playtestingOnComplete;
@@ -1755,7 +2036,11 @@ class ChartingState extends MusicBeatState
 					_song.speed = nums.value;
 
 				case 'song_mania':
-					_song.mania = Std.int(nums.value);
+					// ★ UI 显示键数（4K=4），存内部 mania 要减一（4K=3）；阈值兜底防越界
+					var maniaMinK:Int = 1;
+					var maniaMaxK:Int = extraMaxKeys();
+					nums.value = FlxMath.bound(nums.value, maniaMinK + 1, maniaMaxK + 1);
+					_song.mania = Std.int(nums.value) - 1;
 					updateKeyAmounts();
 					reloadGridLayer();
 					makeStrumNotes();
@@ -1822,19 +2107,24 @@ class ChartingState extends MusicBeatState
 			}
 			else if (curSelectedNote != null)
 			{
+				// ★ 防御：只有事件 note（[1] 为数组）才能编辑 value1/value2；
+				//   普通 note 的 [1] 是轨道号 Int，直接索引会空指针崩溃（事件菜单编辑值时触发）
+				var evGroupX:Array<Dynamic> = Std.is(curSelectedNote[1], Array) ? cast curSelectedNote[1] : null;
 				if (sender == value1InputText)
 				{
-					if (curSelectedNote[1][curEventSelected] != null)
+					if (evGroupX != null && curEventSelected >= 0 && curEventSelected < evGroupX.length
+						&& evGroupX[curEventSelected] != null && Std.is(evGroupX[curEventSelected], Array))
 					{
-						curSelectedNote[1][curEventSelected][1] = value1InputText.text;
+						evGroupX[curEventSelected][1] = value1InputText.text;
 						updateGrid();
 					}
 				}
 				else if (sender == value2InputText)
 				{
-					if (curSelectedNote[1][curEventSelected] != null)
+					if (evGroupX != null && curEventSelected >= 0 && curEventSelected < evGroupX.length
+						&& evGroupX[curEventSelected] != null && Std.is(evGroupX[curEventSelected], Array))
 					{
-						curSelectedNote[1][curEventSelected][2] = value2InputText.text;
+						evGroupX[curEventSelected][2] = value2InputText.text;
 						updateGrid();
 					}
 				}
@@ -1889,6 +2179,13 @@ class ChartingState extends MusicBeatState
 
 	override function update(elapsed:Float)
 	{
+		// ★ 菜单打开时，跳过所有鼠标相关的 grid 操作（addNote/deleteNote/noteMove 等）
+		var menuBarOpen:Bool = (menuBar != null && menuBar.activeMenu >= 0);
+		if (menuBarOpen)
+		{
+			// 不调任何 grid 鼠标逻辑，但其他业务（音乐时间、节拍）照常跑
+		}
+
 		curStep = recalculateSteps();
 
 		if (FlxG.sound.music.time < 0)
@@ -1913,7 +2210,8 @@ class ChartingState extends MusicBeatState
 
 		FlxG.mouse.visible = true; // cause reasons. trust me
 		camPos.y = strumLine.y;
-		camPos.x = strumLine.x + CAM_OFFSET + gridOffsetX;
+		// ★ 相机目标 = 网格中心：让整张网格在屏幕上水平居中（原来用 CAM_OFFSET=360 固定偏移会偏左）
+		camPos.x = strumLine.x + GRID_SIZE * (totalKeys + 1) / 2;
 		if (!disableAutoScrolling.checked)
 		{
 			if (Math.ceil(strumLine.y) >= gridBG.height)
@@ -1949,12 +2247,18 @@ class ChartingState extends MusicBeatState
 		{
 			for (touch in FlxG.touches.list)
 			{
+				// ★ 指针落在自定义移动按键上 → 该次触摸交给虚拟键，不处理网格
+				if (pointerOnOverlay(touch.x, touch.y)) continue;
+				// ★ 视图坐标：相机随 strumLine 纵向滚动，屏幕坐标须加 camera.scroll 才是网格坐标
+				//  （否则 y → 时间的换算会整体偏移 → 音符放到错误的时间）
+				var wx:Float = touch.x + FlxG.camera.scroll.x;
+				var wy:Float = touch.y + FlxG.camera.scroll.y;
 				if (touch.pressed
 					&& noteMove
-					&& touch.x > gridBG.x
-					&& touch.x < gridBG.x + gridBG.width
-					&& touch.y > gridBG.y
-					&& touch.y < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
+					&& wx > gridBG.x
+					&& wx < gridBG.x + gridBG.width
+					&& wy > gridBG.y
+					&& wy < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
 				{
 					if (touch.overlaps(curRenderedNotes))
 					{
@@ -1969,16 +2273,16 @@ class ChartingState extends MusicBeatState
 								}
 							}
 						});
-						nowMoveNote.y = touch.y;
+						nowMoveNote.y = wy;
 					}
 				}
 				if (touch.justReleased && noteMove)
 				{
 					if (nowMoveNote != null
-						&& touch.x > gridBG.x
-						&& touch.x < gridBG.x + gridBG.width
-						&& touch.y > gridBG.y
-						&& touch.y < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
+						&& wx > gridBG.x
+						&& wx < gridBG.x + gridBG.width
+						&& wy > gridBG.y
+						&& wy < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
 					{
 						addNote(null, nowMoveNote.noteData);
 						deleteNote(nowMoveNote);
@@ -1999,10 +2303,10 @@ class ChartingState extends MusicBeatState
 					}
 					else
 					{
-						if (touch.x > gridBG.x
-							&& touch.x < gridBG.x + gridBG.width
-							&& touch.y > gridBG.y
-							&& touch.y < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
+						if (wx > gridBG.x
+							&& wx < gridBG.x + gridBG.width
+							&& wy > gridBG.y
+							&& wy < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
 						{
 							FlxG.log.add('added note');
 							addNote();
@@ -2010,17 +2314,17 @@ class ChartingState extends MusicBeatState
 					}
 				}
 
-				if (touch.x > gridBG.x
-					&& touch.x < gridBG.x + gridBG.width
-					&& touch.y > gridBG.y
-					&& touch.y < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
+				if (wx > gridBG.x
+					&& wx < gridBG.x + gridBG.width
+					&& wy > gridBG.y
+					&& wy < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
 				{
 					dummyArrow.visible = true;
-					dummyArrow.x = Math.floor(touch.x / GRID_SIZE) * GRID_SIZE;
+					dummyArrow.x = getGridX() + Math.floor((wx - getGridX()) / GRID_SIZE) * GRID_SIZE;
 					if (FlxG.keys.pressed.SHIFT || virtualPad.buttonY.pressed)
-						dummyArrow.y = touch.y;
+						dummyArrow.y = wy;
 					else
-						dummyArrow.y = Math.floor(touch.y / GRID_SIZE) * GRID_SIZE;
+						dummyArrow.y = Math.floor(wy / GRID_SIZE) * GRID_SIZE;
 				}
 				else
 				{
@@ -2030,11 +2334,21 @@ class ChartingState extends MusicBeatState
 		}
 		else
 		{
+			// ★ 菜单打开 / 指针落在自定义移动按键上时，整段 grid 鼠标操作跳过
+			//   （noteMove / addNote / deleteNote / dummyArrow）
+			if (!menuBarOpen && !pointerOnOverlay(FlxG.mouse.x, FlxG.mouse.y))
+			{
+			// ★ 鼠标用世界坐标（flixel 5.9.0 里 `FlxG.mouse.x/y` 已经 = getWorldPosition(cam)，
+			//   含 camera.scroll；`viewX/Y` 只是屏幕坐标，跟 gridBG/getGridX 这些世界坐标混用
+			//   会让高光方格相对鼠标固定偏移 camPos.x，滚轮改变 scroll.y 时偏移跟着变 → 视觉/交互错位）
+			//   grid 网格坐标 = world 坐标；下面所有 mvx/mvy 都按世界坐标参与列号/行号换算。
+			var mvx:Float = FlxG.mouse.x;
+			var mvy:Float = FlxG.mouse.y;
 			if (FlxG.mouse.pressedRight
-				&& FlxG.mouse.x > gridBG.x
-				&& FlxG.mouse.x < gridBG.x + gridBG.width
-				&& FlxG.mouse.y > gridBG.y
-				&& FlxG.mouse.y < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
+				&& mvx > gridBG.x
+				&& mvx < gridBG.x + gridBG.width
+				&& mvy > gridBG.y
+				&& mvy < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
 			{
 				noteMove = true;
 				if (FlxG.mouse.overlaps(curRenderedNotes))
@@ -2050,17 +2364,17 @@ class ChartingState extends MusicBeatState
 							}
 						}
 					});
-					nowMoveNote.y = FlxG.mouse.y;
+					nowMoveNote.y = mvy;
 				}
 			}
 			if (FlxG.mouse.justReleasedRight)
 			{
 				noteMove = false;
 				if (nowMoveNote != null
-					&& FlxG.mouse.x > gridBG.x
-					&& FlxG.mouse.x < gridBG.x + gridBG.width
-					&& FlxG.mouse.y > gridBG.y
-					&& FlxG.mouse.y < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
+					&& mvx > gridBG.x
+					&& mvx < gridBG.x + gridBG.width
+					&& mvy > gridBG.y
+					&& mvy < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
 				{
 					addNote(null, nowMoveNote.noteData);
 					deleteNote(nowMoveNote);
@@ -2068,6 +2382,7 @@ class ChartingState extends MusicBeatState
 				}
 			}
 
+			// ★ 菜单栏下拉打开时已在外层 if (!menuBarOpen) 跳过整段
 			if (FlxG.mouse.justPressed && !noteMove)
 			{
 				if (FlxG.mouse.overlaps(curRenderedNotes))
@@ -2076,11 +2391,14 @@ class ChartingState extends MusicBeatState
 					{
 						if (FlxG.mouse.overlaps(note))
 						{
-							if (FlxG.keys.pressed.CONTROL)
+							// ★ 自定义移动键位模式（EditorMobileKeys）下忽略 Ctrl/Alt 点击修饰：
+							//   虚拟修饰键可能残留/组合触发，会让"点击删除"变成选择 → 点击事件像被消除
+							var useMods:Bool = (FlxG.keys.pressed.CONTROL || FlxG.keys.pressed.ALT) && !EditorMobileKeys.isEnabled();
+							if (useMods && FlxG.keys.pressed.CONTROL)
 							{
 								selectNote(note);
 							}
-							else if (FlxG.keys.pressed.ALT)
+							else if (useMods && FlxG.keys.pressed.ALT)
 							{
 								selectNote(note);
 								curSelectedNote[3] = curNoteTypes[currentType];
@@ -2096,10 +2414,10 @@ class ChartingState extends MusicBeatState
 				}
 				else
 				{
-					if (FlxG.mouse.x > gridBG.x
-						&& FlxG.mouse.x < gridBG.x + gridBG.width
-						&& FlxG.mouse.y > gridBG.y
-						&& FlxG.mouse.y < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
+					if (mvx > gridBG.x
+						&& mvx < gridBG.x + gridBG.width
+						&& mvy > gridBG.y
+						&& mvy < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
 					{
 						FlxG.log.add('added note');
 						addNote();
@@ -2107,22 +2425,23 @@ class ChartingState extends MusicBeatState
 				}
 			}
 
-			if (FlxG.mouse.x > gridBG.x
-				&& FlxG.mouse.x < gridBG.x + gridBG.width
-				&& FlxG.mouse.y > gridBG.y
-				&& FlxG.mouse.y < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
+			if (mvx > gridBG.x
+				&& mvx < gridBG.x + gridBG.width
+				&& mvy > gridBG.y
+				&& mvy < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom])
 			{
 				dummyArrow.visible = true;
-				dummyArrow.x = Math.floor(FlxG.mouse.x / GRID_SIZE) * GRID_SIZE;
+				dummyArrow.x = getGridX() + Math.floor((mvx - getGridX()) / GRID_SIZE) * GRID_SIZE;
 				if (FlxG.keys.pressed.SHIFT)
-					dummyArrow.y = FlxG.mouse.y;
+					dummyArrow.y = mvy;
 				else
-					dummyArrow.y = Math.floor(FlxG.mouse.y / GRID_SIZE) * GRID_SIZE;
+					dummyArrow.y = Math.floor(mvy / GRID_SIZE) * GRID_SIZE;
 			}
 			else
 			{
 				dummyArrow.visible = false;
 			}
+			} // end if (!menuBarOpen)
 		}
 
 		var blockInput:Bool = false;
@@ -2166,50 +2485,117 @@ class ChartingState extends MusicBeatState
 
 		if (!blockInput)
 		{
-			var scrollSpeed:Float = 300 * FlxG.elapsed;
+			// ================= 全局快捷键（F1~F8 开菜单；其余在菜单打开时禁用） =================
+			var menuOpen:Bool = (menuBar != null && menuBar.activeMenu >= 0);
+			if (FlxG.keys.justPressed.F1) menuBar.openMenu(0);
+			else if (FlxG.keys.justPressed.F2) menuBar.openMenu(1);
+			else if (FlxG.keys.justPressed.F3) menuBar.openMenu(2);
+			else if (FlxG.keys.justPressed.F4) menuBar.openMenu(3);
+			else if (FlxG.keys.justPressed.F5) menuBar.openMenu(4);
+			else if (FlxG.keys.justPressed.F6) menuBar.openMenu(5);
+			else if (FlxG.keys.justPressed.F7) menuBar.openMenu(6);
+			else if (FlxG.keys.justPressed.F8) menuBar.openMenu(7);
+			else if (!menuOpen)
+			{
+				var ctrlHeld:Bool = FlxG.keys.pressed.CONTROL;
+				var shiftHeld:Bool = FlxG.keys.pressed.SHIFT;
+				var altHeld:Bool = FlxG.keys.pressed.ALT;
 
-			if ((FlxG.keys.pressed.LEFT && FlxG.keys.pressed.CONTROL) || (virtualPad.buttonK.justPressed))
-				shiftGridX(-scrollSpeed);
-			else if ((FlxG.keys.pressed.RIGHT && FlxG.keys.pressed.CONTROL) || (virtualPad.buttonL.justPressed))
-				shiftGridX(scrollSpeed);
+				// Shift+Del = 清空事件 / Ctrl+Del = 清空 Note（FlxKey 不区分左右，任意侧修饰键均可）
+				if (FlxG.keys.justPressed.DELETE)
+				{
+					if (shiftHeld) { handleMenuAction('clear_events'); }
+					else if (ctrlHeld) { handleMenuAction('clear_notes'); }
+				}
+
+				// Ctrl+Shift 组合：重载/载入/保存事件系列 + Vortex + 打击音
+				if (ctrlHeld && shiftHeld && !altHeld)
+				{
+					if (FlxG.keys.justPressed.Q) handleMenuAction('reload_audio');
+					else if (FlxG.keys.justPressed.W) handleMenuAction('reload_json');
+					else if (FlxG.keys.justPressed.E) handleMenuAction('load_autosave');
+					else if (FlxG.keys.justPressed.R) handleMenuAction('load_events');
+					else if (FlxG.keys.justPressed.S) handleMenuAction('save_events');
+					else if (FlxG.keys.justPressed.TAB) toggleVortexShortcut();
+					else if (FlxG.keys.justPressed.U) toggleSfxShortcut('bf');
+					else if (FlxG.keys.justPressed.O) toggleSfxShortcut('opp');
+				}
+
+				// Alt+Ctrl+U/I/O = 静音 BF / Inst / Opp；Alt+U/I/O = 波形图 BF / Inst / Opp
+				if (altHeld && ctrlHeld && !shiftHeld)
+				{
+					if (FlxG.keys.justPressed.U) toggleMuteShortcut('bf');
+					else if (FlxG.keys.justPressed.I) toggleMuteShortcut('inst');
+					else if (FlxG.keys.justPressed.O) toggleMuteShortcut('opp');
+				}
+				if (altHeld && !ctrlHeld && !shiftHeld)
+				{
+					if (FlxG.keys.justPressed.U) toggleWaveformShortcut('bf');
+					else if (FlxG.keys.justPressed.I) toggleWaveformShortcut('inst');
+					else if (FlxG.keys.justPressed.O) toggleWaveformShortcut('opp');
+				}
+
+				// Ctrl 组合：U/I/O = 交换/二重奏/镜像；C/V = 复制/粘贴小节；S = 保存；Z = 撤销（下方原有）
+				if (ctrlHeld && !shiftHeld && !altHeld)
+				{
+					if (FlxG.keys.justPressed.U) swapSectionSides();
+					else if (FlxG.keys.justPressed.I) duetCurrentSection();
+					else if (FlxG.keys.justPressed.O) mirrorCurrentSection();
+					else if (FlxG.keys.justPressed.C) copyCurrentSection();
+					else if (FlxG.keys.justPressed.V) pasteToCurrentSection();
+					else if (FlxG.keys.justPressed.S) handleMenuAction('save');
+				}
+
+				// 单键：U = 玩家小节 / I = GF 小节 / O = Opponents 小节（★ 切换后立即刷新背景/波形归属）
+				if (!ctrlHeld && !shiftHeld && !altHeld)
+				{
+					if (FlxG.keys.justPressed.U)
+					{
+						_song.notes[curSec].mustHitSection = true;
+						check_mustHitSection.checked = true;
+						updateHeads();
+						reloadGridLayer();
+					}
+					else if (FlxG.keys.justPressed.I)
+					{
+						_song.notes[curSec].gfSection = !_song.notes[curSec].gfSection;
+						check_gfSection.checked = _song.notes[curSec].gfSection;
+						updateGrid();
+						updateHeads();
+					}
+					else if (FlxG.keys.justPressed.O)
+					{
+						_song.notes[curSec].mustHitSection = false;
+						check_mustHitSection.checked = false;
+						updateHeads();
+						reloadGridLayer();
+					}
+				}
+
+				// 按住 K + 数字键 = 设置 Mania（`=1K、1=2K … 9=10K）
+				if (FlxG.keys.pressed.K && !ctrlHeld && !shiftHeld && !altHeld)
+				{
+					if (FlxG.keys.justPressed.GRAVEACCENT) setManiaByKey(1);
+					else if (FlxG.keys.justPressed.ONE) setManiaByKey(2);
+					else if (FlxG.keys.justPressed.TWO) setManiaByKey(3);
+					else if (FlxG.keys.justPressed.THREE) setManiaByKey(4);
+					else if (FlxG.keys.justPressed.FOUR) setManiaByKey(5);
+					else if (FlxG.keys.justPressed.FIVE) setManiaByKey(6);
+					else if (FlxG.keys.justPressed.SIX) setManiaByKey(7);
+					else if (FlxG.keys.justPressed.SEVEN) setManiaByKey(8);
+					else if (FlxG.keys.justPressed.EIGHT) setManiaByKey(9);
+					else if (FlxG.keys.justPressed.NINE) setManiaByKey(10);
+				}
+			}
+			// ================= 快捷键结束 =================
 
 			if (FlxG.keys.justPressed.ESCAPE || virtualPad.buttonC.justPressed)
 			{
-				if (FlxG.sound.music != null)
-					FlxG.sound.music.stop();
-
-				if (vocals != null)
-				{
-					vocals.pause();
-					vocals.volume = 0;
-				}
-				if (opponentVocals != null)
-				{
-					opponentVocals.pause();
-					opponentVocals.volume = 0;
-				}
-
-				autosaveSong();
-				playtesting = true;
-				playtestingTime = Conductor.songPosition;
-				playtestingOnComplete = FlxG.sound.music.onComplete;
-				removeVirtualPad();
-				openSubState(new developer.editors.EditorPlayState(playbackSpeed));
+				startPlaytest();
 			}
 			else if (FlxG.keys.justPressed.ENTER || virtualPad.buttonA.justPressed)
 			{
-				autosaveSong();
-				FlxG.mouse.visible = false;
-				PlayState.SONG = _song;
-				FlxG.sound.music.stop();
-				if (vocals != null)
-					vocals.stop();
-				if (opponentVocals != null)
-					opponentVocals.stop();
-
-				// if(_song.stage == null) _song.stage = stageDropDown.selectedLabel;
-				StageData.loadDirectory(_song);
-				LoadingState.loadAndSwitchState(new PlayState());
+				startNormalPlay();
 			}
 
 			if (curSelectedNote != null && curSelectedNote[1] > -1)
@@ -2246,12 +2632,14 @@ class ChartingState extends MusicBeatState
 				undo();
 			}
 
-			if (FlxG.keys.justPressed.Z || virtualPad.buttonZ.justPressed && curZoom > 0 && !FlxG.keys.pressed.CONTROL)
+			// ★ Z/X 缩放：桌面与虚拟按键统一带边界守卫（原来桌面分支无守卫，
+			//   在最小档再按 Z 会把 curZoom 减成 -1 → zoomList[-1] 越界 → 崩溃）
+			if ((FlxG.keys.justPressed.Z || virtualPad.buttonZ.justPressed) && curZoom > 0 && !FlxG.keys.pressed.CONTROL)
 			{
 				--curZoom;
 				updateZoom();
 			}
-			if (FlxG.keys.justPressed.X || virtualPad.buttonD.justPressed && curZoom < zoomList.length - 1)
+			if ((FlxG.keys.justPressed.X || virtualPad.buttonD.justPressed) && curZoom < zoomList.length - 1)
 			{
 				curZoom++;
 				updateZoom();
@@ -2259,17 +2647,25 @@ class ChartingState extends MusicBeatState
 
 			if (FlxG.keys.justPressed.TAB || virtualPad.buttonG.justPressed)
 			{
-				if (FlxG.keys.pressed.SHIFT)
+				// 如果新菜单系统正在显示下拉菜单，拦截 TAB 键（防止切换旧 tab）
+				if (menuBar != null && menuBar.activeMenu >= 0)
 				{
-					UI_box.selected_tab -= 1;
-					if (UI_box.selected_tab < 0)
-						UI_box.selected_tab = 5;
+					// 不做任何事，让 TAB 给下拉菜单里的 widget 使用
 				}
 				else
 				{
-					UI_box.selected_tab += 1;
-					if (UI_box.selected_tab > 5)
-						UI_box.selected_tab = 0;
+					if (FlxG.keys.pressed.SHIFT)
+					{
+						UI_box.selected_tab -= 1;
+						if (UI_box.selected_tab < 0)
+							UI_box.selected_tab = 5;
+					}
+					else
+					{
+						UI_box.selected_tab += 1;
+						if (UI_box.selected_tab > 5)
+							UI_box.selected_tab = 0;
+					}
 				}
 			}
 
@@ -2300,7 +2696,8 @@ class ChartingState extends MusicBeatState
 					resetSection();
 			}
 
-			if (!controls.mobileC)
+			// ★ 菜单（含下拉列表）打开时滚轮归菜单用，不再滚动谱面时间
+			if (!controls.mobileC && !(menuBar != null && menuBar.activeMenu >= 0))
 			{
 				if (FlxG.mouse.wheel != 0)
 				{
@@ -2478,7 +2875,10 @@ class ChartingState extends MusicBeatState
 				}
 			}
 			var shiftThing:Int = 1;
-			if (FlxG.keys.pressed.SHIFT || virtualPad.buttonY.pressed)
+			// ★ Alt = ×10 小节、Shift = ×4、默认 ×1
+			if (FlxG.keys.pressed.ALT)
+				shiftThing = 10;
+			else if (FlxG.keys.pressed.SHIFT || virtualPad.buttonY.pressed)
 				shiftThing = 4;
 
 			if (FlxG.keys.justPressed.D || virtualPad.buttonRight.justPressed)
@@ -2522,7 +2922,8 @@ class ChartingState extends MusicBeatState
 		Conductor.songPosition = FlxG.sound.music.time;
 		strumLineUpdateY();
 		camPos.y = strumLine.y;
-		camPos.x = strumLine.x + CAM_OFFSET + gridOffsetX;
+		// ★ 相机目标 = 网格中心（保持屏幕水平居中）
+		camPos.x = strumLine.x + GRID_SIZE * (totalKeys + 1) / 2;
 		for (i in 0...totalKeys)
 		{
 			strumLineNotes.members[i].y = strumLine.y;
@@ -2555,22 +2956,21 @@ class ChartingState extends MusicBeatState
 		opponentVocals.pitch = playbackSpeed;
 		#end
 
-		bpmTxt.text = Std.string(FlxMath.roundDecimal(Conductor.songPosition / 1000, 2))
-			+ " / "
-			+ Std.string(FlxMath.roundDecimal(FlxG.sound.music.length / 1000, 2))
-			+ "\n"
-			+ FlxStringUtil.formatTime(FlxMath.roundDecimal(Conductor.songPosition / 1000, 2))
-			+ ' / '
-			+ FlxStringUtil.formatTime(FlxMath.roundDecimal(FlxG.sound.music.length / 1000, 2))
-			+ "\nSection: "
-			+ curSec
-			+ "\n\nBeat: "
-			+ Std.string(curDecBeat).substring(0, 4)
-			+ "\n\nStep: "
-			+ curStep
-			+ if ((quantization - 2) % 10 == 0 && quantization != 12) "\n\nBeat Snap: "
-				+ quantization
-				+ "nd"; else "\n\nBeat Snap: " + quantization + "th" + "\n\nMove Note Mode: " + noteMove;
+		var curTimeSec:Float = FlxMath.roundDecimal(Conductor.songPosition / 1000, 2);
+		var totalTimeSec:Float = FlxMath.roundDecimal(FlxG.sound.music.length / 1000, 2);
+
+		// 同步到新顶栏状态栏（原生 bpmTxt 已隐藏，不再逐帧拼字符串）
+		if (menuBar != null && menuBar.statusBar != null)
+		{
+			// ★ 秒数恒保留两位小数（尾数 0 也保留）：0 → "0.00"、1.5 → "1.50"
+			menuBar.statusBar.setTempo(fmt2(curTimeSec) + 's / ' + fmt2(totalTimeSec) + 's');
+			menuBar.statusBar.setClock(FlxStringUtil.formatTime(curTimeSec) + ' / ' + FlxStringUtil.formatTime(totalTimeSec));
+			menuBar.statusBar.setSection(Std.string(curSec));
+			menuBar.statusBar.setBeat(Std.string(curDecBeat).substring(0, 4));
+			var snapSuffix = if ((quantization - 2) % 10 == 0 && quantization != 12) "nd"; else "th";
+			menuBar.statusBar.setSnap(Std.string(quantization) + snapSuffix);
+			menuBar.statusBar.setMove(Std.string(noteMove));
+		}
 
 		var playedSound:Array<Bool> = []; // Prevents ouchy GF sex sounds
 		for (i in 0...totalKeys)
@@ -2659,13 +3059,45 @@ class ChartingState extends MusicBeatState
 		}
 	}
 
+	/** 秒数格式化：恒保留两位小数（0 → "0.00"、1.5 → "1.50"） */
+	function fmt2(v:Float):String
+	{
+		var neg:Bool = v < 0;
+		if (neg) v = -v;
+		var whole:Int = Math.floor(v);
+		var frac:Int = Math.round((v - whole) * 100);
+		if (frac >= 100) { frac -= 100; whole++; }
+		var s:String = Std.string(whole) + '.' + (frac < 10 ? '0' : '') + Std.string(frac);
+		return neg ? '-' + s : s;
+	}
+
+	/** ★ 自定义移动按键 overlay 是否命中了 (mx,my)（逻辑屏幕坐标）——
+	 *  命中 = 该指针是点在虚拟键上，网格点击应跳过（避免放/删音符与虚拟键操作互相干扰） */
+	function pointerOnOverlay(mx:Float, my:Float):Bool
+	{
+		var ov:Dynamic = editorMobileOverlay;
+		if (ov == null) return false;
+		try
+		{
+			if (ov.visible != true || ov.active != true) return false;
+			return ov.hitTest(mx, my) == true;
+		}
+		catch (e:Dynamic) {}
+		return false;
+	}
+
 	function updateZoom()
 	{
+		// ★ 双保险：curZoom 越界直接 clamp（防任何路径把索引改出界）
+		curZoom = Std.int(FlxMath.bound(curZoom, 0, zoomList.length - 1));
 		var daZoom:Float = zoomList[curZoom];
 		var zoomThing:String = '1 / ' + daZoom;
 		if (daZoom < 1)
 			zoomThing = Math.round(1 / daZoom) + ' / 1';
 		zoomTxt.text = 'Zoom: ' + zoomThing;
+		// 同步到新顶栏菜单的状态栏
+		if (menuBar != null && menuBar.statusBar != null)
+			menuBar.statusBar.setZoom(zoomThing);
 		reloadGridLayer();
 	}
 
@@ -2678,6 +3110,79 @@ class ChartingState extends MusicBeatState
 
 	var lastSecBeats:Float = 0;
 	var lastSecBeatsNext:Float = 0;
+
+	/** 网格左缘 x：整张网格（含节拍列）相对屏幕水平居中 */
+	function getGridX():Float
+	{
+		return (FlxG.width - GRID_SIZE * (totalKeys + 1)) / 2;
+	}
+
+	/** 角色 healthBarColor（Psych 标准角色名映射：bf=蓝、dad=紫红、gf=绿、monster=紫、pico=青、mom=粉…）。
+	 *  ★ 未知角色返回 -1，由调用方用角色图标主色（dominantColor）兜底——不固定颜色，
+	 *    换任何角色当 BF/Opp 时背景/波形颜色都会跟着变。 */
+	public static function getCharHealthColor(char:String):Int
+	{
+		switch (char)
+		{
+			case 'bf' | 'bf-pixel' | 'bf-car' | 'bf-christmas' | 'bf-holding-gf': return 0xFF31B0D1;
+			case 'dad' | 'dad-pixel' | 'dad-car' | 'dad-christmas' | 'dad-week1' | 'dad-week2' | 'dad-week3' | 'bf-pixel-opponent': return 0xFFA32E4B;
+			case 'gf' | 'gf-pixel' | 'gf-christmas' | 'gf-car': return 0xFFA6E22E;
+			case 'monster' | 'monster-pixel': return 0xFF8F6BFF;
+			case 'pico' | 'pico-pixel': return 0xFF00E9FF;
+			case 'mom' | 'mom-pixel': return 0xFFFF78BF;
+			case 'spooky' | 'spooky-pixel': return 0xFF7C7C7C;
+			case 'tankman' | 'tankman-pixel': return 0xFF4B4B4B;
+			case 'face': return 0xFFFFE172;
+			default: return -1;
+		}
+	}
+
+	/** ★ 角色颜色 = 纯歌曲数据驱动，与屏幕上的头像状态完全无关（顺序无关、换曲即正确）：
+	 *  1) 内置角色名映射 getCharHealthColor
+	 *  2) 角色 JSON 的 healthbar_colors（updateJsonData 时缓存进 characterData）
+	 *  3) 独立加载该角色图标提取主色（带缓存）——不再读 leftIcon/rightIcon 的显示状态，
+	 *     否则小节换边/换曲时图标滞后会导致左右颜色错位或永远不更新
+	 *  4) 兜底色 */
+	function resolveCharColor(char:String, fallback:Int):Int
+	{
+		var mapped:Int = getCharHealthColor(char);
+		if (mapped >= 0) return mapped;
+
+		var slot:Int = 0;
+		var iconName:String = null;
+		var hb:Array<Int> = null;
+		if (_song != null && characterData != null)
+		{
+			for (i in 1...3)
+			{
+				if (Reflect.field(_song, 'player$i') == char)
+				{
+					slot = i;
+					break;
+				}
+			}
+			if (slot > 0)
+			{
+				hb = Reflect.field(characterData, 'healthP$slot');
+				iconName = Reflect.field(characterData, 'iconP$slot');
+			}
+		}
+		if (hb != null && hb.length > 2)
+			return 0xFF000000 | (Std.int(hb[0]) << 16) | (Std.int(hb[1]) << 8) | Std.int(hb[2]);
+		if (iconName == null) iconName = char;
+		if (charColorCache.exists(iconName)) return charColorCache.get(iconName);
+		var col:Int = -1;
+		try
+		{
+			var tmp:HealthIcon = new HealthIcon(iconName);
+			if (tmp.graphic != null && tmp.graphic.bitmap != null)
+				col = CoolUtil.dominantColor(tmp);
+			tmp.destroy();
+		}
+		catch (e:Dynamic) {}
+		charColorCache.set(iconName, col);
+		return col >= 0 ? col : fallback;
+	}
 
 	function reloadGridLayer()
 	{
@@ -2702,10 +3207,45 @@ class ChartingState extends MusicBeatState
 		}
 
 		gridLayer.clear();
-		gridBG = FlxGridOverlay.create(1, 1, totalKeys + 1, Std.int(getSectionBeats() * 4 * zoomList[curZoom]));
+		// ★ 网格背景分侧：每个 note 区间（轨道列）一块对应角色的 healthBarColor 半透明背景
+		//   （角色原色，非反色）。★ 颜色跟随 mustHitSection：左区域 = 当前小节左侧角色（BF 小节=player1，
+		//   对手小节=player2），右区域反之——换角色后颜色立即跟随（未知角色从图标提主色，绝不固定）。
+		var bfSideL:Bool = (_song.notes[curSec].mustHitSection != false);
+		var leftChar:String = bfSideL ? _song.player1 : _song.player2;
+		var rightChar:String = bfSideL ? _song.player2 : _song.player1;
+		// ★ 读取失败（找不到角色/文件/图标）一律用 #666666，不做任何猜测色
+		var leftC:Int = resolveCharColor(leftChar, 0xFF666666);
+		var rightC:Int = resolveCharColor(rightChar, 0xFF666666);
+
+		// ★ 行数下限 1：防止 sectionBeats/zoom 异常时 0 行位图崩溃
+		var gridRows:Int = Std.int(Math.max(1, getSectionBeats() * 4 * zoomList[curZoom]));
+		gridBG = FlxGridOverlay.create(1, 1, totalKeys + 1, gridRows, false, 0xFFFFFFFF, 0xFFFFFFFF);
 		gridBG.antialiasing = false;
 		gridBG.scale.set(GRID_SIZE, GRID_SIZE);
 		gridBG.updateHitbox();
+		// ★ 网格水平居中（mania 变化时总宽变化，x 自动重新居中，不再向右延申）
+		gridBG.x = getGridX();
+		gridBG.alpha = 0; // 透明：范围判断与高度参考用
+
+		// ★ 每轨背景块（跳过第一列节拍列；半透明角色原色）
+		var gridH:Int = Std.int(gridBG.height);
+		for (i in 0...totalKeys)
+		{
+			var laneBg:FlxSprite = new FlxSprite(gridBG.x + GRID_SIZE * (i + 1), gridBG.y);
+			laneBg.makeGraphic(GRID_SIZE - 1, gridH, i < leftKeys ? leftC : rightC);
+			laneBg.alpha = 0.35;
+			laneBg.antialiasing = false;
+			gridLayer.add(laneBg);
+		}
+
+		// ★ 每一格画横线（对位用，半透明白）
+		var rowsN:Int = gridRows;
+		for (r in 1...rowsN)
+		{
+			var hLine:FlxSprite = new FlxSprite(gridBG.x, GRID_SIZE * r).makeGraphic(Std.int(gridBG.width), 1, 0x33FFFFFF);
+			hLine.antialiasing = false;
+			gridLayer.add(hLine);
+		}
 
 		#if (desktop || mobile)
 		if (FlxG.save.data.chart_waveformInst || FlxG.save.data.chart_waveformVoices || FlxG.save.data.chart_waveformOppVoices)
@@ -2718,10 +3258,13 @@ class ChartingState extends MusicBeatState
 		var foundNextSec:Bool = false;
 		if (sectionStartTime(1) <= FlxG.sound.music.length)
 		{
-			nextGridBG = FlxGridOverlay.create(1, 1, totalKeys + 1, Std.int(getSectionBeats(curSec + 1) * 4 * zoomList[curZoom]));
+			var nextRows:Int = Std.int(Math.max(1, getSectionBeats(curSec + 1) * 4 * zoomList[curZoom]));
+			nextGridBG = FlxGridOverlay.create(1, 1, totalKeys + 1, nextRows);
 			nextGridBG.antialiasing = false;
 			nextGridBG.scale.set(GRID_SIZE, GRID_SIZE);
 			nextGridBG.updateHitbox();
+			nextGridBG.x = gridBG.x;
+			nextGridBG.alpha = 0; // ★ 透明：下小节区域只保留黑色遮罩，避免旧棋盘残影（"滚木"）
 			leHeight = Std.int(gridBG.height + nextGridBG.height);
 			foundNextSec = true;
 		}
@@ -2734,13 +3277,19 @@ class ChartingState extends MusicBeatState
 
 		if (foundNextSec)
 		{
-			var gridBlack:FlxSprite = new FlxSprite(0, gridBG.height).makeGraphic(1, 1, FlxColor.BLACK);
+			var gridBlack:FlxSprite = new FlxSprite(gridBG.x, gridBG.height).makeGraphic(1, 1, FlxColor.BLACK);
 			gridBlack.setGraphicSize(Std.int(GRID_SIZE * (totalKeys + 1)), Std.int(nextGridBG.height));
 			gridBlack.updateHitbox();
 			gridBlack.antialiasing = false;
 			gridBlack.alpha = 0.4;
 			gridLayer.add(gridBlack);
 		}
+
+		// ★ 波形图 sprite 跟随网格左缘（像素宽在 updateWaveform 里按 totalKeys 重建）
+		waveformSprite.x = gridBG.x;
+
+		// ★ 网格几何（键数/居中）变化后，头像随时重新居中，避免与轨道列错位
+		positionSideIcons();
 
 		var gridBlackLine:FlxSprite = new FlxSprite(gridBG.x + gridBG.width - (GRID_SIZE * leftKeys)).makeGraphic(1, 1, FlxColor.BLACK);
 		gridBlackLine.setGraphicSize(2, leHeight);
@@ -2768,88 +3317,122 @@ class ChartingState extends MusicBeatState
 		if (sectionStartTime(1) > FlxG.sound.music.length)
 			lastSecBeatsNext = 0;
 		else
-			getSectionBeats(curSec + 1);
+			lastSecBeatsNext = getSectionBeats(curSec + 1); // ★ 原代码漏了赋值，导致长度比较永远误判
 	}
 
 	function strumLineUpdateY()
 	{
-		strumLine.y = getYfromStrum((Conductor.songPosition - sectionStartTime()) / zoomList[curZoom] % (Conductor.stepCrochet * 16)) / (getSectionBeats() / 4);
+		// ★ 防御：小节拍数异常（0 等）时避免除零
+		var beatsDiv:Float = getSectionBeats() / 4;
+		if (beatsDiv <= 0) beatsDiv = 1;
+		strumLine.y = getYfromStrum((Conductor.songPosition - sectionStartTime()) / zoomList[curZoom] % (Conductor.stepCrochet * 16)) / beatsDiv;
 	}
 
 	var waveformPrinted:Bool = true;
 	var wavData:Array<Array<Array<Float>>> = [[[0], [0]], [[0], [0]]];
 
 	var lastWaveformHeight:Int = 0;
+	var lastWaveformWidth:Int = 0;
 
 	function updateWaveform()
 	{
 		#if (desktop || mobile)
+		// ★ 宽度跟随 mania（总宽 = 节拍列 + totalKeys 轨），位置跟随网格左缘
+		var width:Int = GRID_SIZE * (totalKeys + 1);
+		var height:Int = Std.int(gridBG.height);
 		if (waveformPrinted)
 		{
-			var width:Int = Std.int(GRID_SIZE * 8);
-			var height:Int = Std.int(gridBG.height);
-			if (lastWaveformHeight != height && waveformSprite.pixels != null)
+			if ((lastWaveformHeight != height || lastWaveformWidth != width) && waveformSprite.pixels != null)
 			{
 				waveformSprite.pixels.dispose();
 				waveformSprite.pixels.disposeImage();
 				waveformSprite.makeGraphic(width, height, 0x00FFFFFF);
 				lastWaveformHeight = height;
+				lastWaveformWidth = width;
 			}
 			waveformSprite.pixels.fillRect(new Rectangle(0, 0, width, height), 0x00FFFFFF);
 		}
 		waveformPrinted = false;
 
-		if (!FlxG.save.data.chart_waveformInst && !FlxG.save.data.chart_waveformVoices && !FlxG.save.data.chart_waveformOppVoices)
+		var instOn:Bool = (FlxG.save.data.chart_waveformInst == true);
+		var bfOn:Bool = (FlxG.save.data.chart_waveformVoices == true);
+		var oppOn:Bool = (FlxG.save.data.chart_waveformOppVoices == true);
+		if (!instOn && !bfOn && !oppOn)
 		{
 			// trace('Epic fail on the waveform lol');
 			return;
 		}
 
-		wavData[0][0] = [];
-		wavData[0][1] = [];
-		wavData[1][0] = [];
-		wavData[1][1] = [];
-
 		var steps:Int = Math.round(getSectionBeats() * 4);
 		var st:Float = sectionStartTime();
 		var et:Float = st + (Conductor.stepCrochet * steps);
 
-		var sound:FlxSound = FlxG.sound.music;
-		if (FlxG.save.data.chart_waveformVoices)
-			sound = vocals;
-		else if (FlxG.save.data.chart_waveformOppVoices)
-			sound = opponentVocals;
-
-		if (sound != null && sound._sound != null && sound._sound.__buffer != null)
-		{
-			var bytes:Bytes = sound._sound.__buffer.data.toBytes();
-
-			wavData = waveformData(sound._sound.__buffer, bytes, st, et, 1, wavData, Std.int(gridBG.height));
-		}
-
-		// Draws
-		var gSize:Int = Std.int(GRID_SIZE * 8);
-		var hSize:Int = Std.int(gSize / 2);
 		var size:Float = 1;
+		var hFull:Int = Std.int(gridBG.height);
 
-		var leftLength:Int = (wavData[0][0].length > wavData[0][1].length ? wavData[0][0].length : wavData[0][1].length);
-		var rightLength:Int = (wavData[1][0].length > wavData[1][1].length ? wavData[1][0].length : wavData[1][1].length);
+		// ★ 分区：第一列是节拍列（GRID_SIZE），之后 leftKeys 轨为 BF 侧、rightKeys 轨为 Opp 侧；
+		//   跟随 mustHitSection：玩家小节时 BF 波形在左，对手小节时互换（音符归属也互换）
+		var lane0:Int = GRID_SIZE;
+		var bfLeft:Bool = (_song.notes[curSec].mustHitSection != false);
+		var bfX:Int = bfLeft ? lane0 : lane0 + GRID_SIZE * leftKeys;
+		var oppX:Int = bfLeft ? lane0 + GRID_SIZE * leftKeys : lane0;
+		var bfW:Int = GRID_SIZE * leftKeys;
+		var oppW:Int = GRID_SIZE * rightKeys;
 
-		var length:Int = leftLength > rightLength ? leftLength : rightLength;
+		// ★ 颜色 = 对应角色的 healthBarColor（角色原色，纯数据驱动与头像无关）：
+		//   BF 波形 = player1 的色；Opp 波形 = player2 的色；Inst 用绿色（避免与网格混淆）
+		//   ★ 三个波形统一 50% 透明度（alpha 0x80），避免盖住音符看不清
+		var bfColor:Int = (resolveCharColor(_song.player1, 0xFF666666) & 0x00FFFFFF) | 0x80000000;
+		var oppColor:Int = (resolveCharColor(_song.player2, 0xFF666666) & 0x00FFFFFF) | 0x80000000;
+		var instColor:Int = 0x806FCF6F;
 
-		for (index in 0...length)
+		if (bfOn && vocals != null && vocals._sound != null && vocals._sound.__buffer != null)
 		{
-			var lmin:Float = FlxMath.bound(((index < wavData[0][0].length && index >= 0) ? wavData[0][0][index] : 0) * (gSize / 1.12), -hSize, hSize) / 2;
-			var lmax:Float = FlxMath.bound(((index < wavData[0][1].length && index >= 0) ? wavData[0][1][index] : 0) * (gSize / 1.12), -hSize, hSize) / 2;
-
-			var rmin:Float = FlxMath.bound(((index < wavData[1][0].length && index >= 0) ? wavData[1][0][index] : 0) * (gSize / 1.12), -hSize, hSize) / 2;
-			var rmax:Float = FlxMath.bound(((index < wavData[1][1].length && index >= 0) ? wavData[1][1][index] : 0) * (gSize / 1.12), -hSize, hSize) / 2;
-
-			waveformSprite.pixels.fillRect(new Rectangle(hSize - (lmin + rmin), index * size, (lmin + rmin) + (lmax + rmax), size), FlxColor.BLUE);
+			var bytes:Bytes = vocals._sound.__buffer.data.toBytes();
+			var wav:Array<Array<Array<Float>>> = waveformData(vocals._sound.__buffer, bytes, st, et, 1, null, hFull);
+			drawWaveformBand(wav, bfX, bfX + bfW, bfColor, size);
+		}
+		if (oppOn && opponentVocals != null && opponentVocals._sound != null && opponentVocals._sound.__buffer != null)
+		{
+			var bytes:Bytes = opponentVocals._sound.__buffer.data.toBytes();
+			var wav:Array<Array<Array<Float>>> = waveformData(opponentVocals._sound.__buffer, bytes, st, et, 1, null, hFull);
+			drawWaveformBand(wav, oppX, oppX + oppW, oppColor, size);
+		}
+		if (instOn && FlxG.sound.music != null && FlxG.sound.music._sound != null && FlxG.sound.music._sound.__buffer != null)
+		{
+			var bytes:Bytes = FlxG.sound.music._sound.__buffer.data.toBytes();
+			var wav:Array<Array<Array<Float>>> = waveformData(FlxG.sound.music._sound.__buffer, bytes, st, et, 1, null, hFull);
+			// ★ Inst 波形居中显示（宽度 = 网格一半，居中放置），不占满全宽
+			var instW:Int = Std.int(width / 2);
+			var instX:Int = Std.int((width - instW) / 2);
+			drawWaveformBand(wav, instX, instX + instW, instColor, size);
 		}
 
 		waveformPrinted = true;
 		#end
+	}
+
+	/** 在 waveformSprite 上绘制一段波形带（xStart ~ xEnd，以带中心为轴）。 */
+	function drawWaveformBand(wav:Array<Array<Array<Float>>>, xStart:Int, xEnd:Int, color:Int, size:Float):Void
+	{
+		var bandW:Int = xEnd - xStart;
+		if (bandW < 1) return;
+		var hSize:Int = Std.int(bandW / 2);
+
+		var leftLength:Int = (wav[0][0].length > wav[0][1].length ? wav[0][0].length : wav[0][1].length);
+		var rightLength:Int = (wav[1][0].length > wav[1][1].length ? wav[1][0].length : wav[1][1].length);
+		var length:Int = leftLength > rightLength ? leftLength : rightLength;
+
+		for (index in 0...length)
+		{
+			var lmin:Float = FlxMath.bound(((index < wav[0][0].length && index >= 0) ? wav[0][0][index] : 0) * (bandW / 1.12), -hSize, hSize) / 2;
+			var lmax:Float = FlxMath.bound(((index < wav[0][1].length && index >= 0) ? wav[0][1][index] : 0) * (bandW / 1.12), -hSize, hSize) / 2;
+
+			var rmin:Float = FlxMath.bound(((index < wav[1][0].length && index >= 0) ? wav[1][0][index] : 0) * (bandW / 1.12), -hSize, hSize) / 2;
+			var rmax:Float = FlxMath.bound(((index < wav[1][1].length && index >= 0) ? wav[1][1][index] : 0) * (bandW / 1.12), -hSize, hSize) / 2;
+
+			waveformSprite.pixels.fillRect(new Rectangle(xStart + hSize - (lmin + rmin), index * size, (lmin + rmin) + (lmax + rmax), size), color);
+		}
 	}
 
 	function waveformData(buffer:AudioBuffer, bytes:Bytes, time:Float, endTime:Float, multiply:Float = 1, ?array:Array<Array<Array<Float>>>,
@@ -3057,6 +3640,10 @@ class ChartingState extends MusicBeatState
 		var waveformChanged:Bool = false;
 		if (_song.notes[sec] != null)
 		{
+			// ★ 记录进入前后是否换了边（BF↔对手）：小节等长时也必须整层重画，
+			//   否则背景分色/波形归属沿用上个小节（旧逻辑只在小节长度变化时才 reload）
+			var sideChanged:Bool = (sec != curSec && _song.notes[curSec] != null
+				&& _song.notes[sec].mustHitSection != _song.notes[curSec].mustHitSection);
 			curSec = sec;
 			if (updateMusic)
 			{
@@ -3072,7 +3659,7 @@ class ChartingState extends MusicBeatState
 			if (sectionStartTime(1) > FlxG.sound.music.length)
 				blah2 = 0;
 
-			if (blah1 != lastSecBeats || blah2 != lastSecBeatsNext)
+			if (blah1 != lastSecBeats || blah2 != lastSecBeatsNext || sideChanged)
 			{
 				reloadGridLayer();
 				waveformChanged = true;
@@ -3110,8 +3697,13 @@ class ChartingState extends MusicBeatState
 		iconP1: null,
 		iconP2: null,
 		vocalsP1: null,
-		vocalsP2: null
+		vocalsP2: null,
+		healthP1: null,
+		healthP2: null
 	};
+
+	/** 角色颜色缓存：icon 名 → 主色（-1 = 未算出）。仅用于兜底，与屏幕头像状态无关 */
+	var charColorCache:Map<String, Int> = new Map<String, Int>();
 
 	function updateJsonData():Void
 	{
@@ -3120,6 +3712,11 @@ class ChartingState extends MusicBeatState
 			var data:CharacterFile = loadCharacterFile(Reflect.field(_song, 'player$i'));
 			Reflect.setField(characterData, 'iconP$i', !characterFailed ? data.healthicon : 'face');
 			Reflect.setField(characterData, 'vocalsP$i', data.vocals_file != null ? data.vocals_file : '');
+			// ★ 缓存角色 JSON 的 healthbar_colors（Psych 标准），供背景/波形取色
+			var hb:Array<Int> = null;
+			if (!characterFailed && data.healthbar_colors != null && data.healthbar_colors.length > 2)
+				hb = data.healthbar_colors;
+			Reflect.setField(characterData, 'healthP$i', hb);
 		}
 	}
 
@@ -3139,6 +3736,7 @@ class ChartingState extends MusicBeatState
 			if (_song.notes[curSec].gfSection)
 				leftIcon.changeIcon('gf');
 		}
+		positionSideIcons(); // ★ 换图后图标宽度可能变化，重新居中到各自轨道组
 	}
 
 	var characterFailed:Bool = false;
@@ -3193,22 +3791,29 @@ class ChartingState extends MusicBeatState
 					}
 				}
 			}
-			else
+			else if (Std.is(curSelectedNote[1], Array))
 			{
-				eventDropDown.selectedLabel = curSelectedNote[1][curEventSelected][0];
-				var selected:Int = Std.parseInt(eventDropDown.selectedId);
-				if (selected > 0 && selected < eventStuff.length)
+				// ★ 崩溃防御：只有事件 note（[1] 为数组）才走事件读取，普通 note 的 [1] 是数字轨道号
+				var evArr4:Array<Dynamic> = cast curSelectedNote[1];
+				if (curEventSelected >= 0 && curEventSelected < evArr4.length && Std.is(evArr4[curEventSelected], Array))
 				{
-					descText.text = eventStuff[selected][1];
+					var evD4:Array<Dynamic> = cast evArr4[curEventSelected];
+					if (evD4.length > 0) eventDropDown.selectedLabel = evD4[0];
+					var selected:Null<Int> = null;
+					try { selected = Std.parseInt(eventDropDown.selectedId); } catch(e:Dynamic) { selected = null; }
+					if (selected != null && selected >= 0 && selected < eventStuff.length)
+					{
+						descText.text = eventStuff[selected][1];
+					}
+					if (evD4.length > 1) value1InputText.text = evD4[1];
+					if (evD4.length > 2) value2InputText.text = evD4[2];
 				}
-				value1InputText.text = curSelectedNote[1][curEventSelected][1];
-				value2InputText.text = curSelectedNote[1][curEventSelected][2];
 			}
 			strumTimeInputText.text = '' + curSelectedNote[0];
 		}
 	}
 
-	function updateGrid():Void
+	function updateGrid(?withNext:Bool = true):Void
 	{
 		curRenderedNotes.forEachAlive(function(spr:Note) spr.destroy());
 		curRenderedNotes.clear();
@@ -3216,10 +3821,13 @@ class ChartingState extends MusicBeatState
 		curRenderedSustains.clear();
 		curRenderedNoteType.forEachAlive(function(spr:FlxText) spr.destroy());
 		curRenderedNoteType.clear();
-		nextRenderedNotes.forEachAlive(function(spr:Note) spr.destroy());
-		nextRenderedNotes.clear();
-		nextRenderedSustains.forEachAlive(function(spr:FlxSprite) spr.destroy());
-		nextRenderedSustains.clear();
+		if (withNext)
+		{
+			nextRenderedNotes.forEachAlive(function(spr:Note) spr.destroy());
+			nextRenderedNotes.clear();
+			nextRenderedSustains.forEachAlive(function(spr:FlxSprite) spr.destroy());
+			nextRenderedSustains.clear();
+		}
 
 		if (_song.notes[curSec].changeBPM && _song.notes[curSec].bpm > 0)
 		{
@@ -3255,7 +3863,7 @@ class ChartingState extends MusicBeatState
 					theType = '?';
 
 				var daText:AttachedFlxText = new AttachedFlxText(0, 0, 100, theType, 24);
-				daText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE_FAST, FlxColor.BLACK);
+				daText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 24, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE_FAST, FlxColor.BLACK);
 				daText.xAdd = -32;
 				daText.yAdd = 6;
 				daText.borderSize = 1;
@@ -3283,7 +3891,7 @@ class ChartingState extends MusicBeatState
 					text = note.eventLength + ' Events:\n' + note.eventName;
 
 				var daText:AttachedFlxText = new AttachedFlxText(0, 0, 400, text, 12);
-				daText.setFormat(Paths.font("vcr.ttf"), 12, FlxColor.WHITE, RIGHT, FlxTextBorderStyle.OUTLINE_FAST, FlxColor.BLACK);
+				daText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 12, FlxColor.WHITE, RIGHT, FlxTextBorderStyle.OUTLINE_FAST, FlxColor.BLACK);
 				daText.xAdd = -410;
 				daText.borderSize = 1;
 				if (note.eventLength > 1)
@@ -3294,9 +3902,9 @@ class ChartingState extends MusicBeatState
 			}
 		}
 
-		// NEXT SECTION
+		// NEXT SECTION（withNext=false 时跳过：只改了当前小节时下一小节预览没变，避免重复重建）
 		var beats:Float = getSectionBeats(1);
-		if (curSec < _song.notes.length - 1)
+		if (withNext && curSec < _song.notes.length - 1)
 		{
 			for (i in _song.notes[curSec + 1].sectionNotes)
 			{
@@ -3313,13 +3921,16 @@ class ChartingState extends MusicBeatState
 		// NEXT EVENTS
 		var startThing:Float = sectionStartTime(1);
 		var endThing:Float = sectionStartTime(2);
-		for (i in _song.events)
+		if (withNext)
 		{
-			if (endThing > i[0] && i[0] >= startThing)
+			for (i in _song.events)
 			{
-				var note:Note = setupNoteData(i, true);
-				note.alpha = 0.6;
-				nextRenderedNotes.add(note);
+				if (endThing > i[0] && i[0] >= startThing)
+				{
+					var note:Note = setupNoteData(i, true);
+					note.alpha = 0.6;
+					nextRenderedNotes.add(note);
+				}
 			}
 		}
 	}
@@ -3330,12 +3941,29 @@ class ChartingState extends MusicBeatState
 		var daStrumTime = i[0];
 		var daSus:Dynamic = i[2];
 
-		var note:Note = new Note(daStrumTime, daNoteInfo % leftKeys, null, null, true);
+		// ★ 事件音符的 i[1] 是数组（[事件名, 值1, 值2 …]），旧代码直接 `daNoteInfo % leftKeys`
+		//   对 Dynamic 取模，得到的轨号是垃圾值；它决定了构造期取哪条轨道的配色/缩放，
+		//   随后虽然会被改回 -1，但构造期已经用错误轨号建过 RGB palette 与动画了。
+		//   这里先归一成安全轨号（非数字一律 0）。
+		var laneForNote:Int = 0;
+		if (Std.isOfType(daNoteInfo, Int) || Std.isOfType(daNoteInfo, Float))
+		{
+			var laneNum:Int = Std.int(cast daNoteInfo);
+			laneForNote = (leftKeys > 0) ? (laneNum % leftKeys) : 0;
+			if (laneForNote < 0) laneForNote += leftKeys;
+		}
+
+		var note:Note = new Note(daStrumTime, laneForNote, null, null, true);
 		if (daSus != null)
 		{ // Common note
 			if (!Std.isOfType(i[3], String)) // Convert old note type to new note type format
 			{
-				i[3] = curNoteTypes[i[3]];
+				// ★ 防御：i[3] 可能是 null（旧谱面无类型字段）→ 不能直接索引 curNoteTypes
+				var oldTypeIdx:Int = Std.is(i[3], Int) || Std.is(i[3], Float) ? Std.int(i[3]) : 0;
+				if (oldTypeIdx >= 0 && oldTypeIdx < curNoteTypes.length)
+					i[3] = curNoteTypes[oldTypeIdx];
+				else
+					i[3] = null;
 			}
 			if (i.length > 3 && (i[3] == null || i[3].length < 1))
 			{
@@ -3344,34 +3972,38 @@ class ChartingState extends MusicBeatState
 			note.sustainLength = daSus;
 			note.noteType = i[3];
 		}
-		else
-		{ // Event note
+		else if (Std.is(i[1], Array))
+		{ // Event note（★ 判定必须用 [1] 是否为数组：普通音符的 [1] 是轨道号 Int，
+			//   [2]==null 不可靠——旧谱面普通音符 susLength 缺失时会把 Int 当数组 → 空指针崩溃）
+			var evArr:Array<Dynamic> = cast i[1];
+			if (evArr == null) evArr = [];
 			note.loadGraphic(Paths.image('eventArrow'));
 			note.rgbShader.enabled = false;
-			note.eventName = getEventName(i[1]);
-			note.eventLength = i[1].length;
-			if (i[1].length < 2)
+			note.eventName = getEventName(evArr);
+			note.eventLength = evArr.length;
+			if (evArr.length < 2 && evArr.length > 0 && Std.is(evArr[0], Array))
 			{
-				note.eventVal1 = i[1][0][1];
-				note.eventVal2 = i[1][0][2];
+				var ev0:Array<Dynamic> = cast evArr[0];
+				if (ev0.length > 1) note.eventVal1 = ev0[1];
+				if (ev0.length > 2) note.eventVal2 = ev0[2];
 			}
 			note.noteData = -1;
 			daNoteInfo = -1;
 		}
+		else
+		{ // 普通音符但 susLength 缺失（旧谱面）——按普通音符兜底，避免误入事件分支
+			note.sustainLength = 0;
+			note.noteData = daNoteInfo;
+		}
 
 		note.setGraphicSize(GRID_SIZE, GRID_SIZE);
 		note.updateHitbox();
-		note.x = Math.floor(daNoteInfo * GRID_SIZE) + GRID_SIZE;
-		if (isNextSection && _song.notes[curSec].mustHitSection != _song.notes[curSec + 1].mustHitSection)
+		note.x = getGridX() + Math.floor(daNoteInfo * GRID_SIZE) + GRID_SIZE;
+		// ★ 下一小节换边预览：把下一小节音符整体镜像到另一侧（按当前每侧键数平移，
+		//   不再写死 4K——mania 变化后写死平移会与轨道列错位；事件行 daNoteInfo=-1 不换）
+		if (isNextSection && daNoteInfo >= 0 && _song.notes[curSec].mustHitSection != _song.notes[curSec + 1].mustHitSection)
 		{
-			if (daNoteInfo > 3)
-			{
-				note.x -= GRID_SIZE * 4;
-			}
-			else if (daSus != null)
-			{
-				note.x += GRID_SIZE * 4;
-			}
+			note.x += (daNoteInfo >= leftKeys ? -1 : 1) * GRID_SIZE * leftKeys;
 		}
 
 		var beats:Float = getSectionBeats(isNextSection ? 1 : 0);
@@ -3450,7 +4082,11 @@ class ChartingState extends MusicBeatState
 				if (i != curSelectedNote && i[0] == note.strumTime)
 				{
 					curSelectedNote = i;
-					curEventSelected = Std.int(curSelectedNote[1].length) - 1;
+					// ★ 防御：事件音符 [1] 应为数组（谱面数据损坏时避免对 Int 取 length）
+					if (Std.is(curSelectedNote[1], Array))
+						curEventSelected = Std.int((cast curSelectedNote[1]:Array<Dynamic>).length) - 1;
+					else
+						curEventSelected = 0;
 					break;
 				}
 			}
@@ -3545,7 +4181,7 @@ class ChartingState extends MusicBeatState
 		// if (ClientPrefs.data.needMobileControl) {
 		// for (touch in FlxG.touches.list){noteData = Math.floor((touch.x - GRID_SIZE) / GRID_SIZE);}
 		// } else {
-		noteData = Math.floor((FlxG.mouse.getWorldPosition(FlxG.camera).x - GRID_SIZE) / GRID_SIZE);
+		noteData = Math.floor((FlxG.mouse.getWorldPosition(FlxG.camera).x - getGridX() - GRID_SIZE) / GRID_SIZE);
 		// }
 		var noteSus = 0;
 		var daAlt = false;
@@ -3565,16 +4201,23 @@ class ChartingState extends MusicBeatState
 		}
 		else
 		{
-			var event = eventStuff[Std.parseInt(eventDropDown.selectedId)][0];
+			// ★ 防御：eventDropDown.selectedId 可能是空/非数字 → Std.parseInt 返回 null →
+			//   eventStuff[null] 取 [0] 会空指针崩溃，先解析并校验索引
+			var eventId:Null<Int> = null;
+			try { eventId = Std.parseInt(eventDropDown.selectedId); } catch(e:Dynamic) { eventId = null; }
+			var evName:String = '';
+			if (eventId != null && eventId >= 0 && eventId < eventStuff.length)
+				evName = eventStuff[eventId][0];
 			var text1 = value1InputText.text;
 			var text2 = value2InputText.text;
-			_song.events.push([noteStrum, [[event, text1, text2]]]);
+			_song.events.push([noteStrum, [[evName, text1, text2]]]);
 			curSelectedNote = _song.events[_song.events.length - 1];
 			curEventSelected = 0;
 		}
 		changeEventSelected();
 
-		if (FlxG.keys.pressed.CONTROL && noteData > -1)
+		// ★ 自定义移动键位模式下不自动双放（Ctrl 来自虚拟组合键，同帧可能误触发对侧复制）
+		if (FlxG.keys.pressed.CONTROL && noteData > -1 && !EditorMobileKeys.isEnabled())
 		{
 			_song.notes[curSec].sectionNotes.push([noteStrum, (noteData + leftKeys) % totalKeys, noteSus, curNoteTypes[daType]]);
 		}
@@ -3586,19 +4229,41 @@ class ChartingState extends MusicBeatState
 		updateNoteUI();
 	}
 
-	// will figure this out l8r
+	// 撤销系统：每次破坏性操作前 pushUndo() 存整份谱面快照，undo() 弹回上一步
+	// ★ 快照用 haxe.Serializer（二进制式）而非 Json.stringify——大谱面（如 triple-trouble
+	//   这类每小节几百音符）Json 序列化会卡顿数百 ms；Serializer 快一个量级且撤销栈只在内存里。
+	function pushUndo():Void
+	{
+		if (undos == null) undos = [];
+		undos.push(haxe.Serializer.run(_song.notes));
+		if (undos.length > 50) undos.shift(); // 只保留最近 50 步
+	}
+
 	function redo()
 	{
-		// _song = redos[curRedoIndex];
+		// 暂时不做 redo（用户没要求）
 	}
 
 	function undo()
 	{
-		// redos.push(_song);
-		undos.pop();
-		// _song.notes = undos[undos.length - 1];
-		///trace(_song.notes);
-		// updateGrid();
+		if (undos == null || undos.length <= 0)
+		{
+			return;
+		}
+		withMusicPaused(function()
+		{
+			var snapshot:String = undos.pop();
+			var parsed:Dynamic = null;
+			try { parsed = haxe.Unserializer.run(snapshot); } catch (e:Dynamic) {}
+			if (parsed != null)
+			{
+				_song.notes = cast parsed;
+				if (curSec >= _song.notes.length) curSec = _song.notes.length - 1;
+				if (curSec < 0) curSec = 0;
+				updateGrid();
+				updateSectionUI();
+			}
+		});
 	}
 
 	function getStrumTime(yPos:Float, doZoomCalc:Bool = true):Float
@@ -3619,7 +4284,10 @@ class ChartingState extends MusicBeatState
 
 	function getYfromStrumNotes(strumTime:Float, beats:Float):Float
 	{
-		var value:Float = strumTime / (beats * 4 * Conductor.stepCrochet);
+		// ★ 防御：beats/stepCrochet 异常时避免除零产生 NaN 坐标
+		var denom:Float = beats * 4 * Conductor.stepCrochet;
+		if (denom <= 0) denom = 1;
+		var value:Float = strumTime / denom;
 		return GRID_SIZE * beats * 4 * zoomList[curZoom] * value + gridBG.y;
 	}
 
@@ -3640,21 +4308,13 @@ class ChartingState extends MusicBeatState
 
 	function loadJson(song:String):Void
 	{
-		// shitty null fix, i fucking hate it when this happens
-		// make it look sexier if possible
+		// ★ 难度后缀取自【歌曲】→「难度」输入框：填了 Fuck 就加载 song-Fuck.json（制作多难度用）；
+		//   留空则加载无后缀文件（不再受全局 Difficulty 影响——之前会莫名拼难度后缀导致"重载无效"）
 		try
 		{
-			if (Difficulty.getString() != Difficulty.getDefault())
-			{
-				if (Difficulty.getString() == null)
-				{
-					PlayState.SONG = Song.loadFromJson(song.toLowerCase(), song.toLowerCase());
-				}
-				else
-				{
-					PlayState.SONG = Song.loadFromJson(song.toLowerCase() + "-" + Difficulty.getString(), song.toLowerCase());
-				}
-			}
+			var diff:String = (difficultyInputText != null && difficultyInputText.text != null) ? StringTools.trim(difficultyInputText.text) : '';
+			if (diff.length > 0)
+				PlayState.SONG = Song.loadFromJson(song.toLowerCase() + '-' + Paths.formatToSongPath(diff), song.toLowerCase());
 			else
 				PlayState.SONG = Song.loadFromJson(song.toLowerCase(), song.toLowerCase());
 			MusicBeatState.resetState();
@@ -3670,7 +4330,7 @@ class ChartingState extends MusicBeatState
 			if (missingText == null)
 			{
 				missingText = new FlxText(50, 0, FlxG.width - 100, '', 24);
-				missingText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+				missingText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 24, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 				missingText.scrollFactor.set();
 				add(missingText);
 			}
@@ -3697,6 +4357,737 @@ class ChartingState extends MusicBeatState
 		FlxG.save.flush();
 	}
 
+	/**
+	 * 以「测试模式」进入 EditorPlayState。
+	 * 对应原版的 ESC，也对应新顶栏菜单 [测试] → 「以测试模式进行」。
+	 */
+
+	// ================= 快捷键辅助函数 =================
+	/** Ctrl+Shift+Tab：打开/关闭 Vortex */
+	function toggleVortexShortcut():Void
+	{
+		vortex = !vortex;
+		FlxG.save.data.chart_vortex = vortex;
+		if (check_vortex != null) check_vortex.checked = vortex;
+		reloadGridLayer();
+	}
+
+	/** Ctrl+Shift+U / Ctrl+Shift+O：BF / Opp 打击音开关 */
+	function toggleSfxShortcut(side:String):Void
+	{
+		if (side == 'bf')
+		{
+			if (playSoundBf == null) return;
+			playSoundBf.checked = !playSoundBf.checked;
+			if (playSoundBf.callback != null) playSoundBf.callback();
+		}
+		else
+		{
+			if (playSoundDad == null) return;
+			playSoundDad.checked = !playSoundDad.checked;
+			if (playSoundDad.callback != null) playSoundDad.callback();
+		}
+	}
+
+	/** Alt+Ctrl+U/I/O：静音 BF / Inst / Opp（走各自 callback 同步音量） */
+	function toggleMuteShortcut(side:String):Void
+	{
+		var cb:Dynamic = null;
+		switch (side)
+		{
+			case 'bf': if (check_mute_vocals != null) { check_mute_vocals.checked = !check_mute_vocals.checked; cb = check_mute_vocals.callback; }
+			case 'inst': if (check_mute_inst != null) { check_mute_inst.checked = !check_mute_inst.checked; cb = check_mute_inst.callback; }
+			case 'opp': if (check_mute_vocals_opponent != null) { check_mute_vocals_opponent.checked = !check_mute_vocals_opponent.checked; cb = check_mute_vocals_opponent.callback; }
+		}
+		if (cb != null) try { cb(); } catch (e:Dynamic) {}
+	}
+
+	/** Alt+U/I/O：BF / Inst / Opp 波形图开关（互斥已取消，可同时开启） */
+	function toggleWaveformShortcut(side:String):Void
+	{
+		switch (side)
+		{
+			case 'bf':
+				if (waveformUseVoices == null) return;
+				waveformUseVoices.checked = !waveformUseVoices.checked;
+				FlxG.save.data.chart_waveformVoices = waveformUseVoices.checked;
+				updateWaveform();
+			case 'inst':
+				if (waveformUseInstrumental == null) return;
+				waveformUseInstrumental.checked = !waveformUseInstrumental.checked;
+				FlxG.save.data.chart_waveformInst = waveformUseInstrumental.checked;
+				updateWaveform();
+			case 'opp':
+				if (waveformUseOppVoices == null) return;
+				waveformUseOppVoices.checked = !waveformUseOppVoices.checked;
+				FlxG.save.data.chart_waveformOppVoices = waveformUseOppVoices.checked;
+				updateWaveform();
+		}
+	}
+
+	/** K+数字（`=1K ~ 9=10K）：设置 Mania 键数（带阈值 clamp，并同步到【歌曲】→【键数】步进器） */
+	function setManiaByKey(displayKeys:Int):Void
+	{
+		var minK:Int = 1;
+		var maxK:Int = extraMaxKeys();
+		displayKeys = Std.int(FlxMath.bound(displayKeys, minK, maxK));
+		_song.mania = displayKeys - 1;
+		if (stepperMania != null) stepperMania.value = displayKeys; // ★ 同步回【键数】步进器
+		updateKeyAmounts();
+		reloadGridLayer();
+		makeStrumNotes();
+	}
+	// ================= 快捷键辅助函数结束 =================
+
+	// 处理菜单 action 项的回调
+	function handleMenuAction(actionKey:String):Void
+	{
+		switch (actionKey)
+		{
+			case 'save':
+				saveLevel();
+			case 'reload_audio':
+				// ★ 与 reload_json 一致：优先用【歌曲】标题输入框的内容（改了歌名后重载音频才生效），
+				//   loadSong 内部会强制绕过声音缓存重新解码磁盘文件
+				var wantedAudio:String = (UI_songTitle != null && UI_songTitle.text != null) ? StringTools.trim(UI_songTitle.text) : '';
+				if (wantedAudio.length < 1) wantedAudio = _song.song;
+				currentSongName = Paths.formatToSongPath(wantedAudio);
+				loadSong();
+			case 'reload_json':
+				// ★ 用【歌曲】标题输入框的内容作为要加载的曲目（可输入新歌名如 "dad battle" 直接换曲），
+				//   为空则保持当前曲目。之前写死 currentSongName → 输入什么都是重载当前曲
+				var wantedSong:String = (UI_songTitle != null && UI_songTitle.text != null) ? StringTools.trim(UI_songTitle.text) : '';
+				if (wantedSong.length < 1) wantedSong = _song.song;
+				loadJson(Paths.formatToSongPath(wantedSong));
+			case 'engine':
+				var nextEngine:String = (Song.chartEngineVersion == 'Pe-1.0.4') ? 'Pe-0.7.3' : 'Pe-1.0.4';
+				Song.forceEngineVersion = nextEngine;
+				Song.chartEngineVersion = nextEngine;
+				var songName:String = Paths.formatToSongPath(_song.song);
+				// ★ 加载失败不再静默：trace 提示并保留当前谱面（避免"点了没反应"）
+				try
+				{
+					var reloaded:SwagSong = Song.loadFromJson(songName, songName);
+					if (reloaded != null) _song = reloaded;
+				}
+				catch (e:Dynamic)
+				{
+					trace('[charting] 引擎切换重载失败（保留当前谱面）：$e');
+				}
+				autoFixManiaFromData(); // 重载的 json 可能缺 mania 字段 → 按数据恢复
+				recalcKeyAmounts();
+				reloadGridLayer();
+				makeStrumNotes();
+				changeSection(curSec);
+			case 'load_autosave':
+				loadFromAutosave();
+			case 'load_events':
+				loadEventsFromFile();
+			case 'save_events':
+				saveEvents();
+			case 'clear_events':
+				openSubState(new Prompt('This action will clear current progress.\n\nProceed?', 0, clearEvents, null, ignoreWarnings));
+			case 'clear_notes':
+				openSubState(new Prompt('This action will clear current progress.\n\nProceed?', 0, function()
+				{
+					for (sec in 0..._song.notes.length)
+					{
+						_song.notes[sec].sectionNotes = [];
+					}
+					updateGrid();
+				}, null, ignoreWarnings));
+			case 'apply_notes':
+				applyNoteSkinSelection();
+			case 'copy_section':
+				copyCurrentSection();
+			case 'paste_section':
+				openSubState(new Prompt(Language.get('prompt_paste_section', 'charting'), 0, function()
+				{
+					pasteToCurrentSection();
+				}, null, ignoreWarnings));
+			case 'clear_section':
+				openSubState(new Prompt(Language.get('prompt_clear_section', 'charting'), 0, function()
+				{
+					clearCurrentSection();
+				}, null, ignoreWarnings));
+			case 'swap_section':
+				openSubState(new Prompt(Language.get('prompt_swap_section', 'charting'), 0, function()
+				{
+					swapSectionSides();
+				}, null, ignoreWarnings));
+			case 'do_copy_beat':
+				openSubState(new Prompt(Language.get('prompt_copy_beat', 'charting'), 0, function()
+				{
+					copyBeat();
+				}, null, ignoreWarnings));
+			case 'copy_last_section':
+				copyLastSectionToCurrent();
+			case 'duet_notes':
+				openSubState(new Prompt(Language.get('prompt_duet_notes', 'charting'), 0, function()
+				{
+					duetCurrentSection();
+				}, null, ignoreWarnings));
+			case 'mirror_notes':
+				openSubState(new Prompt(Language.get('prompt_mirror_notes', 'charting'), 0, function()
+				{
+					mirrorCurrentSection();
+				}, null, ignoreWarnings));
+			case 'undo':
+				undo();
+			case 'add_event':
+				addNewEventToCurrentSection();
+			case 'del_event':
+				deleteSelectedEvent();
+			case 'prev_event':
+				selectPrevEvent();
+			case 'next_event':
+				selectNextEvent();
+		}
+	}
+
+	/**
+	 * 菜单打开后刷新 widget 显示值。
+	 * widget 在 visible=false 时被 setter 赋值后，内部 text_field 可能不会立即刷新。
+	 * 这里在 widget 已可见的状态下重新触发 setter，确保显示与数据同步。
+	 */
+	function refreshMenuWidgets(menuKey:String):Void
+	{
+		switch (menuKey)
+		{
+			case 'song':
+				try { if (UI_songTitle != null) UI_songTitle.text = _song.song; } catch(e:Dynamic) {}
+				try { if (songBpmStepper != null) songBpmStepper.value = _song.bpm; } catch(e:Dynamic) {}
+				try { if (stepperSpeed != null) stepperSpeed.value = _song.speed; } catch(e:Dynamic) {}
+				try { if (check_voices != null) check_voices.checked = _song.needsVoices; } catch(e:Dynamic) {}
+
+			case 'section':
+				try { if (stepperSectionBPM != null && _song.notes.length > curSec) stepperSectionBPM.value = _song.notes[curSec].bpm; } catch(e:Dynamic) {}
+				// ★ 先读取：所有小节 checkbox 从谱面数据刷新（openMenu 先调这里再 rebuildDropdown 渲染）
+				try { if (check_mustHitSection != null && _song.notes.length > curSec) check_mustHitSection.checked = _song.notes[curSec].mustHitSection; } catch(e:Dynamic) {}
+				try { if (check_gfSection != null && _song.notes.length > curSec) check_gfSection.checked = _song.notes[curSec].gfSection; } catch(e:Dynamic) {}
+				try { if (check_altAnim != null && _song.notes.length > curSec) check_altAnim.checked = _song.notes[curSec].altAnim; } catch(e:Dynamic) {}
+				try { if (check_changeBPM != null && _song.notes.length > curSec) check_changeBPM.checked = _song.notes[curSec].changeBPM; } catch(e:Dynamic) {}
+				// check_notesSec / check_eventsSec 是用户的复制设置，保持 toggle 状态，不刷新
+
+			case 'note':
+				if (curSelectedNote != null)
+				{
+					try { if (stepperSusLength != null && curSelectedNote.length > 2 && curSelectedNote[2] != null)
+					{
+						var curVal:Float = stepperSusLength.value;
+						var targetVal:Float = curSelectedNote[2];
+						if (curVal == targetVal) stepperSusLength.value = targetVal + 0.001;
+						stepperSusLength.value = targetVal;
+					}} catch(e:Dynamic) {}
+					try { if (strumTimeInputText != null) strumTimeInputText.text = '' + curSelectedNote[0]; } catch(e:Dynamic) {}
+				}
+
+			case 'event':
+				// ★ 崩溃修复：普通 note 的 curSelectedNote[1] 是轨道号数字（非数组），
+				//   直接 [1][curEventSelected][1] 索引会对 Int 做动态访问 → 原生空指针 AV（try/catch 拦不住）
+				if (curSelectedNote != null && curSelectedNote.length > 1 && Std.is(curSelectedNote[1], Array))
+				{
+					var evArr3:Array<Dynamic> = cast curSelectedNote[1];
+					if (curEventSelected >= 0 && curEventSelected < evArr3.length)
+					{
+						var ev3:Dynamic = evArr3[curEventSelected];
+						if (Std.is(ev3, Array))
+						{
+							var evD3:Array<Dynamic> = cast ev3;
+							try { if (value1InputText != null && evD3.length > 1) value1InputText.text = evD3[1]; } catch(e:Dynamic) {}
+							try { if (value2InputText != null && evD3.length > 2) value2InputText.text = evD3[2]; } catch(e:Dynamic) {}
+						}
+					}
+				}
+
+			case 'charting':
+				// ★ 先读取：谱面菜单 checkbox 从存档刷新（openMenu 先调这里再 rebuildDropdown 渲染）
+				try { if (metronome != null) metronome.checked = (FlxG.save.data.chart_metronome == true); } catch(e:Dynamic) {}
+				try { if (disableAutoScrolling != null) disableAutoScrolling.checked = (FlxG.save.data.chart_noAutoScroll == true); } catch(e:Dynamic) {}
+				try { if (waveformUseInstrumental != null) waveformUseInstrumental.checked = (FlxG.save.data.chart_waveformInst == true); } catch(e:Dynamic) {}
+				try { if (waveformUseVoices != null) waveformUseVoices.checked = (FlxG.save.data.chart_waveformVoices == true); } catch(e:Dynamic) {}
+				try { if (waveformUseOppVoices != null) waveformUseOppVoices.checked = (FlxG.save.data.chart_waveformOppVoices == true); } catch(e:Dynamic) {}
+				try { if (check_vortex != null) check_vortex.checked = (FlxG.save.data.chart_vortex == true); } catch(e:Dynamic) {}
+				try { if (check_warnings != null) check_warnings.checked = (FlxG.save.data.ignoreWarnings == true); } catch(e:Dynamic) {}
+				try { if (playSoundBf != null) playSoundBf.checked = (FlxG.save.data.chart_playSoundBf == true); } catch(e:Dynamic) {}
+				try { if (playSoundDad != null) playSoundDad.checked = (FlxG.save.data.chart_playSoundDad == true); } catch(e:Dynamic) {}
+				// 静音类（mute_inst/main/opp）是运行时状态，由用户 toggle 实时生效，不在此刷新
+
+			case 'data':
+				try { if (gameOverCharacterInputText != null) gameOverCharacterInputText.text = _song.gameOverChar != null ? _song.gameOverChar : ''; } catch(e:Dynamic) {}
+				try { if (gameOverSoundInputText != null) gameOverSoundInputText.text = _song.gameOverSound != null ? _song.gameOverSound : ''; } catch(e:Dynamic) {}
+				try { if (gameOverLoopInputText != null) gameOverLoopInputText.text = _song.gameOverLoop != null ? _song.gameOverLoop : ''; } catch(e:Dynamic) {}
+				try { if (gameOverEndInputText != null) gameOverEndInputText.text = _song.gameOverEnd != null ? _song.gameOverEnd : ''; } catch(e:Dynamic) {}
+				// ★ 先读取：数据菜单 checkbox 从谱面数据刷新
+				try { if (check_disableNoteRGB != null) check_disableNoteRGB.checked = (_song.disableNoteRGB == true); } catch(e:Dynamic) {}
+		}
+	}
+
+	function loadEventsFromFile():Void
+	{
+		var songName = currentSongName;
+		var file:String = Paths.json(songName + '/events');
+		#if sys
+		if (#if MODS_ALLOWED FileSystem.exists(Paths.modsJson(songName + '/events')) || #end FileSystem.exists(file))
+		#else
+		if (Assets.exists(file))
+		#end
+		{
+			clearEvents();
+			var savedFmt = Song.detectedFormat;
+			var savedCE = Song.chartEngineVersion;
+			var events:SwagSong = Song.loadFromJson('events', songName);
+			Song.detectedFormat = savedFmt;
+			Song.chartEngineVersion = savedCE;
+			_song.events = events.events;
+			changeSection(curSec);
+		}
+	}
+
+	function loadFromAutosave():Void
+	{
+		PlayState.SONG = Song.parseJSON(FlxG.save.data.autosave);
+		if (PlayState.SONG == null) return;
+		_song = PlayState.SONG; // ★ 同步引用（autosave 是全新对象）
+		if (curSec >= _song.notes.length) curSec = _song.notes.length - 1;
+		if (curSec < 0) curSec = 0;
+		// ★ 全套刷新：角色/mania 可能都变了 → 颜色、头像、轨道数全部按新曲目数据重建
+		updateJsonData();
+		autoFixManiaFromData(); // autosave 若缺 mania 字段 → 按数据恢复
+		recalcKeyAmounts();
+		reloadGridLayer();
+		makeStrumNotes();
+		updateHeads();
+		changeSection(curSec);
+	}
+
+	function applyNoteSkinSelection():Void
+	{
+		// 把当前下拉选中的音符类型应用到谱面所有音符（原 apply_notes 是空壳）
+		if (_song.notes == null || curNoteTypes == null) return;
+		if (currentType < 0 || currentType >= curNoteTypes.length) return;
+		var typeStr:String = curNoteTypes[currentType];
+		pushUndo();
+		for (sec in 0..._song.notes.length)
+		{
+			for (note in _song.notes[sec].sectionNotes)
+			{
+				note[3] = typeStr;
+			}
+		}
+		updateGrid();
+	}
+
+	function copyCurrentSection():Void
+	{
+		if (curSec >= 0 && curSec < _song.notes.length)
+		{
+			// ★ 按「包含音符 / 包含事件」勾选状态过滤后再保存（作用于所有复制/粘贴）
+			var secCopy:Dynamic = haxe.Json.parse(haxe.Json.stringify(_song.notes[curSec]));
+			filterSectionByChecks(secCopy);
+			FlxG.save.data.copiedSection = haxe.Json.stringify(secCopy);
+			// ★ 记录复制时刻所在小节的时间起点，粘贴时用它计算偏移，
+			//   否则粘到别的小节时 note 时间不挪，全部堆在源小节的位置（谱面外）
+			FlxG.save.data.copiedSectionTime = sectionStartTime();
+		}
+	}
+
+	/** 按「包含音符 / 包含事件」勾选状态过滤小节数据（Psych 格式：事件行 [1] == -1）。
+	 *  就地修改传入的小节对象，返回同一对象。 */
+	function filterSectionByChecks(sec:Dynamic):Void
+	{
+		if (sec == null || sec.sectionNotes == null) return;
+		var includeNotes:Bool = (check_notesSec != null) ? check_notesSec.checked : true;
+		var includeEvents:Bool = (check_eventsSec != null) ? check_eventsSec.checked : true;
+		if (includeNotes && includeEvents) return; // 全选，无需过滤
+
+		var filtered:Array<Dynamic> = [];
+		for (note in (sec.sectionNotes:Array<Dynamic>))
+		{
+			if (note == null || !Std.is(note, Array)) continue;
+			var arrNote:Array<Dynamic> = cast note;
+			var isEventRow:Bool = (arrNote.length > 1 && arrNote[1] == -1);
+			if (isEventRow)
+			{
+				if (includeEvents) filtered.push(note);
+			}
+			else
+			{
+				if (includeNotes) filtered.push(note);
+			}
+		}
+		sec.sectionNotes = filtered;
+	}
+
+	/** ★ 把 parsed 小节的音符内容【追加】到当前小节（纯粘贴：不清除目标小节原有内容，
+	 *  也不改动小节属性 mustHitSection/gfSection）。复制/粘贴 = 叠加内容。 */
+	function appendSectionNotes(parsed:Dynamic):Void
+	{
+		if (parsed == null || _song.notes == null || curSec < 0 || curSec >= _song.notes.length) return;
+		if (parsed.sectionNotes == null) return;
+		var target:Array<Dynamic> = _song.notes[curSec].sectionNotes;
+		if (target == null) target = [];
+		for (n in (parsed.sectionNotes:Array<Dynamic>))
+		{
+			if (n != null && Std.is(n, Array)) target.push(n);
+		}
+		// 追加后按时间排序，保持渲染/选择稳定
+		target.sort(function(a:Array<Dynamic>, b:Array<Dynamic>):Int
+		{
+			var ta:Float = (a != null && a.length > 0 && a[0] != null) ? Std.parseFloat(Std.string(a[0])) : 0;
+			var tb:Float = (b != null && b.length > 0 && b[0] != null) ? Std.parseFloat(Std.string(b[0])) : 0;
+			return ta < tb ? -1 : (ta > tb ? 1 : 0);
+		});
+		_song.notes[curSec].sectionNotes = target;
+	}
+
+	/** ★ 重活（粘贴/撤销等全量重建）期间若音乐在播放先暂停，结束后恢复——
+	 *   大谱面重建会卡顿数百 ms，若不暂停，卡顿期间音乐时间照常前进，
+	 *   恢复后 strumline/视图会瞬间跳变（表现为"网格疯狂滚动"）。
+	 *   ★ 同时记录并强制恢复 music.time：防任何路径（如大谱面下耗时操作
+	 *   触发的 onComplete 等）把播放位置归零，粘贴到 100+ 小节后视图倒退到 0:00。 */
+	function withMusicPaused(fn:Void->Void):Void
+	{
+		var wasPlaying:Bool = (FlxG.sound.music != null && FlxG.sound.music.playing);
+		var savedTime:Float = (FlxG.sound.music != null) ? FlxG.sound.music.time : -1;
+		if (wasPlaying) FlxG.sound.music.pause();
+		try { fn(); } catch (e:Dynamic) {}
+		if (FlxG.sound.music != null)
+		{
+			if (savedTime >= 0) FlxG.sound.music.time = savedTime; // 兜底恢复播放位置
+			if (wasPlaying) FlxG.sound.music.resume();
+		}
+	}
+
+	function pasteToCurrentSection():Void
+	{
+		withMusicPaused(function()
+		{
+			var json:String = FlxG.save.data.copiedSection;
+			if (json != null && json.length > 0 && curSec >= 0 && curSec < _song.notes.length)
+			{
+				var parsed:Dynamic = haxe.Json.parse(json);
+				if (parsed != null)
+				{
+					pushUndo();
+					// ★ 粘贴时也按勾选状态过滤（覆盖旧存档里未过滤的复制数据）
+					filterSectionByChecks(parsed);
+					// ★ 把每个 note 的 strumTime 从「复制小节的时间原点」平移到「当前小节的时间原点」
+					var copiedTime:Float = FlxG.save.data.copiedSectionTime;
+					var offset:Float = sectionStartTime() - copiedTime;
+					if (parsed.sectionNotes != null)
+					{
+						for (note in (parsed.sectionNotes:Array<Dynamic>))
+						{
+							if (note != null && Std.is(note, Array) && note.length > 0 && note[0] != null)
+								note[0] = note[0] + offset;
+						}
+					}
+					appendSectionNotes(parsed); // ★ 纯粘贴：不清除目标原有内容、不改 mustHit/gf
+					updateGrid(false); // 只重绘当前小节（下一小节预览未变，跳过省一半重建开销）
+				}
+			}
+		});
+	}
+
+	function clearCurrentSection():Void
+	{
+		if (curSec >= 0 && curSec < _song.notes.length)
+		{
+			pushUndo();
+			var sec = _song.notes[curSec];
+			// ★ 清除语义（与旧版 Clear 按钮一致）：「包含音符/包含事件」勾选 = 该部分被清除；
+			//   注意与 filterSectionByChecks（复制/粘贴用，勾选 = 保留）语义相反，不能混用！
+			var includeNotes:Bool = (check_notesSec != null) ? check_notesSec.checked : true;
+			var includeEvents:Bool = (check_eventsSec != null) ? check_eventsSec.checked : true;
+
+			// 小节内 sectionNotes：清除勾选的部分（事件行 [1] == -1）
+			if (sec.sectionNotes != null)
+			{
+				var kept:Array<Dynamic> = [];
+				for (note in (sec.sectionNotes:Array<Dynamic>))
+				{
+					if (note == null || !Std.is(note, Array)) continue;
+					var arrNote:Array<Dynamic> = cast note;
+					var isEventRow:Bool = (arrNote.length > 1 && arrNote[1] == -1);
+					if (isEventRow)
+					{
+						if (!includeEvents) kept.push(note); // 未勾选「包含事件」→ 保留事件行
+					}
+					else
+					{
+						if (!includeNotes) kept.push(note); // 未勾选「包含音符」→ 保留音符
+					}
+				}
+				sec.sectionNotes = kept;
+			}
+
+			// 全局事件 _song.events：勾选「包含事件」时清除当前小节时间段内的事件（与旧版 Clear 一致）
+			if (includeEvents && _song.events != null)
+			{
+				var i:Int = _song.events.length - 1;
+				var startThing:Float = sectionStartTime();
+				var endThing:Float = sectionStartTime(1);
+				while (i > -1)
+				{
+					var event:Array<Dynamic> = _song.events[i];
+					if (event != null && endThing > event[0] && event[0] >= startThing)
+						_song.events.remove(event);
+					--i;
+				}
+			}
+			updateGrid();
+		}
+	}
+
+	/** 交换当前小节内玩家（BF）与对手（opp）的 NOTE：键位在两侧对调。
+	    ★ 注意：不翻转 mustHitSection——键位对调本身已让 BF 改接原 opp 的 note、
+	      opp 改接原 BF 的 note；再翻转 mustHit 会把归属又换回去，还误改了「玩家小节」设置。
+	      （角色头像位置由 mustHitSection 驱动，翻转会导致 bf/dad 位置互换） */
+	function swapSectionSides():Void
+	{
+		if (curSec >= 0 && curSec < _song.notes.length)
+		{
+			pushUndo();
+			var perSide:Int = _song.mania + 1;
+			var notes = _song.notes[curSec].sectionNotes;
+			for (note in notes)
+			{
+				if (note == null || !Std.is(note, Array)) continue;
+				var arrNote:Array<Dynamic> = cast note;
+				if (arrNote.length < 2 || arrNote[1] == null || !Std.is(arrNote[1], Int) && !Std.is(arrNote[1], Float)) continue;
+				// 玩家侧 0..mania ⇄ 对手侧 (mania+1)..(mania*2+1)
+				if (arrNote[1] < perSide) arrNote[1] += perSide;
+				else arrNote[1] -= perSide;
+			}
+			updateGrid();
+		}
+	}
+
+	function copyLastSectionToCurrent():Void
+	{
+		if (curSec > 0 && curSec < _song.notes.length)
+		{
+			withMusicPaused(function()
+			{
+				pushUndo();
+				var parsed:Dynamic = haxe.Json.parse(haxe.Json.stringify(_song.notes[curSec - 1]));
+				// ★ 按「包含音符 / 包含事件」勾选状态过滤
+				filterSectionByChecks(parsed);
+				// ★ 时间偏移：源小节(curSec-1)的 note 时间平移到当前小节，否则全部堆在源小节位置（谱面外）
+				applySectionTimeOffset(parsed, sectionStartTime() - sectionStartTime(-1));
+				appendSectionNotes(parsed); // ★ 纯粘贴：不清除目标原有内容、不改 mustHit/gf
+				updateGrid(false); // 只重绘当前小节
+			});
+		}
+	}
+
+	/** 复制节拍：以当前小节 curSec 为基准，偏移 offset（stepper 值，可正可负），
+	    把源小节 [curSec - offset] 复制覆盖到当前小节。offset=1 即原"复制上一小节"。 */
+	function copyBeat():Void
+	{
+		if (copyBeatStepper == null || _song.notes == null) return;
+		var offset:Int = Std.int(copyBeatStepper.value);
+		if (offset == 0)
+		{
+			trace('[charting] 复制节拍失败：偏移量为 0（复制自己没意义），请在 stepper 里输入非零值');
+			return;
+		}
+		var src:Int = curSec - offset;
+		if (src >= 0 && src < _song.notes.length && curSec >= 0 && curSec < _song.notes.length)
+		{
+			withMusicPaused(function()
+			{
+				pushUndo();
+				var parsed:Dynamic = haxe.Json.parse(haxe.Json.stringify(_song.notes[src]));
+				// ★ 按「包含音符 / 包含事件」勾选状态过滤
+				filterSectionByChecks(parsed);
+				// ★ 时间偏移：把源小节 src 的 note 时间平移到当前小节（sectionStartTime 的 add 是相对 curSec 的偏移）
+				applySectionTimeOffset(parsed, sectionStartTime() - sectionStartTime(src - curSec));
+				appendSectionNotes(parsed); // ★ 纯粘贴：不清除目标原有内容、不改 mustHit/gf
+				updateGrid(false); // 只重绘当前小节
+			});
+		}
+		else
+			trace('[charting] 复制节拍失败：源小节越界 src=$src（当前小节 curSec=$curSec）');
+	}
+
+	/** 把复制来的小节里每个 note 的 strumTime 整体平移 offset 毫秒。 */
+	function applySectionTimeOffset(sec:Dynamic, offset:Float):Void
+	{
+		if (sec == null || sec.sectionNotes == null || offset == 0) return;
+		for (note in (sec.sectionNotes:Array<Dynamic>))
+		{
+			if (note != null && Std.is(note, Array) && note.length > 0 && note[0] != null)
+				note[0] = note[0] + offset;
+		}
+	}
+
+	function duetCurrentSection():Void
+	{
+		if (curSec >= 0 && curSec < _song.notes.length)
+		{
+			pushUndo();
+			var perSide:Int = _song.mania + 1;
+			// ★ 二重奏 = 平衡两侧：谁多，就把多的那侧的每个音符复制一份给少的一侧，
+			//   让两边数量相等（BF 16 个 + opp 8 个 → 二重奏后两边各 16 个）。
+			//   只复制「多的一方」，少的一方保持不动。
+			var playerNotes:Array<Array<Dynamic>> = [];
+			var oppNotes:Array<Array<Dynamic>> = [];
+			for (note in _song.notes[curSec].sectionNotes)
+			{
+				// 防御：可能混入 null / 非数组 / 事件 note（[1] 是数组）
+				if (note == null || !Std.is(note, Array)) continue;
+				var arrNote:Array<Dynamic> = cast note;
+				if (arrNote.length < 2 || arrNote[1] == null || !Std.is(arrNote[1], Int) && !Std.is(arrNote[1], Float)) continue;
+				// 先收集到快照再处理，避免遍历的同时 push 导致重复处理
+				if (arrNote[1] < perSide) playerNotes.push(arrNote);
+				else oppNotes.push(arrNote);
+			}
+			if (playerNotes.length > oppNotes.length)
+			{
+				// 玩家侧多 → 把玩家侧的复制到对手侧（键位平移 perSide，恰好落在对手键位区间）
+				for (pn in playerNotes)
+				{
+					var newNote:Array<Dynamic> = pn.copy();
+					newNote[1] = newNote[1] + perSide;
+					_song.notes[curSec].sectionNotes.push(newNote);
+				}
+			}
+			else if (oppNotes.length > playerNotes.length)
+			{
+				// 对手侧多 → 把对手侧的复制到玩家侧
+				for (on in oppNotes)
+				{
+					var newNote:Array<Dynamic> = on.copy();
+					newNote[1] = newNote[1] - perSide;
+					_song.notes[curSec].sectionNotes.push(newNote);
+				}
+			}
+			// 两侧数量相等时无需操作（本来就已经平衡）
+			updateGrid();
+		}
+	}
+
+	function mirrorCurrentSection():Void
+	{
+		if (curSec >= 0 && curSec < _song.notes.length)
+		{
+			pushUndo();
+			var notes = _song.notes[curSec].sectionNotes;
+			var keysPerPlayer = _song.mania;
+			for (note in notes)
+			{
+				// ★ 同 duet：镜像操作的是键位 note[1]，跳过 null / 非数组 / 事件 note
+				if (note == null || !Std.is(note, Array)) continue;
+				var arrNote:Array<Dynamic> = cast note;
+				if (arrNote.length < 2 || arrNote[1] == null || !Std.is(arrNote[1], Int) && !Std.is(arrNote[1], Float)) continue;
+				arrNote[1] = (keysPerPlayer * 2 + 1) - arrNote[1];
+			}
+			updateGrid();
+		}
+	}
+
+	function addNewEventToCurrentSection():Void
+	{
+		// 在当前选中的音符上添加事件
+		// ★ 事件音符判定必须用 [1] 是否为数组：普通音符的 [1] 是轨道号（Int），
+		//   旧谱面普通音符的 [2]（susLength）也可能为 null，用 [2]==null 判断会把普通音符
+		//   误判成事件音符 → 对 Int 调 push → 空指针崩溃（ACCESS_VIOLATION read 0x0）。
+		if (curSelectedNote != null && Std.is(curSelectedNote[1], Array))
+		{
+			var eventsGroup:Array<Dynamic> = cast curSelectedNote[1];
+			if (eventsGroup == null) return;
+			eventsGroup.push(['', '', '']);
+			changeEventSelected(1);
+			updateGrid();
+		}
+	}
+
+	function deleteSelectedEvent():Void
+	{
+		// 删除当前选中的事件
+		if (curSelectedNote != null && Std.is(curSelectedNote[1], Array))
+		{
+			var eventsGroup:Array<Dynamic> = cast curSelectedNote[1];
+			if (eventsGroup == null || eventsGroup.length < 1) return;
+			if (curEventSelected >= 0 && curEventSelected < eventsGroup.length)
+			{
+				eventsGroup.remove(eventsGroup[curEventSelected]);
+				if (eventsGroup.length < 1)
+				{
+					// ★ 事件删空 → 顺带移除整个事件音符（与旧版「-」按钮行为一致，
+					//   否则网格里会留下一个空事件箭头，看起来像没删掉）
+					_song.events.remove(curSelectedNote);
+					curSelectedNote = null;
+					curEventSelected = 0;
+				}
+				else
+				{
+					if (curEventSelected >= eventsGroup.length)
+						curEventSelected = eventsGroup.length - 1;
+					if (curEventSelected < 0) curEventSelected = 0;
+				}
+				updateGrid();
+			}
+		}
+	}
+
+	function selectPrevEvent():Void
+	{
+		changeEventSelected(-1);
+	}
+
+	function selectNextEvent():Void
+	{
+		changeEventSelected(1);
+	}
+
+	function startPlaytest():Void
+	{
+		if (FlxG.sound.music != null)
+			FlxG.sound.music.stop();
+
+		if (vocals != null)
+		{
+			vocals.pause();
+			vocals.volume = 0;
+		}
+		if (opponentVocals != null)
+		{
+			opponentVocals.pause();
+			opponentVocals.volume = 0;
+		}
+
+		autosaveSong();
+		playtesting = true;
+		playtestingTime = Conductor.songPosition; // 试玩前位置（返回编辑器时恢复用）
+		playtestingOnComplete = FlxG.sound.music.onComplete;
+		// ★ 试玩从当前位置开始，但 EditorPlayState 内会先播放 3,2,1,GO 倒计时再开播
+		removeVirtualPad();
+		openSubState(new developer.editors.EditorPlayState(playbackSpeed));
+	}
+
+	/**
+	 * 以「正常游玩模式」进入 PlayState。
+	 * 对应原版的 ENTER，也对应新顶栏菜单 [测试] → 「以正常模式进行」。
+	 */
+	function startNormalPlay():Void
+	{
+		autosaveSong();
+		FlxG.mouse.visible = false;
+		PlayState.SONG = _song;
+		FlxG.sound.music.stop();
+		if (vocals != null)
+			vocals.stop();
+		if (opponentVocals != null)
+			opponentVocals.stop();
+
+		// if(_song.stage == null) _song.stage = stageDropDown.selectedLabel;
+		StageData.loadDirectory(_song);
+		LoadingState.loadAndSwitchState(new PlayState());
+	}
+
 	function clearEvents()
 	{
 		_song.events = [];
@@ -3715,14 +5106,19 @@ class ChartingState extends MusicBeatState
 
 		if ((data != null) && (data.length > 0))
 		{
+			// ★ 保存文件名自动带难度后缀：难度输入框填了 Fuck → 「歌曲名-Fuck.json」
+			var saveName:String = Paths.formatToSongPath(_song.song);
+			var diff:String = (difficultyInputText != null && difficultyInputText.text != null) ? StringTools.trim(difficultyInputText.text) : '';
+			if (diff.length > 0)
+				saveName += '-' + Paths.formatToSongPath(diff);
 			#if mobile
-			SUtil.saveContent(Paths.formatToSongPath(_song.song), ".json", data.trim());
+			SUtil.saveContent(saveName, ".json", data.trim());
 			#else
 			_file = new FileReference();
 			_file.addEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onSaveComplete);
 			_file.addEventListener(Event.CANCEL, onSaveCancel);
 			_file.addEventListener(IOErrorEvent.IO_ERROR, onSaveError);
-			_file.save(data.trim(), Paths.formatToSongPath(_song.song) + ".json");
+			_file.save(data.trim(), saveName + ".json");
 			#end
 		}
 	}
@@ -3803,21 +5199,26 @@ class ChartingState extends MusicBeatState
 		return val != null ? val : 4;
 	}
 
-	function shiftGridX(delta:Float):Void
-	{
-		gridOffsetX += delta;
-		var limit:Float = GRID_SIZE * totalKeys;
-		if (gridOffsetX > limit) gridOffsetX = limit;
-		if (gridOffsetX < -limit) gridOffsetX = -limit;
-	}
+	// ★ 网格左右平移（shiftGridX）已移除：谱面固定居中，gridOffsetX 恒为 0。
 
-	function updateKeyAmounts():Void
+	/** ★ 只按 _song.mania 重算键数，不移动任何音符数据。
+	 *   用于创建/载入/autosave/引擎切换等「数据与 mania 配套」的场景——
+	 *   绝不能走 updateKeyAmounts 的平移逻辑：它以旧 totalKeys 为基准平移数据，
+	 *   若字段默认 totalKeys=8 而谱面是非 4K，每次重建都会把已排好的数据二次平移错乱
+	 *   （典型症状：前 4K 正常、其余键全部跑到对方/越界）。 */
+	function recalcKeyAmounts():Void
 	{
-		var oldTotalKeys:Int = totalKeys;
 		leftKeys = _song.mania + 1;
 		rightKeys = _song.mania + 1;
 		totalKeys = leftKeys + rightKeys;
 		gridOffsetX = 0; // re-anchor to left edge when key count changes
+	}
+
+	/** 用户主动改变 mania 时：重算键数并把音符数据从旧布局平移到新布局（缩小会裁剪越界音符） */
+	function updateKeyAmounts():Void
+	{
+		var oldTotalKeys:Int = totalKeys;
+		recalcKeyAmounts();
 		
 		if (totalKeys < oldTotalKeys)
 		{
@@ -3828,13 +5229,19 @@ class ChartingState extends MusicBeatState
 				var i:Int = section.sectionNotes.length - 1;
 				while (i >= 0)
 				{
-					var nd:Int = section.sectionNotes[i][1];
+					var row:Dynamic = section.sectionNotes[i];
+					// 防御：事件行 [1] 是数组、或 lane 非 Int → 不参与平移
+					if (row == null || !Std.is(row, Array)) { i--; continue; }
+					var rowArr:Array<Dynamic> = cast row;
+					if (rowArr.length < 2 || rowArr[1] == null || Std.is(rowArr[1], Array)
+						|| (!Std.is(rowArr[1], Int) && !Std.is(rowArr[1], Float))) { i--; continue; }
+					var nd:Int = Std.int(rowArr[1]);
 					// Remove rightmost diff lanes from each side
 					if ((nd >= oldLeftKeys - diff && nd < oldLeftKeys) || nd >= oldTotalKeys - diff)
 						section.sectionNotes.remove(section.sectionNotes[i]);
 					// Shift remaining opponent notes left to fill the gap
 					else if (nd >= oldLeftKeys)
-						section.sectionNotes[i][1] = nd - diff;
+						rowArr[1] = nd - diff;
 					i--;
 				}
 			}
@@ -3848,16 +5255,67 @@ class ChartingState extends MusicBeatState
 			{
 				for (note in section.sectionNotes)
 				{
-					if (note[1] >= oldLeftKeys)
-						note[1] += diff;
+					if (note == null || !Std.is(note, Array)) continue;
+					var rowArr:Array<Dynamic> = cast note;
+					if (rowArr.length < 2 || rowArr[1] == null || Std.is(rowArr[1], Array)
+						|| (!Std.is(rowArr[1], Int) && !Std.is(rowArr[1], Float))) continue;
+					if (Std.int(rowArr[1]) >= oldLeftKeys)
+						rowArr[1] = Std.int(rowArr[1]) + diff;
 				}
 			}
 		}
 	}
 
+	/** ★ 数据驱动的键数自检：谱面 json 缺 mania 字段时解析会默认 3（4K），
+	 *   若音符数据实际占了更高的 lane（非 4K 谱），按数据提升 mania（只升不降），
+	 *   避免"前 4K 正常、其余 key 全部判定到对方"的错位。数据本身按 lane 排布，无需平移。 */
+	function autoFixManiaFromData():Void
+	{
+		if (_song == null || _song.notes == null) return;
+		var maxLane:Int = -1;
+		for (sec in _song.notes)
+		{
+			if (sec == null || sec.sectionNotes == null) continue;
+			for (n in (sec.sectionNotes:Array<Dynamic>))
+			{
+				if (n == null || !Std.is(n, Array)) continue;
+				var arr:Array<Dynamic> = cast n;
+				if (arr.length < 2 || arr[1] == null) continue;
+				// 事件行 [1] 是数组；普通音符 lane 是非负 Int
+				if (Std.is(arr[1], Array)) continue;
+				if (!Std.is(arr[1], Int) && !Std.is(arr[1], Float)) continue;
+				var lane:Int = Std.int(arr[1]);
+				if (lane >= 0 && lane > maxLane) maxLane = lane;
+			}
+		}
+		if (maxLane < 0) return;
+		// 需要每侧 needKeys 键才装得下 maxLane（lane 0..needKeys-1 玩家侧、needKeys.. 对手侧）
+		var needKeys:Int = Std.int(maxLane / 2) + 1;
+		var needMania:Int = needKeys - 1;
+		if (needMania > _song.mania)
+		{
+			trace('[charting] mania 自检：数据最大 lane=$maxLane，当前 ${_song.mania + 1}K 装不下 → 提升为 ${needMania + 1}K');
+			_song.mania = needMania;
+		}
+	}
+
+	/** ExtraKeys 实际支持的键数上限：优先 keys 配置表长度（extrakeys.json 的 maxKeys=9
+	 *  是过期值——keys 表有 10 项、实际支持 10K），其次 maxKeys 字段，最后兜底 10 */
+	function extraMaxKeys():Int
+	{
+		var ek = ExtraKeysHandler.instance;
+		if (ek != null && ek.data != null)
+		{
+			if (ek.data.keys != null && ek.data.keys.length > 0) return ek.data.keys.length;
+			if (ek.data.maxKeys > 0) return ek.data.maxKeys;
+		}
+		return 10;
+	}
+
 	function makeStrumNotes():Void
 	{
 		strumLineNotes.clear();
+		var gx:Float = getGridX();
 		
 		for (i in 0...totalKeys)
 		{
@@ -3865,7 +5323,7 @@ class ChartingState extends MusicBeatState
 			var player:Int = i < leftKeys ? 1 : 0;
 			var noteData:Int = i < leftKeys ? i : i - leftKeys;
 			
-			note = new StrumNote(GRID_SIZE * (i + 1), strumLine.y, noteData, player);
+			note = new StrumNote(gx + GRID_SIZE * (i + 1), strumLine.y, noteData, player);
 			note.setGraphicSize(GRID_SIZE, GRID_SIZE);
 			note.updateHitbox();
 			note.playAnim('static', true);
@@ -3876,22 +5334,28 @@ class ChartingState extends MusicBeatState
 		if (strumLine != null)
 		{
 			strumLine.makeGraphic(Std.int(GRID_SIZE * (totalKeys + 1)), 4);
-			strumLine.x = 0;
+			strumLine.x = gx;
 		}
 
 		if (eventIcon != null)
 		{
-			eventIcon.x = -GRID_SIZE - 5;
+			eventIcon.x = gx - GRID_SIZE - 5;
 		}
 		
-		if (leftIcon != null)
-		{
-			leftIcon.setPosition(GRID_SIZE * (leftKeys + 1) / 2 - leftIcon.width / 2 + GRID_SIZE / 2, -100);
-		}
-		if (rightIcon != null)
-		{
-			rightIcon.setPosition(GRID_SIZE * (3 * leftKeys + 1) / 2 - rightIcon.width / 2 + GRID_SIZE / 2, -100);
-		}
+		positionSideIcons();
+	}
+
+	/** ★ 两个角色头像重新水平居中到各自一侧的 note 轨道组正上方（y 固定 -100 锚点）。
+	 *  网格几何变化（mania 键数 / 水平居中偏移）或头像换图（宽度变化）后都必须调用，
+	 *  否则头像停在旧位置，与轨道列错位。 */
+	function positionSideIcons():Void
+	{
+		if (leftIcon == null || rightIcon == null) return;
+		var gx:Float = getGridX();
+		// 左组轨道列 x 跨度 [gx+GRID, gx+GRID*(leftKeys+1)] → 中心 = gx + GRID*(leftKeys+2)/2
+		leftIcon.setPosition(gx + GRID_SIZE * (leftKeys + 2) / 2 - leftIcon.width / 2, -100);
+		// 右组轨道列 x 跨度 [gx+GRID*(leftKeys+1), gx+GRID*(totalKeys+1)] → 中心 = gx + GRID*(leftKeys+totalKeys+2)/2
+		rightIcon.setPosition(gx + GRID_SIZE * (leftKeys + totalKeys + 2) / 2 - rightIcon.width / 2, -100);
 	}
 
 }

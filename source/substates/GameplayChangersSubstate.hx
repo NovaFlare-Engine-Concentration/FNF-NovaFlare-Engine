@@ -15,10 +15,10 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 
 	function getOptions()
 	{
-		var goption:GameplayOption = new GameplayOption('Scroll Type', 'scrolltype', 'string', 'multiplicative', ["multiplicative", "constant"]);
+		var goption:GameplayOption = new GameplayOption(Language.get('scrollType', 'gameplay'), 'scrolltype', 'string', 'multiplicative', ["multiplicative", "constant"]);
 		optionsArray.push(goption);
 
-		var option:GameplayOption = new GameplayOption('Scroll Speed', 'scrollspeed', 'float', 1);
+		var option:GameplayOption = new GameplayOption(Language.get('scrollSpeed', 'gameplay'), 'scrollspeed', 'float', 1);
 		option.scrollSpeed = 2.0;
 		option.minValue = 0.35;
 		option.changeValue = 0.05;
@@ -36,7 +36,7 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		optionsArray.push(option);
 
 		#if FLX_PITCH
-		var option:GameplayOption = new GameplayOption('Playback Rate', 'songspeed', 'float', 1);
+		var option:GameplayOption = new GameplayOption(Language.get('playbackRate', 'gameplay'), 'songspeed', 'float', 1);
 		option.scrollSpeed = 1;
 		option.minValue = 0.5;
 		option.maxValue = 3.0;
@@ -46,7 +46,7 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		optionsArray.push(option);
 		#end
 
-		var option:GameplayOption = new GameplayOption('Health Gain Multiplier', 'healthgain', 'float', 1);
+		var option:GameplayOption = new GameplayOption(Language.get('healthGain', 'gameplay'), 'healthgain', 'float', 1);
 		option.scrollSpeed = 2.5;
 		option.minValue = 0;
 		option.maxValue = 5;
@@ -54,7 +54,7 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		option.displayFormat = '%vX';
 		optionsArray.push(option);
 
-		var option:GameplayOption = new GameplayOption('Health Loss Multiplier', 'healthloss', 'float', 1);
+		var option:GameplayOption = new GameplayOption(Language.get('healthLoss', 'gameplay'), 'healthloss', 'float', 1);
 		option.scrollSpeed = 2.5;
 		option.minValue = 0.5;
 		option.maxValue = 5;
@@ -62,9 +62,9 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		option.displayFormat = '%vX';
 		optionsArray.push(option);
 
-		optionsArray.push(new GameplayOption('Instakill on Miss', 'instakill', 'bool', false));
-		optionsArray.push(new GameplayOption('Practice Mode', 'practice', 'bool', false));
-		optionsArray.push(new GameplayOption('Botplay', 'botplay', 'bool', false));
+		optionsArray.push(new GameplayOption(Language.get('instakill', 'gameplay'), 'instakill', 'bool', false));
+		optionsArray.push(new GameplayOption(Language.get('practice', 'gameplay'), 'practice', 'bool', false));
+		optionsArray.push(new GameplayOption(Language.get('botplay', 'gameplay'), 'botplay', 'bool', false));
 	}
 
 	public function getOptionByName(name:String)
@@ -104,6 +104,7 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 			optionText.isMenuItem = true;
 			optionText.setScale(0.8);
 			optionText.targetY = i;
+			optionText.distancePerItem.y = 60;
 			grpOptions.add(optionText);
 
 			if (optionsArray[i].type == 'bool')
@@ -343,6 +344,8 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		var val:Dynamic = option.getValue();
 		if (option.type == 'percent')
 			val *= 100;
+		if (option.type == 'string')
+			val = Language.get(val, 'gameplay');
 		var def:Dynamic = option.defaultValue;
 		option.text = text.replace('%v', val).replace('%d', def);
 	}

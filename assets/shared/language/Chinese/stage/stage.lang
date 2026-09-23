@@ -1,0 +1,133 @@
+# ===== 舞台编辑器顶栏菜单（Adobe 风格）=====
+# ===== 菜单标题 =====
+menu_stage => 舞台
+menu_object => 对象
+menu_camera => 相机
+menu_view => 视图
+menu_file => 文件
+menu_help => 帮助
+
+# ===== 状态栏 =====
+status_stage => 舞台:
+status_directory => 目录:
+status_object => 对象:
+status_pos => 坐标:
+status_zoom => 缩放:
+
+# ===== 项：舞台菜单 =====
+item_stage_select => 舞台
+item_reload_stage => 重新加载舞台
+item_load_template => 加载模板
+item_directory => 资源目录
+item_hide_gf => 隐藏女友
+item_default_zoom => 默认缩放
+item_cam_speed => 相机速度
+label_stage_select => 舞台:
+label_directory => 资源目录:
+label_default_zoom => 默认缩放:
+label_cam_speed => 相机速度:
+desc_stage_select => 选择要编辑的舞台。切换舞台会重建编辑器（稳定优先）。
+desc_reload_stage => 从磁盘重新加载当前舞台的 JSON 与背景。
+desc_load_template => 用空白模板替换当前舞台数据。
+desc_directory => 该舞台的资源目录（如 week1 / week4），决定图片从哪个周目录加载。
+desc_hide_gf => 在舞台上隐藏女友角色。
+desc_default_zoom => 舞台的默认相机缩放值。
+desc_cam_speed => 相机跟随速度倍率。
+
+# ===== 项：对象菜单 =====
+label_obj_name => 名称:
+label_obj_type => 类型:
+label_obj_image => 图片:
+label_obj_pos => 坐标:
+label_obj_scale => 缩放:
+label_obj_alpha => 透明度:
+label_obj_angle => 角度:
+item_obj_new_sprite => 新建精灵（图片）
+item_obj_new_animated => 新建动画精灵
+item_obj_new_square => 新建纯色方块
+item_obj_delete => 删除对象
+item_obj_duplicate => 复制对象
+item_obj_anim => 打开动画编辑器
+item_obj_move_up => 上移一层
+item_obj_move_down => 下移一层
+desc_obj_name => 当前选中对象的名称（供 Lua/HScript 引用）。
+desc_obj_type => 当前选中对象的类型（sprite / animatedSprite / square / 角色）。
+desc_obj_image => 当前选中对象使用的图片资源名。
+desc_obj_pos => 当前选中对象的 X / Y 坐标。
+desc_obj_scale => 当前选中对象的 X / Y 缩放。
+desc_obj_alpha => 当前选中对象的透明度（0% - 100%）。
+desc_obj_angle => 当前选中对象的旋转角度。
+desc_obj_new_sprite => 从 images/ 目录选择一张图片创建普通精灵。
+desc_obj_new_animated => 从 images/ 目录选择带 XML/JSON/TXT 动画文件的精灵。
+desc_obj_new_square => 创建一个 200x200 的纯色方块。
+desc_obj_delete => 删除当前选中的背景对象（角色不可删除）。
+desc_obj_duplicate => 复制当前选中的对象并插入到列表。
+desc_obj_anim => 打开动画编辑子状态，编辑动画帧/偏移。
+desc_obj_move_up => 将选中对象在渲染层级中上移一层。
+desc_obj_move_down => 将选中对象在渲染层级中下移一层。
+item_show_bf => 显示玩家 (BF)
+item_show_dad => 显示对手 (Opp)
+item_show_gf => 显示女友 (GF)
+desc_show_bf => 显示或隐藏玩家角色（Boyfriend）。
+desc_show_dad => 显示或隐藏对手角色（Opponent）。
+desc_show_gf => 显示或隐藏女友角色（Girlfriend，同步 Hide Girlfriend 数据）。
+desc_obj_list_item => 点击选中该对象（与 W/S 选择同步）。
+
+# ===== 项：相机菜单 =====
+label_cam_zoom => 缩放:
+label_cam_target => 目标:
+label_cam_bf_x => 玩家 X:
+label_cam_bf_y => 玩家 Y:
+label_cam_dad_x => 对手 X:
+label_cam_dad_y => 对手 Y:
+label_cam_gf_x => 女友 X:
+label_cam_gf_y => 女友 Y:
+desc_cam_zoom => 当前相机缩放值（编辑时实时生效）。
+desc_cam_target => 相机跟随目标（玩家 / 对手 / 女友）。
+desc_cam_offset => 相机聚焦该角色时的偏移量。
+
+# ===== 项：视图菜单 =====
+item_low_quality => 显示低质量精灵
+item_high_quality => 显示高质量精灵
+item_toggle_help => 显示/隐藏帮助
+item_focus_bf => 聚焦玩家
+item_focus_dad => 聚焦对手
+item_focus_gf => 聚焦女友
+desc_low_quality => 是否显示标记为低质量的背景精灵。
+desc_high_quality => 是否显示标记为高质量的背景精灵。
+desc_toggle_help => 显示或隐藏快捷键帮助浮层。
+desc_focus_bf => 相机移动到玩家角色。
+desc_focus_dad => 相机移动到对手角色。
+desc_focus_gf => 相机移动到女友角色。
+
+# ===== 项：文件菜单 =====
+item_save => 保存
+desc_save => 保存当前舞台 JSON（含对象与相机数据）到文件。
+
+# ===== 帮助菜单 =====
+item_tutorial => 新手教程
+desc_tutorial => 打开新手教程：舞台背景设置、导入素材、保存等基础操作指南。
+help_camera => 导航操作
+help_cam_zoom => Q / E - 缩小 / 放大
+help_cam_move => J / K / L / I - 移动相机
+help_cam_reset => R - 重置缩放
+desc_help_camera => 相机导航：Q/E 缩放，J/K/L/I 移动，R 重置。
+desc_help_cam_zoom => Q / E - 缩小 / 放大相机。
+desc_help_cam_move => J / K / L / I - 移动相机。
+desc_help_cam_reset => R - 重置相机缩放为舞台默认值。
+help_obj => 对象操作
+help_obj_move => 方向键 - 移动选中对象
+help_obj_sel => W / S - 切换选中对象
+help_obj_scale => Shift - 4 倍速移动
+desc_help_obj => 对象编辑：方向键移动，W/S 切换选择。
+desc_help_obj_move => 方向键 - 以 5px 步长移动选中的对象。
+desc_help_obj_sel => W / S - 在对象列表中切换选择。
+desc_help_obj_scale => 按住 Shift - 移动步长变为 4 倍。
+help_other => 其他
+help_other_shift => Shift - 加速
+help_other_help => F7 - 帮助
+help_other_exit => Esc - 返回主菜单
+desc_help_other => 其他常用操作。
+desc_help_other_shift => 按住 Shift - 相机/对象移动加速。
+desc_help_other_help => F7 - 显示或隐藏帮助。
+desc_help_other_exit => Esc - 退出编辑器返回主菜单。

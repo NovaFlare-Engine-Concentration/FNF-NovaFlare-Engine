@@ -1,0 +1,41 @@
+GamePlay => 🎮
+
+downScroll => 箭头下滚
+middleScroll => 箭头居中
+flipChart => 铺面翻转
+ghostTapping => 无键误触不算Miss
+guitarHeroSustains => 长键断连不可续
+noReset => R键直接死亡
+showKeybinds => 显示键位
+
+
+Opponent => 对手设置
+
+playOpponent => 游玩对方铺面
+opponentCodeFix => 判定函数交换
+botOpponentFix => 模拟对手
+healthDrainOPPO => 对手推条
+healthDrainOPPOMult => 对手推条系数
+
+
+judgement => 判定设置
+
+safeFrames => 判定宽容帧数
+marvelousWindow => Marvelous区间
+sickWindow => Sick区间
+goodWindow => Good区间
+badWindow => Bad区间
+marvelousRating => 扩大Marvelous判定
+marvelousSprite => 启用Marvelous贴图
+ratingOffset => 判定偏移
+NoteOffsetState => 音画偏移
+
+
+Gameplaybackend => 游戏后端设置
+
+gameplayGC => GameplayGC 接管
+fixLNL => 缩短长键
+saveScoreBase => 回放记录保存基础
+replayQuality => 回放画质
+showReplayWatermark => 显示回放水印
+gameOverVibration => 死亡振动

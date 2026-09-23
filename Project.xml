@@ -2,7 +2,19 @@
 <project>
 	<!-- _________________________ Application Settings _________________________ -->
 
-	<app title="NovaFlare Engine" file="NovaFlare Engine" packageName="com.NovaFlareEngineNew" package="com.NovaFlareEngineNew" main="Main" version="1.2.1-Hotfix" build-number="35260811" company="NF crew" />
+	<!-- build-number 会作为 Android 的 versionCode（见 lime 的 AndroidManifest 模板
+	     android:versionCode="::APP_BUILD_NUMBER::"），Android 只按这个整数判断版本高低，
+	     与 version 字符串无关。编号规则（见 .github/workflows/release.yml）：
+	         build-number = <数据版本号去掉小数点> + <构建日期 YYMMDD>
+	     ★ 注意：仓库 tag 里的值不一定等于官方实际发布包的值，必须 aapt 实测 APK：
+	         官方 V1.2.1         实测 versionCode = 29260804  (数据版本 2.9 + 260804)
+	         官方 V1.2.1-Hotfix  实测 versionCode = 33260811  (数据版本 3.3 + 260811)
+	         用户 1.2.1hf 包      实测 versionCode = 35260811  (数据版本 3.5 + 260811) ← 真正的对手（2026-09-21 从手机 aapt 实测）
+	         本 1.2.2 旧包        实测 versionCode = 29260805  (被 Android 判定为降级)
+	     1.2.2 修改版包含 Hotfix 的全部修复，必须严格大于 35260811，故取数据版本 3.5 + 260921 (35260921)。
+	     以后改动这里时，请先用 aapt 实测官方最新发布包的 versionCode 再定值，
+	     否则 Android 会拒绝覆盖安装（弹「降级安装」提示）。 -->
+	<app title="NovaFlare Engine" file="NovaFlare Engine" packageName="com.NovaFlareEngineNew" package="com.NovaFlareEngineNew" main="Main" version="1.2.2" build-number="35260921" company="NF crew" />
 	<!--Switch Export with Unique ApplicationID and Icon-->
 	<set name="APP_ID" value="0x0100f6c013bbc000" />
 	
@@ -67,7 +79,16 @@
 	<!-- ____________________________ Window Settings ___________________________ -->
 
 	<!--These window settings apply to all targets-->
-	<window width="1280" height="720" fps="60" background="#000000" hardware="true" vsync="false" allow-shaders="true" antialiasing="0" allowHighDPI="false" preserveDrawingBuffer="false" />
+	<!-- 【实验】窗口创建尺寸决定 OpenFL 的舞台逻辑尺寸：
+	     `Stage.__setLogicalSize()` 只在窗口创建时被调用一次
+	     (openfl/display/Window.hx:65)，之后 stage/后缓冲就固定在这个尺寸，
+	     窗口再被铺满到 1920 也只会把画面整体拉伸放大。
+	     所以 -Dnativeres 构建直接用屏幕原生分辨率创建窗口。 -->
+	<set name="NF_WIN_W" value="1280" unless="nativeres" />
+	<set name="NF_WIN_H" value="720" unless="nativeres" />
+	<set name="NF_WIN_W" value="1920" if="nativeres" />
+	<set name="NF_WIN_H" value="1080" if="nativeres" />
+	<window width="${NF_WIN_W}" height="${NF_WIN_H}" fps="60" background="#000000" hardware="true" vsync="false" allow-shaders="true" antialiasing="0" allowHighDPI="false" preserveDrawingBuffer="false" />
 
 	<!--HTML5-specific-->
 	<window if="html5" resizable="true" />
@@ -99,6 +120,8 @@
 	<classpath name="source" />
 	<classpath name="source-originFunkin" />
 	<classpath name="source-codename" if="CODENAME_ENGINE_COMPAT" />
+	<!-- 移动端专用：桌面文件对话框 API 的桩实现（source 内独立 classpath，避免与 openfl 冲突） -->
+	<classpath path="source/mobile-shim" if="mobile" />
 	<haxeflag name="--macro" value="codename.funkin.backend.system.macros.Macros.initMacros()" if="CODENAME_ENGINE_COMPAT"/>
 
 	<!-- __________________________ Game Assets & Etc. __________________________ -->
@@ -235,6 +258,44 @@
 	     native build, forcing one unchanged C++ unit to recompile. -->
 	<haxedef name="lime_disable_assets_version" if="windows" />
 
+	<!-- ___________________ 崩溃符号化（可选，-D crash_symbols） ___________________ -->
+
+	<!-- 默认关闭：加上 -D crash_symbols 后会输出 .map / .pdb，并让链接器写入调试目录。
+	     为什么需要它：引擎自带的 crash 报告只给 fault_module_rva（模块内偏移），
+	     而默认构建的 exe 里 **Debug Directories 段是空的**（没有 /DEBUG），
+	     既没有 PDB 引用也没有 .map，拿到 RVA 也查不出是哪个函数 —— 2026-09-22
+	     那两次崩溃（RVA 0x1307bbf / 0x195eeb1）就是因此只能靠代码推断。
+	     开了这个开关以后，RVA 直接用 _dsh_tools/map_rva.ps1 就能查到函数名。
+	     用法：haxelib run lime build windows -D crash_symbols
+	     （代价：exe 与构建目录变大、链接更慢，所以不默认开。） -->
+	<haxedef name="HXCPP_MAP_FILE" value="NovaFlare.map" if="crash_symbols" />
+	<haxedef name="HXCPP_PDB_FILE" value="NovaFlare.pdb" if="crash_symbols" />
+
+	<!-- ___________________ 中文 / 非 ASCII 路径兼容 (Windows) ___________________ -->
+
+	<!-- 构建完成后把 windows/NovaFlare.manifest 写进 exe 的 RT_MANIFEST 资源。
+	     清单里的 activeCodePage=UTF-8（Win10 1903+）把整个进程的 ANSI 代码页改成
+	     UTF-8，让 CRT 的 fopen/unlink/stat、Win32 *A 系列，以及 LuaJIT / libVLC /
+	     zlib / hxcpp 插件加载（Sys.loadLibrary）等一切窄字符文件 API 都与
+	     hxcpp 的 UTF-8 字符串对齐 —— 这是「mods/中文模组/xxx」这类路径能正确
+	     加载的根治手段，无需逐个打补丁，也覆盖了改不动的第三方 DLL。
+
+	     为什么不用 hxcpp 的 `manifestFile` define：hxcpp 确实支持它，但本项目
+	     链接的 .haxelib/hxcpp（被本地改造过的构建工具副本）丢掉了 <outPre> /
+	     <outPost> 两个分支，导致 mt.exe 拿不到 -outputresource: 而以
+	     c10100a8 中断构建。放到 postbuild 里既在版本控制内，也不依赖 hxcpp 内部实现。
+
+	     该步骤是「尽力而为」：找不到 exe（非 Windows target）就静默跳过；
+	     找不到 mt.exe 只告警、不中断构建（但会明确提示中文路径可能失效）。
+	     脚本刻意只用 ASCII 注释：PowerShell 5.1 会按 ANSI 代码页解码无 BOM 的脚本。 -->
+	<postbuild cmd="powershell" if="windows" unless="winrt">
+		<arg>-NoProfile</arg>
+		<arg>-ExecutionPolicy</arg>
+		<arg>Bypass</arg>
+		<arg>-File</arg>
+		<arg>tools/embed_utf8_manifest.ps1</arg>
+	</postbuild>
+
 	<!-- _______________________________ TRACY ______________________________ -->
 
 	<haxedef name="HXCPP_TRACY" if="TRACY_ALLOWED"/>
@@ -285,8 +346,6 @@
 	<haxedef name='no-inline' if="html5"/>
 
 	<section if="cpp">
-		<!-- These checks add work to nearly every generated call and preserve
-		     large stacks/string tables. Keep them in debug builds only. -->
 		<!-- The project no longer requests per-line HXCPP stack maintenance. Normal
 		     Release builds keep it off; stock hxcpp may still enable it internally
 		     for an explicit -debug build. HScript/Lua hot contexts instead use
@@ -345,6 +404,11 @@
 		<icon path="art/iconOG.png" size='96'/>
 		<icon path="art/iconOG.png" size='144'/>
 		<icon path="art/iconOG.png" size='192'/>
+	</section>
+	<section if="mobile">
+    	<icon path="art/icon16.png" size='16'/>
+    	<icon path="art/icon32.png" size='32'/>
+    	<icon path="art/icon64.png" size='64'/>
     	<icon path="art/iconOG.png"/>
     </section>
     <section if="desktop">

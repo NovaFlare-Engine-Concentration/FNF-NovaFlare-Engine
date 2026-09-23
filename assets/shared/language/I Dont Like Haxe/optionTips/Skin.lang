@@ -1,0 +1,17 @@
+Skin => 皮肤设置
+
+Note => 箭头皮肤设置
+
+noteSkin => 箭头类型
+noteRGB => 启用箭头着色器
+NotesSubState =>箭头颜色设置
+noteColorSwap => 使用旧版 Psych 的 HSV 着色方式调整箭头颜色
+NotesSubStateLegacy => 打开旧版 HSV 箭头颜色设置
+
+
+Splash => 溅射皮肤设置
+
+showSplash => 喷溅显示
+splashSkin => 喷溅类型
+splashRGB => 启用喷溅着色器
+splashAlpha => 喷溅透明度

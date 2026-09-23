@@ -1,0 +1,18 @@
+Skin => 皮肤设置
+
+
+Note => 箭头皮肤
+
+noteSkin => 类型
+noteRGB => 着色器
+noteColorSwap => 旧版着色器
+NotesSubState => 颜色设置
+NotesSubStateLegacy => 旧版颜色设置
+
+
+Splash => 溅射皮肤
+
+showSplash => 显示
+splashSkin => 类型
+splashRGB => 着色器
+splashAlpha => 透明度

@@ -131,14 +131,14 @@ class NoteOffsetState extends MusicBeatState
 		add(beatText);
 
 		timeTxt = new FlxText(0, 600, FlxG.width, "", 32);
-		timeTxt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		timeTxt.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		timeTxt.scrollFactor.set();
 		timeTxt.borderSize = 2;
 		timeTxt.visible = false;
 		timeTxt.cameras = [camHUD];
 
 		tipsTxt = new FlxText(0, 640, FlxG.width, "Press SPACE to get suggest offset\nmore times press more data accurate\nsuggest offset: 0 MS", 20);
-		tipsTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		tipsTxt.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 20, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		tipsTxt.scrollFactor.set();
 		tipsTxt.borderSize = 2;
 		tipsTxt.visible = false;
@@ -167,7 +167,7 @@ class NoteOffsetState extends MusicBeatState
 		add(blackBox);
 
 		changeModeText = new FlxText(0, 4, FlxG.width, "", 32);
-		changeModeText.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER);
+		changeModeText.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 32, FlxColor.WHITE, CENTER);
 		changeModeText.scrollFactor.set();
 		changeModeText.cameras = [camHUD];
 		add(changeModeText);
@@ -553,7 +553,7 @@ class NoteOffsetState extends MusicBeatState
 		for (i in 0...6)
 		{
 			var text:FlxText = new FlxText(10, 48 + (i * 30), 0, '', 24);
-			text.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+			text.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 24, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 			text.scrollFactor.set();
 			text.borderSize = 2;
 			dumbTexts.add(text);

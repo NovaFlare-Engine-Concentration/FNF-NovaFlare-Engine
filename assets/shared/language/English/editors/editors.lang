@@ -1,0 +1,21 @@
+# ===== 编辑器主菜单（主菜单按 7 进入） =====
+chartEditor => Chart Editor
+characterEditor => Character Editor
+stageEditor => Stage Editor
+weekEditor => Week Editor
+menuCharEditor => Menu Character Editor
+dialogueEditor => Dialogue Editor
+dialoguePortraitEditor => Dialogue Portrait Editor
+noteSplashDebug => Note Splash Debug
+
+# ===== Mod 目录提示（底部状态条） =====
+noModDirectory => < No Mod Directory Loaded >
+loadedModDirectory => < Loaded Mod Directory:
+
+# ===== Shared confirmation popup (per-editor groups may override these keys) =====
+confirm_unsaved_title => Unsaved changes
+confirm_unsaved_message => This editor has unsaved changes. They will be lost if you leave now. Discard them and exit?
+confirm_btn_confirm => Discard & Exit
+confirm_btn_cancel => Cancel
+confirm_hint => Enter / Y confirm  |  Esc cancel
+confirm_hint_touch => Tap a button to choose

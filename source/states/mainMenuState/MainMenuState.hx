@@ -38,8 +38,16 @@ import cpp.Lib;
 class MainMenuState extends MusicBeatState
 {
 	public static var psychEngineVersion:String = '0.7.3'; // This is also used for Discord RPC
-	public static var novaFlareEngineDataVersion:Float = 3.5;
-	public static var novaFlareEngineVersion:String = '1.2.1-Hotfix';
+	// 数据版本：与仓库根 gitVersion.txt 的第 2 行一一对应，InitState 用它做更新检查
+	// （onlineData > localData 即提示更新），同时也是 build-number 的前缀来源
+	// （见 Project.xml：build-number = 数据版本去点 + 构建日期）。
+	// 注意官方各版本实测值：V1.2.1 = 2.9，而 V1.2.1-Hotfix 的**发布包**用的是 3.3
+	// （tag 里写的 3.0 并不是发布包实际值）。本 1.2.2 已包含 Hotfix 的全部数据/资源
+	// 改动，故取 3.4 —— 让它同时满足两个目的：既在 Hotfix 发布包之上（versionCode
+	// 34260921 > 33260811，不会被 Android 判为降级），也让仍在旧数据版本的用户
+	// 能正确收到更新提示。改这里必须同步改 gitVersion.txt 第 2 行。
+	public static var novaFlareEngineDataVersion:Float = 3.4;
+	public static var novaFlareEngineVersion:String = '1.2.2';
 	public static var novaFlareEngineCommit:String = 
 	    #if commit_sha
             haxe.macro.Compiler.getDefine("commit_sha");
@@ -597,8 +605,16 @@ class MainMenuState extends MusicBeatState
 						{
 							FlxG.sound.playMusic(Paths.music('Options Screen/' + ClientPrefs.data.optionMusic), 0);
 						}
+						// ★ 显式声明「本次是从主菜单进来的」。
+						//   stateType 是 static，只有走完 OptionsState.backMenu() 才会归零；
+						//   上一次若来自暂停菜单(2)/自由模式(1)且没走正常退出路径
+						//   （比如从设置里点了「音画偏移」跳去 NoteOffsetState 就没回来），
+						//   残留值会让这次退出直接跳进 PlayState —— 而 PlayState.SONG 还留着
+						//   上次的曲目（见下面那段清 arrowSkin/splashSkin 的代码），
+						//   于是表现成「从设置退出后进了 test 曲目」，且只在残留时复现 = 偶发。
+						//   这行原来是被注释掉的旧标记 `OptionsState.onPlayState = false;`
+						OptionsState.stateType = 0;
 						MusicBeatState.switchState(new OptionsState());
-						// OptionsState.onPlayState = false;
 						if (PlayState.SONG != null)
 						{
 							PlayState.SONG.arrowSkin = null;
@@ -641,7 +657,7 @@ class MainMenuState extends MusicBeatState
 		try
 		{
 			trace('checking for Github Action');
-			var http = new haxe.Http("https://api.github.com/repos/beihu235/FNF-NovaFlare-Engine/actions/runs?per_page=1");
+			var http = new haxe.Http("https://api.github.com/repos/D-C-LushiFu/NovaFlare-Engine-LushiFuFixedsss/actions/runs?per_page=1");
 			http.setHeader("User-Agent", "NovaFlareEngine");
 
 			http.onData = function(data:String)

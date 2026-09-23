@@ -1,0 +1,32 @@
+# ===== Menu Character Editor (new UI) =====
+
+# ===== Bottom bar menu buttons =====
+menu_type => Character Type
+menu_char => Character
+menu_hint => Hint
+
+# ===== Character type names =====
+type_opponent => Opponent
+type_boyfriend => Boyfriend
+type_girlfriend => Girlfriend
+
+# ===== Status label above the panel (current role + offsets) =====
+cur_role => Current Character: 
+
+# ===== Character panel field labels =====
+lbl_image => Image file name:
+lbl_idle => Idle animation (.XML):
+lbl_confirm => Start Press animation (.XML):
+lbl_scale => Scale:
+
+# ===== Character panel actions =====
+chk_flip_x => Flip X
+btn_reload => Reload Char
+
+# ===== Hint panel =====
+btn_load => Load Character
+btn_save => Save Character
+h_arrow => Arrow Keys - Change Offset (Hold Shift for 10x speed)
+h_space1 => Space - Play "Start Press" animation
+h_space2 => (Boyfriend Character Type only)
+h_esc => Esc - Close panel / Exit editor

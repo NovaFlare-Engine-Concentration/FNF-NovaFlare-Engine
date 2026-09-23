@@ -1,0 +1,162 @@
+# ===== Character Editor top menu (Adobe style) =====
+# ===== Menu titles =====
+menu_char => Character
+menu_anim => Animation
+menu_settings => Settings
+menu_ghost => Ghost
+menu_file => File
+menu_help => Help
+
+# ===== Status bar =====
+status_character => Char:
+status_anim => Anim:
+status_offset => Offset:
+status_frame => Frame:
+status_zoom => Zoom:
+
+# ===== Items: Character menu =====
+item_char_select => Character
+item_image => Image File
+item_reload_image => Reload Image
+item_health_icon => Health Icon
+item_get_icon_color => Get Icon Color
+item_vocals => Vocals File Postfix
+
+# ===== Items: Animation menu =====
+item_anim_select => Animation
+item_anim_name => Animation Name
+item_anim_symbol => Animation Symbol Name/Tag
+item_anim_fps => Framerate
+item_anim_loop => Should it Loop?
+item_anim_indices => ADVANCED - Animation Indices
+item_anim_add_update => Add/Update
+item_anim_remove => Remove
+
+# ===== Items: Settings menu =====
+item_playable => Playable Character
+item_flip_x => Flip X
+item_no_aa => No Antialiasing
+item_scale => Scale
+item_sing_duration => Sing Animation Length
+item_pos_x => Position X
+item_pos_y => Position Y
+item_cam_x => Camera X
+item_cam_y => Camera Y
+
+# ===== Items: Ghost menu =====
+item_make_ghost => Make Ghost
+item_highlight_ghost => Highlight Ghost
+
+# ===== Items: File menu =====
+item_save => Save Character
+item_load_template => Load Template
+item_reload_char => Reload Character
+
+# ===== Labels (LabelWidget left label) =====
+label_char_select => Character:
+label_image => Image:
+label_health_icon => Icon:
+label_vocals => Vocals:
+label_anim_select => Animation:
+label_anim_name => Name:
+label_anim_symbol => Symbol:
+label_anim_fps => FPS:
+label_anim_indices => Indices:
+label_scale => Scale:
+label_sing_duration => Sing Length:
+label_pos_x => Pos X:
+label_pos_y => Pos Y:
+label_cam_x => Cam X:
+label_cam_y => Cam Y:
+label_ghost_alpha => Opacity:
+label_health_r => Health R:
+label_health_g => Health G:
+label_health_b => Health B:
+
+# ===== Help titles =====
+help_camera => CAMERA
+help_char => CHARACTER
+help_other => OTHER
+item_help_camera => CAMERA
+item_help_char => CHARACTER
+item_help_other => OTHER
+
+# ===== Help lines (menu + F1 screen) =====
+item_help_cam_zoom => E/Q - Camera Zoom In/Out
+item_help_cam_move => J/K/L/I - Move Camera
+item_help_cam_reset => R - Reset Camera Zoom
+item_help_char_ctrl_r => Ctrl + R - Reset Current Offset
+item_help_char_ctrl_c => Ctrl + C - Copy Current Offset
+item_help_char_ctrl_v => Ctrl + V - Paste Copied Offset on Current Animation
+item_help_char_ctrl_z => Ctrl + Z - Undo Last Paste or Reset
+item_help_char_anim => W/S - Previous/Next Animation
+item_help_char_replay => Space - Replay Animation
+item_help_char_offset => Arrow Keys / Mouse Right-Drag - Move Offset
+item_help_char_offset_keys => Ctrl+C/V/R/Z/Y - Copy / Paste / Reset / Undo / Redo Offset, Ctrl+S - Save Character
+item_help_char_frame => A/D - Frame Advance (Back/Forward)
+item_help_other_sil => F12 - Toggle Silhouettes
+item_help_other_shift => Hold Shift - Move Offsets 10x Faster & Camera 4x Faster
+item_help_other_ctrl => Hold Control - Move Camera 4x Slower
+item_help_other_help => F1 - Toggle This Help Screen
+item_help_other_exit => ESC - Exit Character Editor
+
+# ===== Help lines (mobile) =====
+item_help_m_cam_zoom => X/Y - Camera Zoom In/Out
+item_help_m_cam_reset => Z - Reset Camera Zoom
+item_help_m_char_reset => A - Reset Current Offset
+item_help_m_char_anim => V/D - Previous/Next Animation
+item_help_m_char_offset => Arrow Buttons - Move Offset
+item_help_m_other_sil => S - Toggle Silhouettes
+item_help_m_other_shift => Hold C - Move Offsets 10x Faster & Camera 4x Faster
+
+# ===== Tips =====
+tip_help_f1 => Press F1 for Help
+tip_help_f => Press F for Help
+
+# ===== Descriptions (hover hint) =====
+desc_char_select => Pick which character file to edit. The list is built from data/characterList.txt plus every characters/*.json found in loaded mods.
+desc_image => The image/sprite sheet file used by this character (e.g. characters/BOYFRIEND). Reload Image re-reads it from disk.
+desc_reload_image => Re-read the current image file from disk and rebuild all animations. Useful after editing the sprite sheet outside the editor.
+desc_health_icon => The health icon shown on the health bar in gameplay (e.g. bf, dad, gf).
+desc_get_icon_color => Sample the dominant color of the health icon and write it into the health bar RGB values.
+desc_vocals => Optional postfix for the character's vocal track file. Leave empty to use the default vocal file.
+desc_anim_select => Pick an animation to edit its name, symbol/tag, framerate, loop flag and offsets.
+desc_anim_name => The animation name that appears in gameplay logic (e.g. singLEFT). Must match what the game requests.
+desc_anim_symbol => The sprite tag/prefix inside the sprite sheet for this animation (e.g. BF NOTE LEFT0), or the symbol name for Animate atlases.
+desc_anim_fps => Playback speed of the animation in frames per second.
+desc_anim_loop => Whether the animation loops forever or plays once and stays on the last frame.
+desc_anim_indices => ADVANCED: comma-separated list of specific frames to use for this animation. Leave empty to use the whole symbol.
+desc_anim_add_update => Add a new animation with the values above, or update the existing one with the same name. Offsets are kept on update.
+desc_anim_remove => Delete the animation whose name is currently in the Animation Name field.
+desc_playable => Whether this character is controlled by the player (BF side) or the opponent (Dad side). Toggles flip and position presets.
+desc_flip_x => Mirrors the character sprite horizontally. Stored as flip_x in the JSON.
+desc_no_aa => Disable antialiasing for this character (pixel-art style). Stored as no_antialiasing.
+desc_scale => Global scale multiplier applied to the character sprite.
+desc_sing_duration => How long (in beats) the character keeps the singing pose after a note before returning to idle.
+desc_healthbar_colors => Health bar color, saved as healthbar_colors in the character JSON (each 0-255). R = red component, G = green component, B = blue component. Controls the color of the health bar and the health icon - or use "Get Icon Color" in the Character menu to sample it from the icon automatically.
+desc_pos_x => Stage position X offset added on top of the default opponent/player spot.
+desc_pos_y => Stage position Y offset added on top of the default opponent/player spot.
+desc_cam_x => Camera follow X position relative to the character.
+desc_cam_y => Camera follow Y position relative to the character.
+desc_make_ghost => Freeze a copy of the current animation frame as a ghost overlay, so you can compare poses while editing offsets.
+desc_highlight_ghost => Add a red tint offset to the ghost so it stands out from the real character.
+desc_ghost_alpha => Opacity of the ghost overlay (0 = invisible, 1 = fully opaque).
+desc_save => Write the current character data to a JSON file (opens the system save dialog).
+desc_load_template => Replace everything with the default BF template (idle + 4 sing animations) to start over.
+desc_reload_char => Reload the current character from its JSON file, discarding unsaved changes.
+desc_help_camera => Camera controls.
+desc_help_cam_zoom => Zoom the camera in/out.
+desc_help_cam_move => Pan the camera around the stage.
+desc_help_cam_reset => Reset camera zoom back to 1x.
+desc_help_char => Character controls.
+desc_help_char_anim => Switch between animations.
+desc_help_char_offset => Nudge the current animation's offset.
+desc_help_char_offset_keys => Ctrl+C copy, Ctrl+V paste, Ctrl+R reset, Ctrl+Z undo, Ctrl+Y redo the current offset; Ctrl+S saves the character.
+desc_help_char_replay => Replay the current animation from frame 0.
+desc_help_char_frame => Step through animation frames.
+desc_help_other => Other controls.
+desc_help_other_sil => Show/hide the stage silhouettes.
+desc_help_other_shift => Speed up offset and camera movement.
+desc_help_other_ctrl => Slow down camera movement.
+desc_help_other_help => Toggle this help screen.
+desc_help_other_exit => Leave the character editor.

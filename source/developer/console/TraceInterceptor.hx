@@ -62,9 +62,18 @@ class TraceInterceptor {
 		if (publishing) return;
 		publishing = true;
 
+		// ★ 先把消息发给 1145 trace 客户端，再喂屏幕控制台 —— 两者各自 try 隔离。
+		//   原来两条写在同一个 try 里：Console.logLevel 一旦抛异常（UI 侧任何问题），
+		//   后面的 sendTraceMessage 就被跳过，而且之后每一条 trace 都会这样被吞掉，
+		//   表现为"客户端只收到连接问候，之后什么都收不到"（本次调 Mods 菜单时实测复现）。
+		try {
+			TraceServer.sendTraceMessage(level, message, color);
+		} catch (e:Dynamic) {
+			callOriginalTrace('Trace server publish failed: $e', null);
+		}
+
 		try {
 			Console.logLevel(level, message, color);
-			TraceServer.sendTraceMessage(level, message, color);
 		} catch (e:Dynamic) {
 			callOriginalTrace('Trace console failed: $e', null);
 		}

@@ -1,0 +1,17 @@
+User Interface => 用户界面
+
+
+UserInterface => 用户界面设置
+
+customFade => 自定义过场动画类型
+customFadeText => 自定义过场文本可见
+customFadeSound => 自定义过场音量
+audioDisplayQuality => 对音乐解析的质量，数据越高运算需求越高
+audioDisplayUpdate => 音乐解析器的反应间隔时间
+freeplayOld => 使用Psych的FreePlay界面
+skipTitleVideo => 跳过游戏启动时的动画
+resultsScreen => 在结尾歌曲处打开结算界面
+loadingScreen => 为 PlayState 添加预加载界面并更快地加载，如果遇到问题，请禁用它
+loadThreads => 加载资源的线程数量，有时候并不是越多越好
+useFlixelCoords => UI元素（按键区、视频播放等）使用Flixel舞台坐标。关闭后改用OpenFL屏幕坐标。
+SelectGameSubState => 切换引擎，PC可选vslice和codename，手机只有vslice

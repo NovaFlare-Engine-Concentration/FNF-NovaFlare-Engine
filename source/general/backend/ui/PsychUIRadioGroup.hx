@@ -192,6 +192,12 @@ class PsychUIRadioGroup extends FlxSpriteGroup
 		labels = v;
 		updateRadioItems();
 		set_curScroll(curScroll);
+		// labels 变化后保证 checked 在新范围内（否则 checked 越界，
+		// 使用方按 labels.length - checked - 1 索引会得到 null 并崩溃）
+		if (checked > labels.length - 1)
+			checked = labels.length - 1;
+		else if (checked < -1)
+			checked = -1;
 		return labels;
 	}
 

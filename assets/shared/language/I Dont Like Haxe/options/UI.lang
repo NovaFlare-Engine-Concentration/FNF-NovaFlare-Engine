@@ -1,0 +1,47 @@
+Game UI => 界面设置
+
+
+GameUI => 游戏界面设置
+
+Visble => 显示设置
+hideHud => 隐藏UI
+showComboNum => 连击数字
+showRating => 评级贴图
+opponentStrums => 显示对手箭头
+judgementCounter => 判定计数板
+keyboardViewer => 键盘反馈
+
+
+TimeBar => 时长条
+
+timeBarType => 显示类型
+
+
+HealthBar => 生命条
+
+healthBarAlpha => 透明度
+oldHealthBarVersion => 旧版血条
+Combo => 连击设置
+comboColor => 评级颜色关联
+comboOffsetFix => 偏移修复
+
+
+KeyBoard => 键盘反馈
+
+keyboardTimeDisplay => 摁压细节
+keyboardAlpha => 透明度
+keyboardTime => 滞留时长
+keyboardBGColor => 背景色
+keyboardTextColor => 文字色
+
+
+Camera => 摄像机
+
+camZooms => 节奏缩放
+scoreZoom => 分数栏Beat
+
+
+pauseButton => 暂停键
+
+compulsionPause => 强制暂停
+compulsionPauseNumber => 强制暂停次数

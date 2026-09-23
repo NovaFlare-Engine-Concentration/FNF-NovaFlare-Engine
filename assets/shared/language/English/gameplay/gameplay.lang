@@ -1,0 +1,13 @@
+// Gameplay Changers Substate
+scrollType => Scroll Type
+scrollSpeed => Scroll Speed
+playbackRate => Playback Rate
+healthGain => Health Gain Multiplier
+healthLoss => Health Loss Multiplier
+instakill => Instakill on Miss
+practice => Practice Mode
+botplay => Botplay
+
+// Scroll Type options
+multiplicative => multiplicative
+constant => constant

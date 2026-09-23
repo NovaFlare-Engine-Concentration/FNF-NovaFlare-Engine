@@ -1,4 +1,4 @@
-﻿package scripts.hscript;
+package scripts.hscript;
 
 import flixel.FlxBasic;
 
@@ -41,6 +41,26 @@ class HScriptBase
 	{
 		if (!syntaxFixEnabled) return code;
 		return _syntaxFixRegex.replace(code, "var $2:$3 = new $3");
+	}
+
+	/**
+	 * HScript 脚本报错出口 —— 受「设置 › 维护设置 › HScript 语法错误提示」控制
+	 * （ClientPrefs.hscriptErrorOverlay，默认关闭），与 Lua 那个开关各自独立。
+	 *
+	 * 只给**脚本报错**用（runHaxeCode 执行抛错、addHaxeLibrary 解析失败）。
+	 * ★ HScript 的 debugPrint 走 FunkinLua.luaTrace → PlayState.addTextToDebug，**不经过这里**，
+	 *   所以写 HScript 时调 debugPrint 绝不会被这个开关吞掉。
+	 * ★「HScript isn't supported on this platform」这类**平台能力提示**也刻意不走这里，保持常显。
+	 *
+	 * 注意：HScript 脚本自身的报错（Iris.error / Iris.warn）根本不在这条链上 ——
+	 * 它们走 Iris.logLevel → Sys.println + 开发者控制台 + 1145 trace 客户端，本来就不上屏。
+	 */
+	public static function reportHScriptError(text:String):Void
+	{
+		if (PlayState.instance != null)
+			PlayState.instance.addHScriptErrorToDebug(text);
+		else
+			trace(text);
 	}
 
 	public var interp:Interp;
@@ -386,7 +406,7 @@ class HScriptBase
 			catch (e:Dynamic)
 			{
 				FunkinLua.lastCalledScript = parent;
-				FunkinLua.luaTrace(parentLua.scriptName + ":" + resolveLuaContext(parentLua) + " - " + e, false, false, FlxColor.RED);
+				reportHScriptError(parentLua.scriptName + ":" + resolveLuaContext(parentLua) + " - " + e);
 			}
 		});
 		interp.variables.set('parentLua', parentLua);
@@ -487,7 +507,7 @@ class HScriptBase
 						nativeSnapshotEntered = false;
 					}
 					#end
-					FunkinLua.luaTrace(funk.scriptName + ":" + resolveLuaContext(funk) + where + " - " + e, false, false, FlxColor.RED);
+					reportHScriptError(funk.scriptName + ":" + resolveLuaContext(funk) + where + " - " + e);
 				}
 				#if (cpp && (windows || android))
 				if (nativeSnapshotEntered)
@@ -569,7 +589,7 @@ end
 			}
 			catch (e:Dynamic)
 			{
-				FunkinLua.luaTrace(funk.scriptName + ":" + resolveLuaContext(funk) + " - " + e, false, false, FlxColor.RED);
+				reportHScriptError(funk.scriptName + ":" + resolveLuaContext(funk) + " - " + e);
 			}
 			#end
 		});

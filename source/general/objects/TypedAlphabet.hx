@@ -67,7 +67,6 @@ class TypedAlphabet extends Alphabet
 		{
 			if (letters[i] != null)
 				letters[i].visible = true;
-			// trace('test, showing: $i');
 		}
 	}
 

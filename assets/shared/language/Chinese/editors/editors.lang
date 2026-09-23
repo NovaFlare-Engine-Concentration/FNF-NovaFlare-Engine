@@ -1,0 +1,21 @@
+# ===== 编辑器主菜单（主菜单按 7 进入） =====
+chartEditor => 编谱器
+characterEditor => 角色编辑器
+stageEditor => 舞台编辑器
+weekEditor => 章节编辑器
+menuCharEditor => 菜单角色编辑器
+dialogueEditor => 对话编辑器
+dialoguePortraitEditor => 对话立绘编辑器
+noteSplashDebug => 音符溅射调试
+
+# ===== Mod 目录提示（底部状态条） =====
+noModDirectory => < 未加载 Mod 目录 >
+loadedModDirectory => < 已加载 Mod 目录:
+
+# ===== 通用确认弹窗（各编辑器共用；具体编辑器可在自己的语言组里覆盖同名键） =====
+confirm_unsaved_title => 未保存的更改
+confirm_unsaved_message => 当前编辑器还有未保存的修改，退出后这些改动将会丢失。确定要放弃修改并退出吗？
+confirm_btn_confirm => 放弃并退出
+confirm_btn_cancel => 取消
+confirm_hint => Enter / Y 确认  |  Esc 取消
+confirm_hint_touch => 轻点按钮进行选择

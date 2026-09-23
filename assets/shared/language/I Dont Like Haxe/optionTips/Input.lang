@@ -1,0 +1,19 @@
+Input => 输入设置
+
+ControlsSubState => 键盘输入设置
+
+
+TouchMain => 触屏设置
+
+needMobileControl => 电脑可以使用触屏按键，如果电脑屏幕支持的话
+controlsAlpha => 按键透明度
+
+
+TouchGame => 游戏内触屏按键设置
+
+MobileControlSelectSubState => 触屏摁键类型
+hitboxLocation => Hitbox 特殊键位置
+dynamicColors => 摁键跟随箭头颜色
+playControlsAlpha => 游戏内按键透明度
+extraKey => 特殊摁键数量
+MobileExtraControl => 特殊按键输出设置

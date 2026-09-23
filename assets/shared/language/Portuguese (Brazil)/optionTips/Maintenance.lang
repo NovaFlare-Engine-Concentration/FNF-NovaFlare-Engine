@@ -3,6 +3,8 @@ Maintenance => Manutenção
 developerMode => Modo desenvolvedor, que desativa alguns avisos de erro e rastreamentos
 deepDebug => Registra os scripts, imagens, áudios e outros recursos usados por cada música
 devConScale => Tamanho do console usado para capturar todas as saídas de rastreamento
+luaErrorOverlay => Quando ativado, os erros de scripts Lua aparecem na tela como antes. Desativado por padrão; os erros continuam sendo gravados no console e nos arquivos de log, sem afetar o jogo. Observação: a saída de debugPrint não é afetada por esta opção e sempre aparece
+hscriptErrorOverlay => Quando ativado, os erros de scripts HScript (falhas no runHaxeCode, erros de resolução do addHaxeLibrary) aparecem na tela. Desativado por padrão; os erros continuam sendo gravados no console e nos arquivos de log. Independente da opção de Lua acima. Observação: a saída de debugPrint não é afetada por esta opção e sempre aparece
 
 oldHscriptVersion => Versão reduzida para usar hscript compatível com runhaxecode
 
@@ -15,3 +17,4 @@ screensaver => O celular vai dormir após ficar inativo por alguns segundos
 filesCheck => Verificar se o jogo possui arquivos faltando
 filesCheckNew => Verificar se o jogo possui arquivos suspeitos
 storageFolder => Escolher uma pasta para armazenar os dados do jogo. O jogo será reiniciado após a troca.
+adjustMobileEditorKeys => Esconde os botões móveis padrão dos Editores e abre uma janela externa (navegador) para criar/excluir/salvar botões. Arquivos ficam em FuckYouNFEMobile, nomeados por Editor (ex.: ChartEditorNewFuckingButtonMobile.json)

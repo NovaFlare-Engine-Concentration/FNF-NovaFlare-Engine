@@ -354,7 +354,6 @@ class SelectGameSubState extends MusicBeatSubstate
 		{
 			// The transition fades the runtime master volume only. Preserve the
 			// user's saved volume for the engine that starts next.
-			FlxG.sound.volume = transitionStartVolume;
 			FlxG.save.data.volume = transitionStartVolume;
 			ClientPrefs.saveSettings();
 		}

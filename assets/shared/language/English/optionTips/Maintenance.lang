@@ -3,6 +3,8 @@ Maintenance => Maintenance
 developerMode => developer mode, which disables some error displays and traces
 deepDebug => Records the scripts, images, audio, and other resources used by each song
 devConScale => size of the console used to capture all trace output
+luaErrorOverlay => When on, Lua script errors are printed on screen like before. Off by default; errors are still written to the console and log files, and gameplay is unaffected. Note: debugPrint output is not affected by this switch and always shows
+hscriptErrorOverlay => When on, HScript script errors (runHaxeCode failures, addHaxeLibrary resolve errors) are printed on screen. Off by default; errors are still written to the console and log files. Independent from the Lua switch above. Note: debugPrint output is not affected by this switch and always shows
 
 oldHscriptVersion => Reduced version to use hscript work for runhaxecode
 
@@ -15,4 +17,5 @@ screensaver => Phone will sleep after going inactive for few seconds
 filesCheck => Check game whether miss files
 filesCheckNew => Check game whether questionable files
 storageFolder => Choose a folder to store game data. The game will restart after switching.
+adjustMobileEditorKeys => Hides default mobile Editor buttons and opens an external browser window to create/delete/save custom keys. Files are stored in FuckYouNFEMobile, named per Editor (e.g. ChartEditorNewFuckingButtonMobile.json)
 enterOriginFunkin => Exit NovaFlare Engine and start the Origin Funkin frontend on the next launch.

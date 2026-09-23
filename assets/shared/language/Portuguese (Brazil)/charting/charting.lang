@@ -1,0 +1,236 @@
+charting => Charting
+
+# ===== Títulos de menu =====
+menu_charting => Charting
+menu_data => Dados
+menu_event => Evento
+menu_note => Nota
+menu_section => Seção
+menu_song => Música
+menu_test => Testar
+menu_help => Ajuda
+
+# ===== Barra de status =====
+status_zoom => Zoom:
+status_tempo =>
+status_section => Seção:
+status_beat => Batida:
+status_snap => Snap do Beat:
+status_move => Mover Nota:
+status_move_on => Ligado
+status_move_off => Desligado
+
+# ===== Painel de evento =====
+event_tag => EVENTO
+event_value1 => Valor 1
+event_value2 => Valor 2
+
+# ===== Itens: menu Charting =====
+item_metronome => Metrônomo
+item_autoscroll => Desativar Rolagem Auto (Não Recomendado)
+item_bpm => BPM
+item_offset => Deslocamento (ms)
+item_waveform_inst => Onda · Instrumental
+item_waveform_main => Onda · Vocais Principais
+item_waveform_opp => Onda · Vocais Opositor
+item_mute_inst => Silenciar Instrumental
+item_mute_main => Silenciar Vocais Principais
+item_mute_opp => Silenciar Vocais Opositor
+item_vortex => Editor Vortex
+item_ignore_warnings => Ignorar Avisos de Progresso
+item_sfx_bf => Tocar Som · Notas BF
+item_sfx_opp => Tocar Som · Notas Opositor
+
+# ===== Itens: menu Dados =====
+item_go_char => Personagem Game Over
+item_go_sound => Som de Morte
+item_go_loop => Música de Loop
+item_go_end => Música de Tentar de Novo
+item_no_rgb => Desativar RGB das Notas
+item_note_skin => Textura da Nota
+item_note_splash => Respingos da Nota
+item_apply_notes => Aplicar Mudanças de Nota
+
+# ===== Itens: menu Evento =====
+item_event_type => Tipo de Evento
+item_value1 => Valor 1
+item_value2 => Valor 2
+item_add_event => Adicionar Evento
+item_del_event => Remover Evento
+item_prev_event => Anterior
+item_next_event => Próximo
+
+# ===== Itens: menu Nota =====
+item_sustain_len => Duração do Sustain
+item_strum_time => Tempo do Strum (ms)
+item_note_type => Tipo de Nota
+
+# ===== Itens: menu Seção =====
+item_must_hit => Seção do Jogador
+item_gf_section => Seção GF
+item_alt_anim => Animação Alternativa
+item_beats_per_section => Batidas por Seção
+item_change_bpm => Mudar BPM
+item_section_bpm => BPM da Seção
+item_copy_section => Copiar Seção
+item_paste_section => Colar Seção
+item_clear_section => Limpar
+item_swap_section => Trocar Seção
+item_do_copy_beat => Aplicar Cópia
+item_undo => Desfazer Última Ação
+item_include_notes => Notas
+item_include_events => Eventos
+item_duet_notes => Notas em Dueto
+item_mirror_notes => Espelhar Notas
+
+# ===== Itens: menu Música =====
+item_song_title => Título da Música
+item_has_voice => Tem Faixa Vocal
+item_save => Salvar
+item_reload_audio => Recarregar Áudio
+item_reload_json => Recarregar JSON
+item_engine => Engine
+item_load_autosave => Carregar Auto-Save
+item_load_events => Carregar Eventos
+item_save_events => Salvar Eventos
+item_clear_events => Limpar Eventos
+item_clear_notes => Limpar Notas
+item_speed => Velocidade
+item_mania => Mania
+item_opponent => Opositor
+item_girlfriend => Namorada
+item_player => Jogador
+item_stage => Palco
+
+# ===== Itens: menu Testar =====
+item_test_mode => Jogar em Modo de Teste
+item_normal_mode => Jogar no Modo Normal
+
+# ===== Descrições (dica ao passar o mouse) =====
+desc_metronome => Toca um clique seco em cada batida (tom curto de 800Hz por padrão) para ajudar você a alinhar o tempo e perceber desvios. Combine com os mutes se o clique ficar irritante.
+desc_autoscroll => Quando desligado, a grade não segue automaticamente a posição de reprodução. A música toda fica visível como um grande mapa — ótimo para ajustes de arranjo em larga escala, mas definitivamente não para iniciantes.
+desc_bpm => Batidas por minuto. Este valor comanda TODOS os cálculos temporais do editor: tamanho das células, metrônomo, renderização das formas de onda, snap do arrasto e ticks de reprodução. Se mudar, clique em Recarregar JSON para confirmar a grade.
+desc_offset => Compensação de latência de áudio (ms). Valores positivos empurram todo o chart para a frente (ajusta atraso de fone BT); valores negativos o puxam para trás (corrige pré-trigger). Uma diferença de ±5ms é imperceptível; a ±20ms você já sente.
+desc_waveform_inst => Sobrepõe a forma de onda do instrumental (Inst.ogg) sobre a grade. Ajuda a enxergar chimbas, caixas e baixo rapidamente — perfeito para charts bem rítmicos / de bateria.
+desc_waveform_main => Sobrepõe a forma de onda dos vocais principais (jogador). Use junto com o instrumental para ver como os vocais se encaixam no compasso.
+desc_waveform_opp => Sobrepõe a forma de onda dos vocais do opositor (Vocals-dad / Vocals-mom etc.). Útil em rap battles onde o opositor tem versos independentes.
+desc_mute_inst => Silenciar o instrumental (Inst.ogg) durante a reprodução para isolar só os vocais e conferir se cada sílaba está no lugar.
+desc_mute_main => Silenciar os vocais principais do jogador, deixando só instrumental + opositor. Bom para focar no lado do opositor sem a voz do BF te distrair.
+desc_mute_opp => Silenciar os vocais do opositor, deixando só instrumental + jogador. Use para inspecionar com precisão a qualidade do chart do jogador.
+desc_vortex => Ativa o modo editor Vortex, que libera edição livre em mais do que as 4 pistas padrão. Use para charts mania, duplos jogadores ou quantidades não convencionais de pistas.
+desc_ignore_warnings => Desativa os avisos vermelhos de progresso (notas insuficientes, 0 notas, duração abaixo do limiar etc.). Só ligue isto para micro-songs ou trechos curtos de treino.
+desc_sfx_bf => Toca um 'tic' curto sempre que você colocar uma nota do BF (jogador). Diz instantaneamente se o ataque da nota cai no compasso — ideal para mapeamento preciso da bateria.
+desc_sfx_opp => Toca um tic ao colocar notas do opositor. Mesma vantagem do item acima — ligue quando o ritmo do opositor for diferente do jogador.
+desc_go_char => Sprite do personagem mostrado na tela de Game Over. Precisa bater com o nome da tabela de personagens (ex.: bf-pixel, bf, gf-pixel). Usa o BF padrão se faltar.
+desc_go_sound => Arquivo de som tocado no exato momento que o jogador morre (combo vai a 0). Tem que estar cadastrado na lista de sons do metadata; nomes desconhecidos são silenciosamente ignorados.
+desc_go_loop => Música de fundo em loop na tela de Game Over. Começa a tocar no momento em que o jogador cai no painel de Game Over.
+desc_go_end => Áudio curto de finalização tocado logo antes de o editor tentar novamente a música.
+desc_no_rgb => Desativa a coloração RGB de cada nota, fazendo todas usarem as cores originais da skin. Use quando a skin já tiver gradientes ou temas próprios. Também dá um pequeno ganho de performance.
+desc_note_skin => Nome base do arquivo com as texturas das notas, localizado em assets/shared/images/notes/. O engine automaticamente concatena _left / _down / _up / _right.
+desc_note_splash => Nome do asset do efeito de respingo quando a nota é acertada. São PNGs transparentes com 4 pequenos respingos; o engine escolhe um e rotaciona aleatoriamente.
+desc_apply_notes => Aplica em lote as configurações atuais de skin / respingo / sem-RGB em todas as notas já colocadas no chart. Um clique em vez de ajustar uma por uma.
+desc_event_type => Selecione o tipo do evento atual. O painel de descrição à direita atualiza com o significado exato de Valor 1 / Valor 2, intervalos recomendados e padrões comuns.
+desc_event_info => Tipo atual do evento e sua descrição. Passe o mouse nas opções do menu suspenso acima para pré-visualizar o nome e o uso de cada evento antes de escolher.
+desc_value1 => Primeiro parâmetro do evento. O significado muda por tipo: quantidade de zoom para câmera, nome do personagem para animação, caminho da propriedade para SetProperty.
+desc_value2 => Segundo parâmetro do evento. Eventos de câmera usam para o zoom do HUD; eventos de animação recebem o id da animação; eventos de som usam para o volume.
+desc_add_event => Insere um evento novinho do tipo selecionado exatamente na cabeça de reprodução (aquela linha vermelha vertical) e já deixa selecionado.
+desc_del_event => Apaga o evento atualmente selecionado de forma permanente. Não tem desfazer; clique em Salvar antes de apagar alguma coisa importante.
+desc_prev_event => Move a seleção para trás, ao evento anterior na ordem cronológica.
+desc_next_event => Move a seleção para a frente, ao próximo evento na ordem cronológica.
+desc_sustain_len => Duração do sustain da nota, medido em batidas (1 = uma batida padrão). 0 vira nota curta, 0.5 é meia batida, 2 é duas batidas, etc.
+desc_strum_time => Momento exato em milissegundos (contado do começo da música) em que a nota deve ser acertada pelo jogador.
+desc_note_type => Marca a nota como especial. Opções: None = normal, Alt Animation = usa grupo de animação alt, Hey! = toca o clipe de VO, Hurt Note = dá dano ao acertar, GF Sing = dispara GF cantando, No Animation = visual silencioso.
+desc_must_hit => Quando Ligado, esta seção é tocada pelo BF (jogador); quando Desligado, pelo opositor. Escolha um por seção — não fique misturando aleatoriamente.
+desc_gf_section => Quando Ligado, a namorada (GF) canta junto nesta seção. Use em pontes ou refrões para enfatizar a participação dela.
+desc_alt_anim => Quando Ligado, todos os personagens usam o conjunto de animações 'alt' nesta seção (ex.: BF de óculos escuros, GF em nova pose).
+desc_beats_per_section => Quantas batidas cabem nesta seção (padrão 4). Mude para fazer compassos exóticos: 3/4, 5/4, 7/8 etc. 4 batidas é o padrão absoluto do FNF.
+desc_change_bpm => Quando Ligado, esta seção usa o BPM da seção ao invés do BPM global da música. Use para mudanças de andamento no meio da música.
+desc_section_bpm => BPM independente da seção. Só ativo quando 'Mudar BPM' estiver ligado. Tome cuidado com snaps desalinhados quando seções adjacentes tiverem BPMs muito diferentes.
+desc_copy_section => Copia toda a seção atual (notas do jogador + notas do opositor + eventos) para a área de transferência, respeitando 'Incluir Notas' / 'Incluir Eventos'.
+desc_paste_section => Cola o conteúdo da área de transferência como novo conteúdo da seção atual. Colar sobrescreve — faça backup ou salve antes.
+desc_clear_section => Apaga TUDO (notas + eventos) da seção atual. 100% destrutivo, não reversível — salve antes de limpar.
+desc_swap_section => Troca a propriedade (mustHit) e a direção das setas entre jogador e opositor nesta seção — essencialmente espelhando a battle.
+desc_copy_beat => Com base na batida atual (N), um número positivo copia o conteúdo da batida [N - valor] direto para a batida atual; um número negativo faz o contrário. 1 = uma batida antes, 2 = duas batidas antes, etc.
+desc_do_copy_beat => Executa a cópia usando o deslocamento acima. O conteúdo da batida-alvo (notas + eventos) sobrescreve a batida atual — confira o valor antes.
+desc_undo => Desfaz a operação destrutiva mais recente (copiar / colar / trocar / copiar batida / dueto / espelhar, etc.). Mantém até 50 passos. Ctrl+Z também funciona.
+desc_include_notes => Se as operações copiar / colar / espelhar / trocar devem tocar nas notas. Desligue para mexer só na camada de eventos.
+desc_include_events => Se as operações copiar / colar / espelhar / trocar devem tocar nos eventos. Desligue para mexer só na camada de notas.
+desc_duet_notes => Clona cada nota desta seção para que jogador E opositor acertem idênticas simultaneamente. Usado em duetos de refrão.
+desc_mirror_notes => Espelha horizontalmente esta seção: setas ↔ esquerda-direita, baixo ↔ cima. Espelha só a direção, não o tempo.
+desc_song_title => Título da música, que também serve como nome padrão para procurar chart e arquivos de áudio (sem extensão). Use nomes curtos em inglês para máxima sanidade.
+desc_has_voice => Se a música vem com faixa vocal separada (Vocals.ogg / Vocals-dad.ogg / Vocals-mom.ogg). Desligado, o engine tenta tocar só o Inst.ogg.
+desc_save => Salva o JSON do chart atual na pasta charts/ usando o título da música como nome do arquivo. Clique sempre, clique sempre. Atalho Ctrl+S.
+desc_reload_audio => Relê todos os arquivos de áudio da música do disco. Use logo depois de substituir Inst.ogg ou Vocals.ogg externamente — não precisa reiniciar o editor.
+desc_reload_json => Recarrega o arquivo JSON do chart do disco. Use quando você editou o JSON num editor de texto e quer refletir as alterações, ou para descartar alterações na memória.
+desc_engine => Troca a versão do engine / modo de compatibilidade. Engines diferentes têm propriedades de notas e nomes de eventos levemente distintos; escolher o correto aqui evita muitas dores de cabeça com charts antigos.
+desc_load_autosave => Carrega o último chart salvo automaticamente pelo editor, da pasta autosave/. Este é o seu paraquedas depois de um crash ou edição ruim não salva.
+desc_load_events => Mescla um arquivo JSON de eventos da pasta events/ dentro do chart atual. Eventos duplicados NÃO são removidos — eles se acumulam.
+desc_save_events => Exporta apenas a lista de eventos do chart atual e salva em events/. Permite compartilhar uma sequência de eventos (câmeras etc.) entre vários charts da mesma música.
+desc_clear_events => Apaga PERMANENTEMENTE todos os eventos da música inteira (câmeras, animações, SetProperty, sons, tudo). Sem desfazer. Salve antes. Por favor.
+desc_clear_notes => Apaga PERMANENTEMENTE todas as notas da música — todos os personagens, pistas e tipos. Deixa intactas BPM, seções e palco, para você reescrever o chart do zero.
+desc_speed => Multiplicador de velocidade de reprodução (1.0 = original). Só afeta a reprodução DENTRO do editor; o chart salvo continua em 1.0. Use < 1.0 para inspecionar detalhes, > 1.0 para uma passada rápida.
+desc_mania => Número de pistas do Mania (2 a 9). Controla tanto a grade visual quanto o layout das teclas. FNF vanilla é 4K; mudar rerenderiza a grade com o número escolhido de pistas.
+desc_opponent => Nome do sprite do personagem opositor. A pasta precisa existir em assets/shared/images/. Se faltar, aparece um bloco preto como placeholder.
+desc_girlfriend => Nome do sprite da namorada. Ela decora o meio do palco e balança a cabeça no ritmo das batidas.
+desc_player => Nome do sprite do personagem do jogador. Geralmente BF, mas você pode colocar qualquer protagonista do seu mod.
+desc_stage => Nome do asset do palco / fundo, correspondente a uma pasta em assets/shared/images/stages/. Se faltar, o fundo fica preto.
+desc_test_mode => Entra no modo de teste EditorPlayState: overlays permanecem, julgamento é mais tolerante, e você pode apertar Esc para voltar ao editor sem morrer. Para conferir o chart rapidamente.
+desc_normal_mode => Inicia o PlayState normal a partir da cabeça de reprodução. Julgamento real, combo real, Game Over de verdade. Escolha isto se você quer jogar-testar o chart como ele será. Atalho Enter.
+
+# ===== Itens: menu Ajuda =====
+item_help_nav => Navegação
+item_help_nav_ws => W / S ou Roda do Mouse - Move o playhead para cima/baixo
+item_help_nav_ad => A / D - Seção anterior / próxima
+item_help_nav_lr => ← / → - Ajusta precisão do snap
+item_help_note => Operações de Nota
+item_help_note_add => Clique Esquerdo - Adiciona nota na posição do cursor
+item_help_note_move => Clique Direito pressionado - Arrasta para mover nota
+item_help_note_del => Clique Esquerdo na nota existente - Exclui
+item_help_note_sus => Q / E - Encurta / Estende o sustain da nota
+item_help_play => Controles de Reprodução
+item_help_play_test => Esc - Reprodução em modo de teste
+item_help_play_norm => Enter - Reprodução em modo normal
+item_help_play_stop => Espaço - Pausa / Retoma reprodução
+item_help_play_zoom => Z / X - Zoom in / out
+item_help_edit => Operações de Edição
+item_help_edit_undo => Ctrl+Z - Desfazer
+item_help_edit_save => Ctrl+S - Salva o chart atual
+item_help_edit_section => Tab / Shift+Tab - Muda para próximo / anterior painel
+
+# ===== Rótulos de itens (para controles com rótulo) =====
+label_bpm => BPM:
+label_offset => Deslocamento (ms):
+label_inst_vol => Volume Inst:
+label_voices_vol => Volume Vozes:
+label_voices_opp_vol => Volume Opositor:
+label_go_char => Personagem Final:
+label_go_sound => Som de Morte:
+label_go_loop => Música de Loop:
+label_go_end => Música de Retry:
+label_note_skin => Skin de Nota:
+label_note_splash => Respingo de Nota:
+label_event_type => Tipo de Evento:
+label_value1 => Valor 1:
+label_value2 => Valor 2:
+label_sustain_len => Duração do Sustain:
+label_strum_time => Tempo do Strum:
+label_note_type => Tipo de Nota:
+label_beats => Batidas/Seção:
+label_section_bpm => BPM da Seção:
+label_copy_beat => Copiar Batida:
+label_song_title => Título da Música:
+label_song_bpm => BPM:
+label_song_speed => Velocidade:
+label_song_mania => Mania:
+label_stage => Palco:
+label_player1 => Opositor:
+label_gf => Namorada:
+label_player2 => Jogador:
+
+# ===== Prompts de confirmação (ações destrutivas) =====
+prompt_paste_section => Colar conteúdo da área de transferência na seção atual?\nIsto vai sobrescrever a seção atual.
+prompt_clear_section => Limpar todas as notas e eventos da seção atual?
+prompt_swap_section => Trocar as notas do jogador e do opositor nesta seção?
+prompt_copy_beat => Copiar a batida-alvo e sobrescrever a seção atual?
+prompt_duet_notes => Equilibrar os dois lados desta seção?\nCopiar as notas do lado com mais para o lado com menos.
+prompt_mirror_notes => Espelhar todas as notas desta seção?

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+	NovaFlare Engine — Windows 应用程序清单
+
+	★ 这个清单是「中文 / 非 ASCII 路径能正确加载」的根治手段。
+
+	背景：Windows 上的窄字符 API（CRT 的 fopen/unlink/stat、Win32 的 *A 系列、
+	以及 LuaJIT / libVLC / zlib 等第三方 DLL 内部的 fopen）会把收到的字节串
+	按「进程 ANSI 代码页」解释。简体中文系统上那是 936(GBK)，而 Haxe/hxcpp
+	内部一律使用 UTF-8 —— 于是 "mods/中文模组/配置.json" 这类路径送进去就是乱码，
+	必然找不到文件。
+
+	`activeCodePage = UTF-8`（Windows 10 1903+ 支持）把整个进程的 ANSI 代码页
+	改成 UTF-8，于是一整类 API 立刻与 hxcpp 的字符串编码对齐，不需要逐个打补丁，
+	也覆盖了我们改不动的第三方 DLL。旧系统会忽略这个设置（行为与现在一致，不会更糟）。
+
+	其余条目刻意保持与 MSVC 链接器默认清单等价，避免任何行为漂移：
+	  · 不加 dpiAware / dpiAwareness —— 会改变高 DPI 下的窗口像素尺寸与画面布局
+	  · 不加 Common-Controls v6 依赖 —— 会改变 Win32 消息框等系统控件的主题外观
+	  · 不加 compatibility 段 —— 会改变第三方库读取到的系统版本号
+	longPathAware 只放宽 MAX_PATH 限制，不改变既有行为，故保留（对超长中文路径有用）。
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+	<assemblyIdentity type="win32" name="NovaFlare.Engine" version="1.2.2.0" processorArchitecture="*" />
+
+	<trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+		<security>
+			<requestedPrivileges>
+				<requestedExecutionLevel level="asInvoker" uiAccess="false" />
+			</requestedPrivileges>
+		</security>
+	</trustInfo>
+
+	<application xmlns="urn:schemas-microsoft-com:asm.v3">
+		<windowsSettings>
+			<!-- ★ 核心：进程 ANSI 代码页 = UTF-8 -->
+			<activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+			<!-- 放宽 MAX_PATH（不改行为，只解除限制） -->
+			<longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+		</windowsSettings>
+	</application>
+</assembly>

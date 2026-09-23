@@ -1,0 +1,76 @@
+# ===== 对话编辑器顶栏菜单（Adobe 风格）=====
+# ===== 菜单标题 =====
+menu_line => 对白行
+menu_char => 角色
+menu_text => 文本
+menu_file => 文件
+menu_help => 帮助
+
+# ===== 状态栏 =====
+status_line => 行:
+status_char => 角色:
+status_anim => 动画:
+status_speed => 语速:
+
+# ===== 项目: 对白行菜单 =====
+item_prev_line => 上一条对白
+item_next_line => 下一条对白
+item_add_line => 在当前行后插入新行
+item_remove_line => 删除当前行
+
+# ===== 项目: 角色菜单 =====
+item_char => 角色文件
+label_char => 角色文件
+item_angry => 生气气泡
+label_angry => 生气气泡
+item_speed => 打字速度（秒/字）
+label_speed => 打字速度
+item_sound => 打字音效
+label_sound => 打字音效
+item_replay_text => 重播当前对白文字
+item_prev_anim => 上一个表情
+item_next_anim => 下一个表情
+
+# ===== 项目: 文本菜单 =====
+item_text => 对白文本
+label_text => 对白文本
+
+# ===== 项目: 文件菜单 =====
+item_load => 载入对白（JSON）
+item_save => 保存对白（JSON）
+item_exit => 退出编辑器
+
+# ===== 描述（悬停行底部提示）=====
+desc_prev_line => 切换到上一条对白行
+desc_next_line => 切换到下一条对白行
+desc_add_line => 在当前选中行之后插入一条新对白并选中
+desc_remove_line => 删除当前选中的对白行
+desc_char => 对话立绘对应的角色 JSON 文件名（images/dialogue/ 下）
+desc_angry => 该行使用红色“生气”气泡样式
+desc_speed => 打字速度：数值越小打得越快（秒/字）
+desc_sound => 打字音效文件名（sounds/ 下，留空用默认）
+desc_text => 该行显示的对白文本（支持 Shift+Enter 换行）
+desc_replay_text => 重新播放当前行文字的打字动画
+desc_prev_anim => 切换到上一个表情动画
+desc_next_anim => 切换到下一个表情动画
+desc_load => 从磁盘载入一个 dialogue JSON 文件
+desc_save => 把当前对白保存为 dialogue JSON 文件
+desc_exit => 退出对话编辑器，返回主编辑器菜单（有未保存修改时先确认）
+
+# ===== 帮助（只读文本行）=====
+item_help_nav => 上/下一条对白：A / D
+item_help_anims => 上/下一个表情：W / S
+item_help_replay => 重播文字：SPACE
+item_help_f1 => 打开本帮助菜单：F1
+item_help_exit => 退出编辑器：ESC
+
+# ===== 帮助行描述 =====
+desc_help_nav => 上/下一条对白：A / D
+desc_help_anims => 上/下一个表情：W / S
+desc_help_replay => 重播当前行文字：SPACE
+desc_help_f1 => 打开本帮助菜单：F1
+desc_help_exit => 退出编辑器：ESC（有未保存修改时先确认）
+
+# ===== 退出确认弹窗（覆盖 editors 组的通用文案） =====
+confirm_unsaved_title => 退出对话编辑器
+confirm_unsaved_message => 当前对白还有未保存的修改，退出后这些对白行将会丢失。确定要放弃修改并退出吗？

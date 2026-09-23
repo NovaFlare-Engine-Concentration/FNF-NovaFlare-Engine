@@ -101,7 +101,9 @@ class HScriptState extends MusicBeatState {
 
 	override function sectionHit() {
 		stateScripts.call("onSectionHit");
-		super.beatHit();
+		// 原为 super.beatHit()（笔误）：导致 scripted state 的 section 派发丢失，
+		// 且每个 section 边界多发一次 beatHit。
+		super.sectionHit();
 	}
 
 	override function destroy() {

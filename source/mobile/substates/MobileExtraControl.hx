@@ -52,7 +52,10 @@ class MobileExtraControl extends MusicBeatSubstate
 
 	override function create()
 	{
-		cameras = [FlxG.cameras.list[FlxG.cameras.list.length - 1]];
+		// ★ 关键：子状态的 cameras 必须是主相机（FlxG.camera），不能是最后一个相机
+		//   理由同 KeyBindsSubState：沉浸界面下最后相机 = chromeCam，自绘「NovaFlare Engine」条挂在它上面。
+		//   与 chromeCam 共用会按 z-顺序被键盘选择 UI 盖住，改成主相机 → chromeCam 最后绘制 → 顶栏按钮始终可见。
+		cameras = [FlxG.camera];
 
 		var bg:FlxSprite = new FlxSprite(0, 0).makeGraphic(FlxG.width, FlxG.height, FlxColor.WHITE);
 		bg.scrollFactor.set();

@@ -3,20 +3,21 @@ package developer.editors;
 import states.mainMenuState.MainMenuState;
 import states.freeplayState.FreeplayState;
 
+import general.backend.language.Language;
 import games.backend.WeekData;
 import games.objects.Character;
 
 class MasterEditorMenu extends MusicBeatState
 {
 	var options:Array<String> = [
-		'Chart Editor',
-		'Character Editor',
-		'Stage Editor',
-		'Week Editor',
-		'Menu Character Editor',
-		'Dialogue Editor',
-		'Dialogue Portrait Editor',
-		'Note Splash Debug'
+		'chartEditor',
+		'characterEditor',
+		'stageEditor',
+		'weekEditor',
+		'menuCharEditor',
+		'dialogueEditor',
+		'dialoguePortraitEditor',
+		'noteSplashDebug'
 	];
 	private var grpTexts:FlxTypedGroup<Alphabet>;
 	private var directories:Array<String> = [null];
@@ -43,7 +44,7 @@ class MasterEditorMenu extends MusicBeatState
 
 		for (i in 0...options.length)
 		{
-			var leText:Alphabet = new Alphabet(90, 320, options[i], true);
+			var leText:Alphabet = new Alphabet(90, 320, Language.get(options[i], 'editors'), true);
 			leText.isMenuItem = true;
 			leText.targetY = i;
 			grpTexts.add(leText);
@@ -56,7 +57,8 @@ class MasterEditorMenu extends MusicBeatState
 		add(textBG);
 
 		directoryTxt = new FlxText(textBG.x, textBG.y + 4, FlxG.width, '', 32);
-		directoryTxt.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER);
+		// ★ vcr.ttf 是拉丁字体，没有中文 glyph，mod 目录名/提示带中文会直接不显示；改用语言适配字体
+		directoryTxt.setFormat(Paths.font(Language.get('fontName', 'main') + '.ttf'), 32, FlxColor.WHITE, CENTER);
 		directoryTxt.scrollFactor.set();
 		add(directoryTxt);
 
@@ -113,22 +115,22 @@ class MasterEditorMenu extends MusicBeatState
 		{
 			switch (options[curSelected])
 			{
-				case 'Chart Editor': // felt it would be cool maybe
+				case 'chartEditor': // felt it would be cool maybe
 					MusicBeatState.switchState(new ChartingState());
-				case 'Character Editor':
+				case 'characterEditor':
 					MusicBeatState.switchState(new CharacterEditorState(Character.DEFAULT_CHARACTER));
-				case 'Stage Editor':
+				case 'stageEditor':
 					MusicBeatState.switchState(new StageEditorState());
-				case 'Week Editor':
+				case 'weekEditor':
 					MusicBeatState.switchState(new WeekEditorState());
-				case 'Menu Character Editor':
+				case 'menuCharEditor':
 					MusicBeatState.switchState(new MenuCharacterEditorState());
-				case 'Dialogue Editor':
+				case 'dialogueEditor':
 					MusicBeatState.switchState(new DialogueEditorState());
-				case 'Dialogue Portrait Editor':
+				case 'dialoguePortraitEditor':
 					MusicBeatState.switchState(new DialogueCharacterEditorState());
-				case 'Note Splash Debug':
-					MusicBeatState.switchState(new NoteSplashDebugState());
+				case 'noteSplashDebug':
+					MusicBeatState.switchState(new NoteSplashEditorState());
 			}
 			FlxG.sound.music.volume = 0;
 			FreeplayState.destroyFreeplayVocals();
@@ -178,11 +180,11 @@ class MasterEditorMenu extends MusicBeatState
 
 		WeekData.setDirectoryFromWeek();
 		if (directories[curDirectory] == null || directories[curDirectory].length < 1)
-			directoryTxt.text = '< No Mod Directory Loaded >';
+			directoryTxt.text = Language.get('noModDirectory', 'editors');
 		else
 		{
 			Mods.currentModDirectory = directories[curDirectory];
-			directoryTxt.text = '< Loaded Mod Directory: ' + Mods.currentModDirectory + ' >';
+			directoryTxt.text = Language.get('loadedModDirectory', 'editors') + ' ' + Mods.currentModDirectory + ' >';
 		}
 		directoryTxt.text = directoryTxt.text.toUpperCase();
 	}

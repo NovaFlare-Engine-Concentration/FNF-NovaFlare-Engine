@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Chart Editor UI Mockup — Adobe Style v4</title>
+<style>
+  :root {
+    --bg: #222222;
+    --menubar-bg-top: #3a3a3a;
+    --menubar-bg-bottom: #2d2d2d;
+    --menu-title: #c8c8c8;
+    --menu-title-hover: #ffffff;
+    --menu-title-bg-hover: rgba(255,255,255,.07);
+    --accent: #0e639c;
+    --dropdown-bg: #252526;
+    --dropdown-border: #454545;
+    --row-text: #d4d4d4;
+    --row-text-dim: #8f8f8f;
+    --row-hover: #04395e;
+    --sep: #3f3f3f;
+    --input-bg: #1e1e1e;
+    --input-border: #3f3f3f;
+    --statusbar-bg: #1a1a1a;
+    --statusbar-text: #8a8a8a;
+    --statusbar-val: #e0e0e0;
+    --grid-line: #2f2f2f;
+    --beat-line: rgba(255, 0, 0, 0.25);
+    --lane-sep: #000000;
+    --test-accent: #ffd166;
+    --desc-bar-bg: #1b1b1b;
+    --desc-bar-text: #9a9a9a;
+    --desc-panel-bg: #1e1e1e;
+    --desc-panel-border: #3a3a3a;
+    --desc-panel-title: #d6d6d6;
+    --desc-panel-body: #b0b0b0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #111;
+    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    display: flex; justify-content: center; padding: 24px 12px;
+  }
+  .mockup-wrap { width: 100%; max-width: 1400px; }
+  .controls { display: flex; gap: 8px; margin-bottom: 14px; align-items: center; flex-wrap: wrap; }
+  .controls .label { color: #888; font-size: 13px; }
+  .controls button {
+    background: #333; color: #ddd; border: 1px solid #555; border-radius: 4px;
+    padding: 6px 14px; cursor: pointer; font-size: 13px; font-family: inherit;
+  }
+  .controls button.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+  .controls button:hover { filter: brightness(1.2); }
+
+  .canvas {
+    width: 1280px; max-width: 100%; aspect-ratio: 16 / 9;
+    background: var(--bg); position: relative; overflow: hidden;
+    border: 1px solid #000; box-shadow: 0 0 30px rgba(0,0,0,.8);
+    user-select: none;
+  }
+
+  /* ============ MENU BAR ============ */
+  .menubar {
+    position: absolute; top: 0; left: 0; right: 0; height: 36px;
+    background: linear-gradient(var(--menubar-bg-top), var(--menubar-bg-bottom));
+    border-bottom: 1px solid #1d1d1d;
+    display: flex; align-items: stretch; padding: 0 6px;
+    z-index: 20;
+  }
+  .menu { position: relative; display: flex; align-items: center; }
+  .menu-title {
+    min-width: 96px; height: 100%; padding: 0 10px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; cursor: pointer;
+    color: var(--menu-title); font-size: 14px; font-weight: 600;
+    position: relative; transition: color .1s, background .1s;
+    font-family: inherit; letter-spacing: .3px;
+  }
+  .menu-title:hover { color: var(--menu-title-hover); background: var(--menu-title-bg-hover); }
+  .menu.open .menu-title { color: #fff; background: rgba(255,255,255,.09); }
+  .menu.open .menu-title::after {
+    content: ""; position: absolute; bottom: 0; left: 14px; right: 14px;
+    height: 2px; background: var(--accent);
+  }
+  .menu.test .menu-title { color: var(--test-accent); }
+  .menu.test.open .menu-title::after { background: var(--test-accent); }
+
+  /* ============ DROPDOWN ============ */
+  .dropdown {
+    position: absolute; top: 100%; left: 0; z-index: 30;
+    min-width: 260px; max-width: 340px;
+    background: var(--dropdown-bg);
+    border: 1px solid var(--dropdown-border);
+    border-radius: 6px; padding: 4px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.4);
+    opacity: 0; transform: translateY(-6px);
+    pointer-events: none;
+    transition: opacity .16s ease-out, transform .16s ease-out;
+  }
+  .menu.open .dropdown { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  .dropdown .row {
+    display: flex; align-items: center;
+    padding: 5px 10px; font-size: 12.5px; color: var(--row-text);
+    border-radius: 3px; white-space: nowrap;
+  }
+  .dropdown .row.hoverable { cursor: pointer; }
+  .dropdown .row.hoverable:hover { background: var(--row-hover); color: #fff; }
+  .dropdown .row .lbl { flex: 1; }
+  .dropdown .row .shortcut { color: var(--row-text-dim); font-size: 11px; margin-left: 22px; }
+  .dropdown .row.danger .lbl { color: #e06c6c; }
+  .dropdown .row.check .box {
+    width: 14px; height: 14px; margin-right: 8px; flex-shrink: 0;
+    border: 1px solid #6a6a6a; border-radius: 3px;
+    background: #1b1b1b; position: relative;
+  }
+  .dropdown .row.check.on .box { background: var(--accent); border-color: var(--accent); }
+  .dropdown .row.check.on .box::after {
+    content: "✓"; position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 10px; line-height: 1;
+  }
+  .dropdown .row.val input,
+  .dropdown .row.sel select {
+    width: 100px; margin-left: 10px;
+    background: var(--input-bg); color: #d6d6d6;
+    border: 1px solid var(--input-border); border-radius: 3px;
+    font-size: 11.5px; padding: 2px 5px;
+    font-family: "Consolas", "Courier New", monospace;
+    outline: none;
+  }
+  .dropdown .row.val input:focus, .dropdown .row.sel select:focus { border-color: var(--accent); }
+  .dropdown .row.sel select option { background: #1e1e1e; }
+  .dropdown .sep { height: 1px; background: var(--sep); margin: 4px 6px; }
+
+  /* ============ DESCRIPTION BAR（hover 时显示，弹性换行） ============ */
+  .desc-bar {
+    position: absolute; top: 100%; left: 0;
+    min-width: 340px; max-width: min(620px, 110%);
+    margin-top: 4px;
+    background: var(--desc-bar-bg);
+    border: 1px solid var(--sep);
+    border-radius: 4px;
+    display: flex; align-items: flex-start;
+    padding: 7px 12px;
+    gap: 10px;
+    font-size: 12px; color: var(--desc-bar-text);
+    line-height: 1.5;
+    white-space: normal; word-wrap: break-word; overflow-wrap: anywhere;
+    opacity: 0; transform: translateY(-4px);
+    pointer-events: none;
+    transition: opacity .14s ease, transform .14s ease;
+  }
+  .menu.open .dropdown.has-hover .desc-bar {
+    opacity: 1; transform: translateY(0);
+  }
+  .desc-bar .desc-icon {
+    color: var(--accent); font-weight: 700;
+    flex-shrink: 0; width: 14px; line-height: 1.5; padding-top: 0;
+  }
+  .desc-bar .desc-text {
+    flex: 1 1 auto;
+    white-space: normal; word-wrap: break-word; overflow-wrap: anywhere;
+    display: block;
+  }
+
+  /* ============ EVENT DESC PANEL（事件右侧描述矩形，弹性自适应） ============ */
+  .event-panel {
+    position: absolute; top: 0; left: 100%; margin-left: 8px;
+    min-width: 260px; max-width: 380px; width: fit-content;
+    background: var(--desc-panel-bg);
+    border: 1px solid var(--desc-panel-border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.4);
+    opacity: 0; transform: translateX(-8px);
+    pointer-events: none;
+    transition: opacity .16s ease, transform .16s ease;
+    z-index: 35;
+    /* 右侧贴屏时改到左边显示 */
+    max-height: calc(100vh - 100px);
+    overflow: visible;
+  }
+  .menu.open .event-panel { opacity: 1; transform: translateX(0); pointer-events: auto; }
+  .event-panel .ep-title {
+    color: var(--desc-panel-title); font-size: 13px; font-weight: 700;
+    margin-bottom: 6px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--sep);
+    display: flex; align-items: center; gap: 8px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .event-panel .ep-title .ep-tag {
+    background: var(--accent); color: #fff;
+    font-size: 10px; padding: 2px 6px; border-radius: 3px;
+    font-weight: 600; letter-spacing: .5px;
+    flex-shrink: 0;
+  }
+  .event-panel .ep-body {
+    color: var(--desc-panel-body); font-size: 12px; line-height: 1.6;
+    white-space: normal; word-wrap: break-word; overflow-wrap: anywhere;
+  }
+  .event-panel .ep-vals {
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid var(--sep);
+    font-size: 11.5px; color: var(--row-text-dim);
+    font-family: "Consolas", "Courier New", monospace;
+    line-height: 1.7;
+    white-space: normal; word-wrap: break-word;
+  }
+  .event-panel .ep-vals span { color: #d6d6d6; }
+
+  /* ============ STATUS BAR ============ */
+  .statusbar {
+    position: absolute; top: 36px; left: 0; right: 0; height: 25px;
+    background: var(--statusbar-bg); border-bottom: 1px solid #000;
+    display: flex; align-items: center; padding: 0 10px;
+    font-family: "Consolas", "Courier New", monospace; font-size: 12.5px;
+    white-space: nowrap; overflow: hidden; z-index: 10;
+  }
+  .statusbar .sep { color: #555; margin: 0 10px; flex-shrink: 0; }
+  .statusbar .item { flex-shrink: 0; }
+  .statusbar .item .k { color: var(--statusbar-text); }
+  .statusbar .item .v { color: var(--statusbar-val); }
+
+  /* ============ CHART AREA ============ */
+  .chart-area {
+    position: absolute; top: 61px; left: 0; right: 0; bottom: 0;
+    background-color: #202020;
+    background-image:
+      repeating-linear-gradient(0deg, transparent 0 39px, var(--grid-line) 39px 40px),
+      repeating-linear-gradient(90deg, transparent 0 39px, var(--grid-line) 39px 40px);
+    overflow: hidden;
+  }
+  .chart-area .beat-line { position: absolute; left: 0; right: 0; height: 1px; background: var(--beat-line); }
+  .chart-area .lane-sep { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--lane-sep); }
+  .chart-area .hint {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    color: #555; font-size: 20px; font-weight: 300; text-align: center; line-height: 1.8;
+  }
+  .chart-area .hint strong { color: #666; font-weight: 600; }
+
+  /* ============ TOAST ============ */
+  .toast {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: rgba(20,20,20,.92); color: #e8e8e8; font-size: 13px;
+    padding: 9px 18px; border-radius: 5px; border: 1px solid #444;
+    box-shadow: 0 4px 16px rgba(0,0,0,.5);
+    opacity: 0; pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+    transform: translateX(-50%) translateY(6px); z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 1400px) { .mockup-wrap { overflow-x: auto; } }
+
+  /* ============ F1~F8 一级菜单快捷键徽标 ============ */
+  .menu-title .fkey {
+    font-size: 10px; font-weight: 400; color: var(--row-text-dim);
+    border: 1px solid #555; border-radius: 3px; padding: 0 5px;
+    margin-left: 7px; opacity: .9; letter-spacing: 0; font-family: "Consolas", monospace;
+  }
+  .menu-title:hover .fkey, .menu.open .menu-title .fkey { color: #d0d0d0; border-color: #888; }
+
+  /* ============ 波形图（BF 左侧 / Opp 右侧，不再互斥、不再居中重叠） ============ */
+  .wave-band {
+    position: absolute; top: 0; bottom: 0;
+    pointer-events: none; z-index: 1;
+  }
+  .wave-band .wave-label {
+    position: absolute; top: 5px; left: 8px;
+    font-size: 11px; color: #fff; font-weight: 700;
+    text-shadow: 0 1px 4px rgba(0,0,0,.95), 0 0 8px rgba(0,0,0,.6);
+    letter-spacing: .6px; z-index: 2; opacity: .9;
+  }
+  .wave-band.wave-bf {
+    left: 0; width: 27%;
+    background: linear-gradient(90deg, rgba(49,197,240,.30), rgba(49,197,240,.04));
+    border-right: 1px solid rgba(49,197,240,.45);
+  }
+  .wave-band.wave-opp {
+    right: 0; width: 27%;
+    background: linear-gradient(270deg, rgba(255,110,110,.30), rgba(255,110,110,.04));
+    border-left: 1px solid rgba(255,110,110,.45);
+  }
+  .wave-band .wave-trace {
+    position: absolute; inset: 0;
+    background-image:
+      repeating-linear-gradient(90deg,
+        rgba(255,255,255,.14) 0 2px, transparent 2px 5px,
+        rgba(255,255,255,.05) 5px 7px, transparent 7px 12px),
+      repeating-linear-gradient(0deg,
+        rgba(255,255,255,.10) 0 3px, transparent 3px 9px,
+        rgba(255,255,255,.04) 9px 11px, transparent 11px 19px);
+    opacity: .8;
+  }
+  .wave-band .wave-midline {
+    position: absolute; left: 0; right: 0; top: 50%;
+    height: 1px; background: rgba(255,255,255,.25);
+  }
+  .wave-band .wave-tag {
+    position: absolute; bottom: 5px; left: 8px;
+    font-size: 10px; color: rgba(255,255,255,.55);
+    font-family: "Consolas", monospace;
+  }
+
+  /* ============ PC 键盘图 ============ */
+  .keyboard-section { margin-top: 30px; padding: 18px; background: #161616; border: 1px solid #333; border-radius: 10px; }
+  .keyboard-section h3 { color: #ccc; font-size: 15px; margin-bottom: 2px; }
+  .keyboard-section .sub { color: #777; font-size: 12px; margin-bottom: 12px; }
+  .kb-legend { display: flex; gap: 20px; margin: 10px 0 14px; font-size: 12px; color: #aaa; flex-wrap: wrap; }
+  .kb-legend .lg { display: flex; align-items: center; gap: 7px; }
+  .kb-legend .swatch { width: 30px; height: 16px; border-radius: 3px; border: 1px solid rgba(255,255,255,.15); }
+  .kb { display: inline-block; background: #141414; border: 1px solid #2e2e2e; border-radius: 10px; padding: 12px; user-select: none; }
+  .kb-row { display: flex; gap: 5px; margin-bottom: 5px; }
+  .kb-key {
+    min-width: 42px; height: 42px; padding: 0 5px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: #262626; border: 1px solid #444; border-radius: 5px;
+    font-size: 12px; color: #ccc; cursor: default;
+    box-shadow: 0 2px 0 #0e0e0e;
+    position: relative; text-align: center; line-height: 1.25;
+  }
+  .kb-key .k { font-size: 12px; font-weight: 600; }
+  .kb-key .fn { font-size: 8.5px; color: #888; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kb-key.wide1 { min-width: 64px; }
+  .kb-key.wide2 { min-width: 86px; }
+  .kb-key.wide3 { min-width: 108px; }
+  .kb-key.wide4 { min-width: 130px; }
+  .kb-key.space { min-width: 320px; }
+  .kb-key.used-menu { background: #0e3d2a; border-color: #2fae77; color: #d2ffe9; }
+  .kb-key.used-single { background: #10375c; border-color: #2d7dbd; color: #d8f1ff; }
+  .kb-key.used-combo { background: #423410; border-color: #c9a227; color: #ffefc2; }
+  .kb-key.used-mod { background: #33104f; border-color: #9b5bd0; color: #ecd9ff; }
+  .kb-key .hint {
+    display: none; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+    background: rgba(10,10,10,.97); border: 1px solid #555; padding: 6px 9px; border-radius: 5px;
+    font-size: 11px; color: #e5e5e5; white-space: nowrap; z-index: 70;
+    box-shadow: 0 4px 14px rgba(0,0,0,.7); font-weight: 400;
+  }
+  .kb-key:hover .hint { display: block; }
+  .kb-key.used-menu .hint { border-color: #2fae77; }
+  .kb-key.used-single .hint { border-color: #2d7dbd; }
+  .kb-key.used-combo .hint { border-color: #c9a227; }
+  .kb-key.used-mod .hint { border-color: #9b5bd0; }
+</style>
+</head>
+<body>
+<div class="mockup-wrap">
+  <div class="controls">
+    <span class="label">语言切换：</span>
+    <button data-lang="zh" class="active">中文</button>
+    <button data-lang="en">English</button>
+    <button data-lang="pt">Português</button>
+    <span class="label" style="margin-left:16px;color:#666;">hover 菜单项 → 下方描述；点击事件下拉 → 右侧描述面板</span>
+  </div>
+
+  <div class="canvas" id="canvas">
+
+    <!-- ============ MENU BAR ============ -->
+    <div class="menubar" id="menubar">
+
+      <!-- 谱面 -->
+      <div class="menu" data-key="charting">
+        <button class="menu-title" data-i18n="menu_charting">谱面<span class="fkey">F1</span></button>
+        <div class="dropdown has-hover">
+          <div class="row check on hoverable" data-i18n-row="it_metronome" data-desc="desc_metronome"><span class="box"></span><span class="lbl">节拍器</span></div>
+          <div class="row check hoverable" data-i18n-row="it_autoscroll" data-desc="desc_autoscroll"><span class="box"></span><span class="lbl">禁用自动滚动（不建议）</span></div>
+          <div class="sep"></div>
+          <div class="row val" data-desc="desc_bpm"><span class="lbl" data-i18n="it_bpm">BPM</span><input value="150"></div>
+          <div class="row val" data-desc="desc_offset"><span class="lbl" data-i18n="it_offset">偏移 (ms)</span><input value="0"></div>
+          <div class="sep"></div>
+          <div class="row check on hoverable" data-i18n-row="it_waveInst" data-desc="desc_waveInst"><span class="box"></span><span class="lbl">波形图 · 器乐</span><span class="shortcut">Alt+I</span></div>
+          <div class="row check hoverable" data-i18n-row="it_waveMain" data-desc="desc_waveMain"><span class="box"></span><span class="lbl">波形图 · 主音</span><span class="shortcut">Alt+U</span></div>
+          <div class="row check hoverable" data-i18n-row="it_waveOpp" data-desc="desc_waveOpp"><span class="box"></span><span class="lbl">波形图 · 对手音</span><span class="shortcut">Alt+O</span></div>
+          <div class="sep"></div>
+          <div class="row check hoverable" data-i18n-row="it_muteInst" data-desc="desc_muteInst"><span class="box"></span><span class="lbl">静音器乐</span><span class="shortcut">Alt+Ctrl+I</span></div>
+          <div class="row check hoverable" data-i18n-row="it_muteMain" data-desc="desc_muteMain"><span class="box"></span><span class="lbl">静音主音</span><span class="shortcut">Alt+Ctrl+U</span></div>
+          <div class="row check hoverable" data-i18n-row="it_muteOpp" data-desc="desc_muteOpp"><span class="box"></span><span class="lbl">静音对手音</span><span class="shortcut">Alt+Ctrl+O</span></div>
+          <div class="sep"></div>
+          <div class="row check hoverable" data-i18n-row="it_vortex" data-desc="desc_vortex"><span class="box"></span><span class="lbl">Vortex 编辑器</span><span class="shortcut">Ctrl+Shift+Tab</span></div>
+          <div class="row check hoverable" data-i18n-row="it_ignoreWarnings" data-desc="desc_ignoreWarnings"><span class="box"></span><span class="lbl">忽略进度警告</span></div>
+          <div class="row check on hoverable" data-i18n-row="it_sfxBf" data-desc="desc_sfxBf"><span class="box"></span><span class="lbl">校对 BF 音符</span><span class="shortcut">Ctrl+Shift+U</span></div>
+          <div class="row check hoverable" data-i18n-row="it_sfxOpp" data-desc="desc_sfxOpp"><span class="box"></span><span class="lbl">校对 对手音符</span><span class="shortcut">Ctrl+Shift+O</span></div>
+
+          <div class="desc-bar">
+            <span class="desc-icon">ⓘ</span>
+            <span class="desc-text" id="desc_charting"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 数据 -->
+      <div class="menu" data-key="data">
+        <button class="menu-title" data-i18n="menu_data">数据<span class="fkey">F2</span></button>
+        <div class="dropdown has-hover">
+          <div class="row val" data-desc="desc_goChar"><span class="lbl" data-i18n="it_goChar">游戏结束角色</span><input value="bf-pixel"></div>
+          <div class="row val" data-desc="desc_goSound"><span class="lbl" data-i18n="it_goSound">死亡音效</span><input value="fnf_loss_sfx"></div>
+          <div class="row val" data-desc="desc_goLoop"><span class="lbl" data-i18n="it_goLoop">循环音乐</span><input value="gameOver"></div>
+          <div class="row val" data-desc="desc_goEnd"><span class="lbl" data-i18n="it_goEnd">重试音乐</span><input value="gameOverEnd"></div>
+          <div class="sep"></div>
+          <div class="row check hoverable" data-i18n-row="it_noRgb" data-desc="desc_noRgb"><span class="box"></span><span class="lbl">禁用音符 RGB</span></div>
+          <div class="sep"></div>
+          <div class="row val" data-desc="desc_noteSkin"><span class="lbl" data-i18n="it_noteSkin">音符皮肤</span><input value="NOTE_assets"></div>
+          <div class="row val" data-desc="desc_noteSplash"><span class="lbl" data-i18n="it_noteSplash">音符溅射</span><input value="noteSplashes"></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_applyNotes"><span class="lbl" data-i18n="it_applyNotes">应用音符更改</span></div>
+
+          <div class="desc-bar">
+            <span class="desc-icon">ⓘ</span>
+            <span class="desc-text" id="desc_data"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 事件 -->
+      <div class="menu" data-key="event">
+        <button class="menu-title" data-i18n="menu_event">事件<span class="fkey">F3</span></button>
+        <div class="dropdown has-hover">
+          <div class="row sel" data-desc="desc_eventType"><span class="lbl" data-i18n="it_eventType">事件类型</span>
+            <select id="eventTypeSelect">
+              <option value="Nothing">Nothing</option>
+              <option value="Add Camera Zoom" selected>Add Camera Zoom</option>
+              <option value="Play Animation">Play Animation</option>
+              <option value="Set Property">Set Property</option>
+              <option value="Play Sound">Play Sound</option>
+            </select>
+          </div>
+          <div class="sep"></div>
+          <div class="row val" data-desc="desc_val1"><span class="lbl" data-i18n="it_val1">值 1</span><input value="0.015"></div>
+          <div class="row val" data-desc="desc_val2"><span class="lbl" data-i18n="it_val2">值 2</span><input value="0.03"></div>
+          <div class="sep"></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_addEvent"><span class="lbl" data-i18n="it_addEvent">添加事件</span></div>
+          <div class="row hoverable cmd danger" data-cmd data-desc="desc_delEvent"><span class="lbl" data-i18n="it_delEvent">删除事件</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_prevEvent"><span class="lbl" data-i18n="it_prevEvent">上一个</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_nextEvent"><span class="lbl" data-i18n="it_nextEvent">下一个</span></div>
+
+          <div class="desc-bar">
+            <span class="desc-icon">ⓘ</span>
+            <span class="desc-text" id="desc_event"></span>
+          </div>
+
+          <!-- 事件描述矩形面板 -->
+          <div class="event-panel" id="eventPanel">
+            <div class="ep-title">
+              <span class="ep-tag" data-i18n="ep_eventTag">事件</span>
+              <span id="epName">Add Camera Zoom</span>
+            </div>
+            <div class="ep-body" id="epDesc"></div>
+            <div class="ep-vals">
+              <div data-i18n="ep_val1">值 1</div>: <span id="epVal1">0.015</span><br>
+              <div data-i18n="ep_val2">值 2</div>: <span id="epVal2">0.03</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 音符 -->
+      <div class="menu" data-key="note">
+        <button class="menu-title" data-i18n="menu_note">音符<span class="fkey">F4</span></button>
+        <div class="dropdown has-hover">
+          <div class="row val" data-desc="desc_susLen"><span class="lbl" data-i18n="it_susLen">持续长度</span><input value="0"></div>
+          <div class="row val" data-desc="desc_strumMs"><span class="lbl" data-i18n="it_strumMs">击打时间 (ms)</span><input value="1234"></div>
+          <div class="sep"></div>
+          <div class="row sel" data-desc="desc_noteType"><span class="lbl" data-i18n="it_noteType">音符类型</span>
+            <select>
+              <option selected>None</option><option>Alt Animation</option>
+              <option>Hey!</option><option>Hurt Note</option>
+              <option>GF Sing</option><option>No Animation</option>
+            </select>
+          </div>
+
+          <div class="desc-bar">
+            <span class="desc-icon">ⓘ</span>
+            <span class="desc-text" id="desc_note"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 小节 -->
+      <div class="menu" data-key="section">
+        <button class="menu-title" data-i18n="menu_section">小节<span class="fkey">F5</span></button>
+        <div class="dropdown has-hover">
+          <div class="row check on hoverable" data-i18n-row="it_mustHit" data-desc="desc_mustHit"><span class="box"></span><span class="lbl">玩家小节</span><span class="shortcut">U</span></div>
+          <div class="row check hoverable" data-i18n-row="it_gfSec" data-desc="desc_gfSec"><span class="box"></span><span class="lbl">GF 小节</span><span class="shortcut">I</span></div>
+          <div class="row check hoverable" data-i18n-row="it_altAnim" data-desc="desc_altAnim"><span class="box"></span><span class="lbl">替身动画</span></div>
+          <div class="sep"></div>
+          <div class="row val" data-desc="desc_beatsPerSec"><span class="lbl" data-i18n="it_beatsPerSec">当前小节节拍</span><input value="4"></div>
+          <div class="row check hoverable" data-i18n-row="it_changeBpm" data-desc="desc_changeBpm"><span class="box"></span><span class="lbl">更改 BPM</span></div>
+          <div class="row val" data-desc="desc_sectionBpm"><span class="lbl" data-i18n="it_sectionBpm">小节 BPM</span><input value="150"></div>
+          <div class="sep"></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_copySec"><span class="lbl" data-i18n="it_copySec">复制小节</span><span class="shortcut">Ctrl+C</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_pasteSec"><span class="lbl" data-i18n="it_pasteSec">粘贴小节</span><span class="shortcut">Ctrl+V</span></div>
+          <div class="row hoverable cmd danger" data-cmd data-desc="desc_clearSec"><span class="lbl" data-i18n="it_clearSec">清空小节</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_swapSec"><span class="lbl" data-i18n="it_swapSec">交换小节</span><span class="shortcut">Ctrl+U</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_copyLastSec"><span class="lbl" data-i18n="it_copyLastSec">复制上一小节</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_undo"><span class="lbl" data-i18n="it_undo">撤销</span><span class="shortcut">Ctrl+Z</span></div>
+          <div class="sep"></div>
+          <div class="row check on hoverable" data-i18n-row="it_includeNotes" data-desc="desc_includeNotes"><span class="box"></span><span class="lbl">包含音符</span></div>
+          <div class="row check on hoverable" data-i18n-row="it_includeEvents" data-desc="desc_includeEvents"><span class="box"></span><span class="lbl">包含事件</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_duetNotes"><span class="lbl" data-i18n="it_duetNotes">二重奏音符</span><span class="shortcut">Ctrl+I</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_mirrorNotes"><span class="lbl" data-i18n="it_mirrorNotes">镜像音符</span><span class="shortcut">Ctrl+O</span></div>
+
+          <div class="desc-bar">
+            <span class="desc-icon">ⓘ</span>
+            <span class="desc-text" id="desc_section"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 歌曲 -->
+      <div class="menu" data-key="song">
+        <button class="menu-title" data-i18n="menu_song">歌曲<span class="fkey">F6</span></button>
+        <div class="dropdown has-hover">
+          <div class="row val" data-desc="desc_songTitle"><span class="lbl" data-i18n="it_songTitle">歌曲名</span><input value="test"></div>
+          <div class="row check on hoverable" data-i18n-row="it_hasVoice" data-desc="desc_hasVoice"><span class="box"></span><span class="lbl">人声轨道</span></div>
+          <div class="sep"></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_save"><span class="lbl" data-i18n="it_save">保存</span><span class="shortcut">Ctrl+S</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_reloadAudio"><span class="lbl" data-i18n="it_reloadAudio">重载音频</span><span class="shortcut">Ctrl+Shift+Q</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_reloadJson"><span class="lbl" data-i18n="it_reloadJson">重载 JSON</span><span class="shortcut">Ctrl+Shift+W</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_engine"><span class="lbl" data-i18n="it_engine">引擎</span><span class="shortcut">Pe-1.0.4</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_loadAutosave"><span class="lbl" data-i18n="it_loadAutosave">载入自动保存</span><span class="shortcut">Ctrl+Shift+E</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_loadEvents"><span class="lbl" data-i18n="it_loadEvents">载入事件</span><span class="shortcut">Ctrl+Shift+R</span></div>
+          <div class="row hoverable cmd" data-cmd data-desc="desc_saveEvents"><span class="lbl" data-i18n="it_saveEvents">保存事件</span><span class="shortcut">Ctrl+Shift+S</span></div>
+          <div class="sep"></div>
+          <div class="row hoverable cmd danger" data-cmd data-desc="desc_clearEvents"><span class="lbl" data-i18n="it_clearEvents">清空事件</span><span class="shortcut">右Shift+Del</span></div>
+          <div class="row hoverable cmd danger" data-cmd data-desc="desc_clearNotes"><span class="lbl" data-i18n="it_clearNotes">清空音符</span><span class="shortcut">右Ctrl+Del</span></div>
+          <div class="sep"></div>
+          <div class="row val" data-desc="desc_bpm"><span class="lbl" data-i18n="it_bpm">BPM</span><input value="150"></div>
+          <div class="row val" data-desc="desc_speed"><span class="lbl" data-i18n="it_speed">速度</span><input value="1.0"></div>
+          <div class="row val" data-desc="desc_mania"><span class="lbl" data-i18n="it_mania">键数</span><input value="3"></div>
+          <div class="sep"></div>
+          <div class="row sel" data-desc="desc_opponent"><span class="lbl" data-i18n="it_opponent">对手</span><select><option selected>dad</option><option>bf</option><option>gf</option><option>mom</option></select></div>
+          <div class="row sel" data-desc="desc_girlfriend"><span class="lbl" data-i18n="it_girlfriend">女友</span><select><option selected>gf</option><option>dad</option><option>bf</option></select></div>
+          <div class="row sel" data-desc="desc_player"><span class="lbl" data-i18n="it_player">玩家</span><select><option selected>bf</option><option>dad</option><option>gf</option></select></div>
+          <div class="row sel" data-desc="desc_stage"><span class="lbl" data-i18n="it_stage">舞台</span><select><option selected>stage</option><option>spooky</option><option>school</option><option>tank</option></select></div>
+
+          <div class="desc-bar">
+            <span class="desc-icon">ⓘ</span>
+            <span class="desc-text" id="desc_song"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 测试 -->
+      <div class="menu test" data-key="test">
+        <button class="menu-title" data-i18n="menu_test">测试<span class="fkey">F7</span></button>
+        <div class="dropdown has-hover">
+          <div class="row hoverable cmd" data-cmd data-action="playtest" data-desc="desc_testMode">
+            <span class="lbl" data-i18n="it_testMode">以测试模式进行</span><span class="shortcut">Esc</span>
+          </div>
+          <div class="sep"></div>
+          <div class="row hoverable cmd" data-cmd data-action="play" data-desc="desc_normalMode">
+            <span class="lbl" data-i18n="it_normalMode">以正常模式进行</span><span class="shortcut">Enter</span>
+          </div>
+
+          <div class="desc-bar">
+            <span class="desc-icon">ⓘ</span>
+            <span class="desc-text" id="desc_test"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 帮助 -->
+      <div class="menu" data-key="help">
+        <button class="menu-title" data-i18n="menu_help">帮助<span class="fkey">F8</span></button>
+        <div class="dropdown has-hover">
+          <div class="row" data-desc="desc_helpNav"><span class="lbl" data-i18n="it_helpNav">导航</span></div>
+          <div class="row"><span class="lbl">移动音符模式 / 设置 Mania</span><span class="shortcut">L / K+数字</span></div>
+          <div class="row"><span class="lbl">上一个 / 下一个 小节</span><span class="shortcut">A / D</span></div>
+          <div class="row"><span class="lbl">垂直滚动（按住）</span><span class="shortcut">W / S</span></div>
+          <div class="row"><span class="lbl">按吸附单位移动</span><span class="shortcut">↑ / ↓</span></div>
+          <div class="row"><span class="lbl">切换量化值</span><span class="shortcut">← / →</span></div>
+          <div class="row"><span class="lbl">Vortex 开/关</span><span class="shortcut">Ctrl+Shift+Tab</span></div>
+          <div class="sep"></div>
+          <div class="row" data-desc="desc_helpEdit"><span class="lbl" data-i18n="it_helpEdit">小节 / 编辑</span></div>
+          <div class="row"><span class="lbl">玩家 / GF / Opp 小节</span><span class="shortcut">U / I / O</span></div>
+          <div class="row"><span class="lbl">交换 / 二重奏 / 镜像</span><span class="shortcut">Ctrl+U / I / O</span></div>
+          <div class="row"><span class="lbl">延长 / 缩短 持续</span><span class="shortcut">E / Q</span></div>
+          <div class="row"><span class="lbl">撤销 / 复制小节 / 粘贴小节</span><span class="shortcut">Ctrl+Z / C / V</span></div>
+          <div class="row"><span class="lbl">保存 / 保存事件</span><span class="shortcut">Ctrl+S / Ctrl+Shift+S</span></div>
+          <div class="row"><span class="lbl">重载音频 / JSON</span><span class="shortcut">Ctrl+Shift+Q / W</span></div>
+          <div class="row"><span class="lbl">载入自动保存 / 载入事件</span><span class="shortcut">Ctrl+Shift+E / R</span></div>
+          <div class="row"><span class="lbl">清空事件 / 清空 Note</span><span class="shortcut">右Shift+Del / 右Ctrl+Del</span></div>
+          <div class="sep"></div>
+          <div class="row" data-desc="desc_helpPlay"><span class="lbl" data-i18n="it_helpPlay">播放 / 波形 / 静音</span></div>
+          <div class="row"><span class="lbl">播放 / 暂停</span><span class="shortcut">Space</span></div>
+          <div class="row"><span class="lbl">缩小 / 放大</span><span class="shortcut">Z / X</span></div>
+          <div class="row"><span class="lbl">重置小节</span><span class="shortcut">R</span></div>
+          <div class="row"><span class="lbl">播放速度 ± / 重置</span><span class="shortcut">[ ] / Alt+[ ]</span></div>
+          <div class="row"><span class="lbl">试玩 / 正常游玩</span><span class="shortcut">Esc / Enter</span></div>
+          <div class="row"><span class="lbl">BF / Inst / Opp 波形图</span><span class="shortcut">Alt+U / I / O</span></div>
+          <div class="row"><span class="lbl">静音 BF / Inst / Opp</span><span class="shortcut">Alt+Ctrl+U / I / O</span></div>
+          <div class="row"><span class="lbl">BF / Opp 打击音</span><span class="shortcut">Ctrl+Shift+U / O</span></div>
+
+          <div class="desc-bar">
+            <span class="desc-icon">ⓘ</span>
+            <span class="desc-text" id="desc_help"></span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============ STATUS BAR ============ -->
+    <div class="statusbar" id="statusbar">
+      <span class="item"><span class="k" data-i18n="st_zoom">缩放: </span><span class="v">1 / 1</span></span>
+      <span class="sep">|</span>
+      <span class="item"><span class="k" data-i18n="st_tempo">时间: </span><span class="v">45.21s / 187.50s</span></span>
+      <span class="sep">|</span>
+      <span class="item"><span class="v">0:45 / 3:07</span></span>
+      <span class="sep">|</span>
+      <span class="item"><span class="k" data-i18n="st_sec">小节: </span><span class="v">3</span></span>
+      <span class="sep">|</span>
+      <span class="item"><span class="k" data-i18n="st_beat">节拍: </span><span class="v">2.50</span></span>
+      <span class="sep">|</span>
+      <span class="item"><span class="k" data-i18n="st_snap">吸附: </span><span class="v">16th</span></span>
+      <span class="sep">|</span>
+      <span class="item"><span class="k" data-i18n="st_move">移动音符模式: </span><span class="v">关闭</span></span>
+    </div>
+
+    <!-- ============ CHART AREA ============ -->
+    <div class="chart-area">
+      <!-- ★ 波形图新布局：BF 波形固定在左侧（BF/玩家 Note 区），Opp 波形固定在右侧（Opp/对手 Note 区），
+           互斥逻辑已取消，可同时显示；不再叠加在中间网格上 -->
+      <div class="wave-band wave-bf">
+        <span class="wave-label">BF 波形（主音）</span>
+        <div class="wave-trace"></div>
+        <div class="wave-midline"></div>
+        <span class="wave-tag">Vocals-BF · 对应左侧 4 轨</span>
+      </div>
+      <div class="wave-band wave-opp">
+        <span class="wave-label">Opp 波形（对手音）</span>
+        <div class="wave-trace"></div>
+        <div class="wave-midline"></div>
+        <span class="wave-tag">Vocals-Opp · 对应右侧 4 轨</span>
+      </div>
+
+      <div class="beat-line" style="top:120px;"></div>
+      <div class="beat-line" style="top:280px;"></div>
+      <div class="beat-line" style="top:440px;"></div>
+      <div class="lane-sep" style="left:200px;"></div>
+      <div class="lane-sep" style="left:400px;"></div>
+      <div class="lane-sep" style="left:600px;"></div>
+      <div class="lane-sep" style="left:800px;"></div>
+      <div class="hint">
+        <strong>Chart 网格区域（占位示意）</strong><br>
+        BF 音符轨（左 4 列）｜ Opp 音符轨（右 4 列）<br>
+        两侧波形图各自贴靠对应的音符区域
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <!-- ============ PC 键盘操作总览 ============ -->
+  <div class="keyboard-section">
+    <h3>PC 键盘操作总览（谱面编辑器）</h3>
+    <div class="sub">悬停键位查看说明 · 颜色 = 用途分类 · 绿色 = F1~F8 一级菜单 · 蓝色 = 单键操作 · 橙色 = 组合键（需配合修饰键） · 紫色 = 修饰键</div>
+    <div class="kb-legend">
+      <span class="lg"><span class="swatch" style="background:#0e3d2a;border-color:#2fae77"></span>F1~F8 打开一级菜单</span>
+      <span class="lg"><span class="swatch" style="background:#10375c;border-color:#2d7dbd"></span>单键操作</span>
+      <span class="lg"><span class="swatch" style="background:#423410;border-color:#c9a227"></span>组合键（Ctrl / Shift / Alt + 键）</span>
+      <span class="lg"><span class="swatch" style="background:#33104f;border-color:#9b5bd0"></span>修饰键</span>
+    </div>
+    <div class="kb" id="kb"></div>
+  </div>
+</div>
+
+<script>
+/* ============ 翻译表（含描述） ============ */
+var I18N = {
+  zh: {
+    /* 菜单标题 */
+    menu_charting:"谱面", menu_data:"数据", menu_event:"事件", menu_note:"音符",
+    menu_section:"小节", menu_song:"歌曲", menu_test:"测试", menu_help:"帮助",
+    /* 菜单项标签 */
+    it_metronome:"节拍器", it_autoscroll:"禁用自动滚动（不建议）", it_bpm:"BPM", it_offset:"偏移 (ms)",
+    it_waveInst:"波形图 · 器乐", it_waveMain:"波形图 · 主音", it_waveOpp:"波形图 · 对手音",
+    it_muteInst:"静音器乐", it_muteMain:"静音主音", it_muteOpp:"静音对手音",
+    it_vortex:"Vortex 编辑器", it_ignoreWarnings:"忽略进度警告",
+    it_sfxBf:"校对 BF 音符", it_sfxOpp:"校对 对手音符",
+    it_goChar:"游戏结束角色", it_goSound:"死亡音效", it_goLoop:"循环音乐", it_goEnd:"重试音乐",
+    it_noRgb:"禁用音符 RGB", it_noteSkin:"音符皮肤", it_noteSplash:"音符溅射", it_applyNotes:"应用音符更改",
+    it_eventType:"事件类型", it_val1:"值 1", it_val2:"值 2",
+    it_delEvent:"删除事件", it_addEvent:"添加事件", it_prevEvent:"上一个", it_nextEvent:"下一个",
+    it_susLen:"持续长度", it_strumMs:"击打时间 (ms)", it_noteType:"音符类型",
+    it_mustHit:"玩家小节", it_gfSec:"GF 小节", it_altAnim:"替身动画", it_beatsPerSec:"当前小节节拍",
+    it_changeBpm:"更改 BPM", it_sectionBpm:"小节 BPM",
+    it_copySec:"复制小节", it_pasteSec:"粘贴小节", it_clearSec:"清空小节", it_swapSec:"交换小节", it_copyLastSec:"复制上一小节",
+    it_includeNotes:"包含音符", it_includeEvents:"包含事件", it_duetNotes:"二重奏音符", it_mirrorNotes:"镜像音符",
+    it_songTitle:"歌曲名", it_hasVoice:"人声轨道",
+    it_save:"保存", it_reloadAudio:"重载音频", it_reloadJson:"重载 JSON", it_engine:"引擎",
+    it_loadAutosave:"载入自动保存", it_loadEvents:"载入事件", it_saveEvents:"保存事件",
+    it_clearEvents:"清空事件", it_clearNotes:"清空音符", it_speed:"速度", it_mania:"键数",
+    it_opponent:"对手", it_girlfriend:"女友", it_player:"玩家", it_stage:"舞台",
+    it_testMode:"以测试模式进行", it_normalMode:"以正常模式进行",
+    it_helpNav:"导航", it_helpEdit:"编辑", it_helpPlay:"播放 / 缩放", it_undo:"撤销",
+    /* 状态栏 */
+    st_zoom:"缩放: ", st_tempo:"时间: ", st_sec:"小节: ", st_beat:"节拍: ",
+    st_snap:"吸附: ", st_move:"移动音符模式: ",
+    st_move_on:"开启", st_move_off:"关闭",
+    /* 事件描述面板 */
+    ep_eventTag:"事件", ep_val1:"值 1", ep_val2:"值 2",
+    /* 项描述 */
+    desc_metronome:"打谱时按 BPM 周期发出清脆的节拍声（默认 800Hz 短音），帮助快速对齐节奏、检查节拍偏移；若觉得吵可配合试听静音一起关。",
+    desc_autoscroll:"关闭后谱面不会自动跟随播放位置滚动，需要你手动滚动。这个选项会让整首谱面缩成一张完整的大图，方便整体调整，但是新手不推荐用。",
+    desc_bpm:"歌曲每分钟节拍数。这个值决定了网格里每一格是多少毫秒，也直接影响节拍器、波形显示、拖拽吸附等一切和时间相关的计算。改了以后建议「重载 JSON」确认效果。",
+    desc_offset:"音频输出延迟补偿值，单位毫秒。正值把谱面整体往后挪（用来对齐慢一拍的耳机蓝牙延迟），负值把谱面整体往前挪（应对采样设备提前触发）。建议反复微调，±5ms 基本听不出来，±20ms 开始有影响。",
+    desc_waveInst:"在谱面网格上叠加器乐轨道（Inst.ogg）的波形图。器乐波形能帮你快速找到鼓点、贝斯和底鼓落位，适合配鼓点的谱。",
+    desc_waveMain:"★ 新布局：主音（BF/玩家）波形图固定显示在网格**左侧 BF 音符区**，不再与对手波形互相排斥——可以同时开启。适合盯着左侧玩家段落对拍。",
+    desc_waveOpp:"★ 新布局：对手演唱轨道（Vocals-dad / Vocals-mom 等）波形图固定显示在网格**右侧 Opp 音符区**，可与主音波形同时开启。适合 rap battle 里盯对手段落。",
+    desc_muteInst:"试听时静音器乐（Inst.ogg），只听人声轨道。可以用来仔细检查人声段落的谱是否贴合每一个咬字。",
+    desc_muteMain:"试听时静音主音玩家的演唱，只听器乐 + 对手音。适合需要同时盯对手谱又怕被玩家干扰的情况。",
+    desc_muteOpp:"试听时静音对手的演唱，只听器乐 + 玩家音。检查玩家谱面的细节精度时可以开。",
+    desc_vortex:"启用 Vortex 模式编辑器，可在更多轨道上自由编辑（默认 4K 之外），适合 Mania 模式、双人谱或非常规轨数的歌曲。",
+    desc_ignoreWarnings:"关闭谱面进度相关的红色警告，包括：「音符数量偏少」「整首歌 0 音符」「歌曲时长短于标准谱」等。一般只在做 micro-song / 练习小片段时开。",
+    desc_sfxBf:"放置 BF（玩家）音符时播放一个「卡」的试听音，让你放音符时就知道音头踩不踩点，非常适合对鼓点做精准对位。",
+    desc_sfxOpp:"放置对手音符时播放试听音，功能同上。当对手段落和玩家段落节奏不同步时建议开。",
+    desc_goChar:"游戏结束界面显示的角色精灵名称，和角色表中的对应，比如 bf-pixel、bf、gf-pixel。角色不存在会回退到默认 BF。",
+    desc_goSound:"玩家死亡（连击归零）时立刻播放的音效文件名，要先在 metadata 的 sound 列表里注册，没注册的名字会静默不播放。",
+    desc_goLoop:"游戏结束界面循环播放的背景乐。当玩家连击归零进入 Game Over 屏幕后，这首音乐从头开始循环播放。",
+    desc_goEnd:"玩家选择「重试」时播放的收尾音乐，紧接在 Game Over 循环之后触发。",
+    desc_noRgb:"禁用每一个音符的单独 RGB 着色，统一使用音符皮肤原图中的本色。适合皮肤本身已经画好渐变或特定配色的情况，开了之后性能也会轻微提升。",
+    desc_noteSkin:"音符贴图资产文件名，位于 assets/shared/images/notes/ 目录。只需要填文件名（不含扩展名），引擎会自动加 _left/_down/_up/_right 后缀。",
+    desc_noteSplash:"音符击中时溅射效果的资产名。溅射一般是一张透明 PNG，里面放 4 张不同角度的小溅射图，引擎会按方向挑一张随机旋转。",
+    desc_applyNotes:"把当前选择的音符皮肤 / 溅射 / 禁止 RGB 设置一次性应用到整首歌里已经放好的所有音符上，不用挨个改。改完皮肤直接按这个就行。",
+    desc_eventType:"选择当前事件的类型，右侧描述面板会跟着更新这个事件的具体用法、取值范围、常用示例。",
+    desc_val1:"事件的第一个参数值，含义完全随事件类型变化：相机事件是缩放量，动画事件是角色名，属性事件是属性路径。",
+    desc_val2:"事件的第二个参数值，含义随事件类型变化：相机事件是 HUD 缩放，动画事件是动画名，声音事件是音量。",
+    desc_addEvent:"在当前播放头（那条竖红线）的位置插入一个和当前类型一致的新事件，然后选中它。",
+    desc_delEvent:"删除当前已经选中的事件。删了就没了，不能撤销，删之前先「保存」一次。",
+    desc_prevEvent:"把选中条从当前事件往前跳到时间更小的那一个。",
+    desc_nextEvent:"把选中条从当前事件往后跳到时间更大的那一个。",
+    desc_susLen:"当前音符的持续长度（1 等于一小节中的一个标准拍长）。0 就相当于普通短音符，0.5 是半拍长音。",
+    desc_strumMs:"音符的击打时间（毫秒），即这个音符应该被玩家按下的精确时刻，从歌曲开头 0ms 起算。",
+    desc_noteType:"音符特殊类型：None = 普通，Alt Animation = 替身动画，Hey! = 播放配音，Hurt Note = 击中丢血，GF Sing = 让女友唱一声，No Animation = 不出动画。",
+    desc_mustHit:"开启时本小节由玩家（BF）击打；关闭时由对手击打。每一个 Section 只能选一种，别乱混。",
+    desc_gfSec:"开启时本小节女友（GF）也加入演唱。适合在桥段（Bridge）或副歌时强调女友的参与感。",
+    desc_altAnim:"开启时本小节所有角色自动切换到 alt（替身/替代）动画组，比如 BF 戴上墨镜、女友换姿势等。",
+    desc_beatsPerSec:"本小节的节拍数（默认 4）。改这个就能做 3/4、5/4、7/8 拍这种奇怪拍号的谱，但注意 4 拍是绝对主流，别为了炫技乱改。",
+    desc_changeBpm:"开启后本小节使用独立的「小节 BPM」值，而不是全局 BPM。常用在歌曲中途提速 / 降速的桥段。",
+    desc_sectionBpm:"本小节独立 BPM 值，仅在「更改 BPM」开启时才会生效。如果和全局 BPM 差很多，注意前后两个小节交界处音符吸附会不会错位。",
+    desc_copySec:"复制当前小节的全部内容（玩家音符 + 对手音符 + 事件，视「包含音符 / 事件」勾选）到剪贴板。",
+    desc_pasteSec:"把剪贴板中的上一次小节内容完整粘贴到当前小节。粘贴会覆盖掉原来的内容，注意先备份。",
+    desc_clearSec:"清空当前小节的所有内容（音符、事件全没了）。这是 destructive 操作，无法撤销，记得先保存。",
+    desc_swapSec:"把当前小节里玩家音符和对手音符交换位置（交换 mustHit 归属 + 左右箭头轨道），相当于把一段 Battle 对调。",
+    desc_copyLastSec:"直接将上一小节的内容复制一份到当前小节。做重复段落时非常方便，比复制/粘贴两步省事。",
+    desc_includeNotes:"执行复制 / 粘贴 / 镜像 / 交换 等操作时，是否把音符包含进去。关掉以后只会操作事件。",
+    desc_includeEvents:"执行复制 / 粘贴 / 镜像 / 交换 等操作时，是否把事件（相机、动画、属性等）包含进去。关掉以后只会操作音符。",
+    desc_duetNotes:"把当前小节的音符复制成二重奏：同一时间点玩家和对手都有同样的音符，适合做合唱段落。",
+    desc_mirrorNotes:"把当前小节内的音符左右镜像，左 ↔ 右、下 ↔ 上 互换。镜像的是按键（箭头方向），不是时值。",
+    desc_songTitle:"歌曲标题，也是谱面文件、Inst/Vocals 音频的默认查找名（不含扩展名），所以别瞎写中文，改成英文短名最稳。",
+    desc_hasVoice:"歌曲是否包含独立的人声轨道（Vocals.ogg / Vocals-dad.ogg / Vocals-mom.ogg）。关掉后引擎会尝试只用 Inst.ogg 播放。",
+    desc_save:"保存当前谱面到 charts/ 目录。文件名默认就是「歌曲名.json」，改完谱先点一次再说别的。快捷键 Ctrl+S。",
+    desc_reloadAudio:"重新从磁盘读取歌曲的音频文件。当你在外部替换了 Inst.ogg / Vocals.ogg 后点这个，不用重启编辑器。",
+    desc_reloadJson:"重新从磁盘读取谱面的 JSON 文件。一般是你用记事本/外部编辑器改了 JSON 内容想刷到编辑器里来，或者因为误操作想回退时用。",
+    desc_engine:"切换编辑器引擎的版本号 / 兼容模式。不同引擎版本音符的属性、事件的名字可能不同，老谱导入新引擎时选对这个能省很多兼容性头疼事。",
+    desc_loadAutosave:"加载编辑器的自动保存谱面。编辑器每隔一段时间会把谱面写一份备份到 autosave/ 目录，意外崩溃了就靠这个救命。",
+    desc_loadEvents:"从 events/ 文件夹加载一份 .json 事件文件并合并到当前谱里。事件不会自动去重，加载重复会叠好几层。",
+    desc_saveEvents:"把当前谱中所有的事件单独拎出来保存到 events/ 目录，方便和其他谱共享事件序列（比如同一首歌两套谱用相同相机）。",
+    desc_clearEvents:"清空整首歌的所有事件（相机、动画、SetProperty、声音等全部没了）。这个操作 destructive，不能撤销，一定要先保存。",
+    desc_clearNotes:"清空整首歌的所有音符（全角色、全轨道、全类型）。谱空了但歌曲、节拍、Section 结构还留着，想重写谱直接用这个就行。",
+    desc_speed:"歌曲游玩的速度倍率（1.0 = 原速）。只在编辑器里试听时生效，不影响保存出去的真实谱。常用于放慢检查细节，或加速快速走完全曲。",
+    desc_mania:"Mania 键数（2 ~ 9），影响谱面布局、轨道数、对应键位。默认 FNF 是 4K，改了后网格会从 4 轨变成你选的轨数。",
+    desc_opponent:"对手角色的精灵名，和 assets/shared/images/ 里的角色文件夹名保持一致，不存在会显示成占位黑块。",
+    desc_girlfriend:"女友角色的精灵名。女友一般站在双人中间当装饰，会根据节拍左右摇头。",
+    desc_player:"玩家角色的精灵名。大多数谱默认是 BF，但 mod 里可以替换成你自己的主角。",
+    desc_stage:"舞台背景名，对应 assets/shared/images/stages/ 里的文件夹名，不存在会显示黑色背景。",
+    desc_testMode:"进入 EditorPlayState 试玩模式：保留编辑器辅助信息（节拍器、播放头位置、事件高亮），按键不会真的判定死，用来快速走谱。按 Esc 可以从这里返回编辑器。",
+    desc_normalMode:"以正常游玩模式从当前播放头位置开始（PlayState）：正常判定、正常连击、正常死 Game Over。想真的打一遍谱就选这个，Enter 快捷键。",
+    desc_helpNav:"导航与滚动相关快捷键一览：W/S 滚动、A/D 切小节、↑/↓ 按吸附移动、←/→ 切换量化、L 移动音符模式。",
+    desc_helpEdit:"编辑与剪贴板快捷键一览：E/Q 改持续、Ctrl+C 复制小节、Ctrl+V 粘贴小节、Ctrl+Z 撤销、Ctrl+S 保存。",
+    desc_helpPlay:"播放、缩放与速度控制快捷键一览：Space 播放/暂停、Z/X 缩放、R 重置小节、[ / ] 调速、Esc 试玩、Enter 正常游玩。",
+    desc_undo:"撤销上一步编辑操作。仅对复制/粘贴/清除/交换/镜像等菜单操作生效，音符拖拽类操作不支持撤销。",
+    /* 事件类型描述（事件面板专用） */
+    ev_Nothing:"空事件，不触发任何行为。可用作时间标记。",
+    ev_AddCameraZoom:"让镜头瞬间缩放。值 1 = 整体缩放强度，值 2 = HUD 缩放强度。",
+    ev_PlayAnimation:"让指定角色播放指定动画。值 1 = 角色名（bf / dad / gf），值 2 = 动画名。",
+    ev_SetProperty:"直接设置游戏对象的属性。值 1 = 属性路径，值 2 = 数值（字符串或数字）。",
+    ev_PlaySound:"播放音效文件。值 1 = 文件名（含路径），值 2 = 音量（0 ~ 1）。"
+  },
+  en: {
+    menu_charting:"Charting", menu_data:"Data", menu_event:"Event", menu_note:"Note",
+    menu_section:"Section", menu_song:"Song", menu_test:"Test", menu_help:"Help",
+    it_metronome:"Metronome", it_autoscroll:"Disable Autoscroll (Not Recommended)", it_bpm:"BPM", it_offset:"Offset (ms)",
+    it_waveInst:"Waveform · Instrumental", it_waveMain:"Waveform · Main Vocals", it_waveOpp:"Waveform · Opp. Vocals",
+    it_muteInst:"Mute Instrumental", it_muteMain:"Mute Main Vocals", it_muteOpp:"Mute Opp. Vocals",
+    it_vortex:"Vortex Editor", it_ignoreWarnings:"Ignore Progress Warnings",
+    it_sfxBf:"Play Sound · BF Notes", it_sfxOpp:"Play Sound · Opp. Notes",
+    it_goChar:"Game Over Character", it_goSound:"Death Sound", it_goLoop:"Loop Music", it_goEnd:"Retry Music",
+    it_noRgb:"Disable Note RGB", it_noteSkin:"Note Texture", it_noteSplash:"Note Splashes", it_applyNotes:"Apply Note Changes",
+    it_eventType:"Event Type", it_val1:"Value 1", it_val2:"Value 2",
+    it_delEvent:"Remove Event", it_addEvent:"Add Event", it_prevEvent:"Previous", it_nextEvent:"Next",
+    it_susLen:"Sustain Length", it_strumMs:"Strum Time (ms)", it_noteType:"Note Type",
+    it_mustHit:"Must Hit Section", it_gfSec:"GF Section", it_altAnim:"Alt Animation", it_beatsPerSec:"Beats per Section",
+    it_changeBpm:"Change BPM", it_sectionBpm:"Section BPM",
+    it_copySec:"Copy Section", it_pasteSec:"Paste Section", it_clearSec:"Clear", it_swapSec:"Swap Section", it_copyLastSec:"Copy Last Section",
+    it_includeNotes:"Notes", it_includeEvents:"Events", it_duetNotes:"Duet Notes", it_mirrorNotes:"Mirror Notes",
+    it_songTitle:"Song Title", it_hasVoice:"Has Voice Track",
+    it_save:"Save", it_reloadAudio:"Reload Audio", it_reloadJson:"Reload JSON", it_engine:"Engine",
+    it_loadAutosave:"Load Autosave", it_loadEvents:"Load Events", it_saveEvents:"Save Events",
+    it_clearEvents:"Clear Events", it_clearNotes:"Clear Notes", it_speed:"Speed", it_mania:"Mania",
+    it_opponent:"Opponent", it_girlfriend:"Girlfriend", it_player:"Player", it_stage:"Stage",
+    it_testMode:"Playtest", it_normalMode:"Play Normally",
+    it_helpNav:"Navigation", it_helpEdit:"Editing", it_helpPlay:"Playback / Zoom", it_undo:"Undo",
+    st_zoom:"Zoom: ", st_tempo:"", st_sec:"Section: ", st_beat:"Beat: ",
+    st_snap:"Beat Snap: ", st_move:"Move Note Mode: ",
+    st_move_on:"True", st_move_off:"False",
+    ep_eventTag:"Event", ep_val1:"Value 1", ep_val2:"Value 2",
+    desc_metronome:"Plays a crisp metronome click on every beat (default 800Hz short tone) to help you lock down timing and spot drift. Turn it down in tandem with the mute toggles if the ticking gets annoying.",
+    desc_autoscroll:"When off, the chart grid won't auto-follow the playhead. The whole song appears as one long scroll — great for large-scale arrangement tweaks, but definitely not for beginners.",
+    desc_bpm:"Beats per minute. Drives every time-related calculation in the editor: grid cell size, metronome, waveform rendering, drag snapping, and playback ticks. If you change this, hit Reload JSON to double-check the grid.",
+    desc_offset:"Audio output latency compensation (ms). Positive values push the entire chart later in time (handles BT headphone lag); negative values pull it earlier (fights oversampling / pre-trigger). A difference of ±5ms is usually inaudible; at ±20ms you'll clearly feel it.",
+    desc_waveInst:"Overlay the instrumental track waveform (Inst.ogg) on the grid. Instrumental waveforms make kick / snare / bass hits visible at a glance — ideal for aligning drum-heavy charts.",
+    desc_waveMain:"★ New layout: the main (BF/player) vocal waveform is pinned to the LEFT side of the grid (BF note lanes) and no longer conflicts with the opponent waveform — both can be ON at once.",
+    desc_waveOpp:"★ New layout: the opponent vocal waveform (Vocals-dad / Vocals-mom / etc.) is pinned to the RIGHT side (opponent note lanes) and can be shown together with the main waveform.",
+    desc_muteInst:"Mute the instrumental (Inst.ogg) during playback so you can isolate vocals and check that every syllable is properly charted.",
+    desc_muteMain:"Mute the player's main vocal, leaving only instrumental + opponent vocals. Good for focusing on the opponent side of a battle without hearing BF cues.",
+    desc_muteOpp:"Mute the opponent vocal, leaving only instrumental + player vocal. Use for fine-grained inspection of the player's chart accuracy.",
+    desc_vortex:"Enable Vortex editor mode, which unlocks free editing across more than the default 4 lanes. Pick this for mania charts, dual-player charts, or non-standard lane counts.",
+    desc_ignoreWarnings:"Suppress the red progress warnings (too few notes, zero notes, song length below the standard threshold, etc.). Only turn this on for micro-songs or short practice clips.",
+    desc_sfxBf:"Play a sharp 'tick' sound each time you place a BF (player) note. Instantly tells you if the note attack sits on the beat; perfect for precise drum mapping.",
+    desc_sfxOpp:"Play a tick when placing opponent notes. Same benefit as above — turn it on when the opponent's rhythm diverges from the player's.",
+    desc_goChar:"Character sprite shown on the Game Over screen. Must match the character table name (e.g., bf-pixel, bf, gf-pixel). Falls back to default BF if missing.",
+    desc_goSound:"Sound file played the instant the player dies (combo hits 0). Has to be registered in the metadata sounds list; unknown names are silently skipped.",
+    desc_goLoop:"Looping background music for the Game Over screen. Plays on repeat from the moment the player lands on the Game Over panel.",
+    desc_goEnd:"Short end-music clip played right before the editor retries the song after Game Over.",
+    desc_noRgb:"Disable per-note RGB tinting so every note uses its skin's original colors. Use this when the skin already comes with gradients or themed tints. Also gives a tiny performance boost.",
+    desc_noteSkin:"Base filename of the note textures, found under assets/shared/images/notes/. The engine automatically appends _left / _down / _up / _right.",
+    desc_noteSplash:"Asset name for the note-hit splash effect. Splash files are transparent PNGs holding 4 small splash sprites; the engine picks one and randomly rotates it.",
+    desc_applyNotes:"Bulk-apply the current note skin / splash / no-RGB settings to every note that's already been placed in the chart. One click instead of patching each note by hand.",
+    desc_eventType:"Choose the type of the current event. The description panel on the right updates with the precise meaning of Value 1 / Value 2, recommended ranges, and common patterns.",
+    desc_val1:"First parameter for the event. Its meaning changes per type: zoom amount for camera events, character name for animation events, property path for SetProperty.",
+    desc_val2:"Second parameter for the event. Zoom events use it for HUD zoom; animation events take the animation id; sound events use it for volume.",
+    desc_addEvent:"Insert a brand new event of the currently selected type at the playhead (that red vertical line), and auto-select it.",
+    desc_delEvent:"Delete the currently selected event permanently. There's no undo, so hit Save before deleting anything important.",
+    desc_prevEvent:"Move selection backward to the previous event in chronological order.",
+    desc_nextEvent:"Move selection forward to the next event in chronological order.",
+    desc_susLen:"Sustain length, measured in beats (1 = one standard beat). 0 gives you a short tap, 0.5 a half-beat hold, 2 a two-beat hold, etc.",
+    desc_strumMs:"The exact millisecond moment (counted from song start) at which the note should be hit by the player.",
+    desc_noteType:"Marks a note as special. Choices: None = normal, Alt Animation = uses the alt animation group, Hey! = plays the VO clip, Hurt Note = damages on hit, GF Sing = triggers GF sing, No Animation = silent visually.",
+    desc_mustHit:"When ON this section is played by BF (the player); when OFF it's played by the opponent. Choose one per section, don't mix and match randomly.",
+    desc_gfSec:"When ON, girlfriend (GF) sings along during this section. Useful for bridges or choruses where you want to emphasize GF's presence.",
+    desc_altAnim:"When ON, every character switches to the 'alt' animation set for this section (e.g., BF puts on sunglasses, GF strikes a new pose).",
+    desc_beatsPerSec:"How many beats fit inside this section (default 4). Change to get weird time signatures: 3/4, 5/4, 7/8, etc. 4 beats is the overwhelming FNF standard.",
+    desc_changeBpm:"When ON, this section uses the Section BPM value instead of the global song BPM. Use for mid-song tempo changes.",
+    desc_sectionBpm:"Independent BPM value for this section. Only active when 'Change BPM' is ON. Watch out for misaligned snaps when adjacent sections differ greatly.",
+    desc_copySec:"Copy the entire current section (player notes + opponent notes + events) to the clipboard, respecting the 'Include Notes' / 'Include Events' toggles.",
+    desc_pasteSec:"Paste whatever is in the clipboard as the new contents of the current section. Paste overwrites — so take a backup or save first.",
+    desc_clearSec:"Wipe every note and event out of the current section. Fully destructive, non-reversible — save before clearing.",
+    desc_swapSec:"Swap ownership (mustHit) plus arrow directions between the player and the opponent in this section — essentially mirroring the battle.",
+    desc_copyLastSec:"Duplicate the whole previous section into the current one. Huge time-saver for repeated choruses or verse/chorus loops.",
+    desc_includeNotes:"Whether copy / paste / mirror / swap operations should touch notes. Turn off to manipulate only the event layer.",
+    desc_includeEvents:"Whether copy / paste / mirror / swap operations should touch events. Turn off to manipulate only the note layer.",
+    desc_duetNotes:"Clone every note in this section so the player AND opponent strike identical notes simultaneously. Used for chorus duets.",
+    desc_mirrorNotes:"Horizontally mirror the current section: left ↔ right arrows, down ↔ up arrows. Mirrors direction only, not timing.",
+    desc_songTitle:"Song title, which also doubles as the default lookup name for chart and audio files (sans extension). Stick to short English names for maximum sanity.",
+    desc_hasVoice:"Whether the song ships with a separate vocal track (Vocals.ogg / Vocals-dad.ogg / Vocals-mom.ogg). When OFF, the engine only tries to play Inst.ogg.",
+    desc_save:"Save the current chart JSON to the charts/ directory using the song title as the filename. Press this early, press this often. Ctrl+S shortcut.",
+    desc_reloadAudio:"Re-read all song audio files from disk. Use this right after swapping Inst.ogg or Vocals.ogg externally — no need to restart the editor.",
+    desc_reloadJson:"Reload the chart JSON file from disk. Use when you edited the JSON in a text editor and want the changes reflected, or to discard in-memory mistakes.",
+    desc_engine:"Switch engine version / compatibility mode. Different engines have slightly different note properties and event names; picking the right one here saves tons of compatibility headaches with older charts.",
+    desc_loadAutosave:"Load the editor's latest auto-saved chart from the autosave/ directory. This is your parachute after a crash or an unsaved bad edit.",
+    desc_loadEvents:"Merge an event JSON file from the events/ folder into the current chart. Events are NOT de-duplicated on load — duplicates stack.",
+    desc_saveEvents:"Export only the event list out of the current chart and save it to events/. Lets you share an event sequence (cameras, etc.) between multiple charts of the same song.",
+    desc_clearEvents:"Permanently erase every single event in the entire song (cameras, animations, SetProperty, sounds, the lot). No undo. Save first. Please.",
+    desc_clearNotes:"Permanently erase every note in the song — all characters, all lanes, all types. Leaves BPM, sections, and stage information intact so you can rewrite the chart cleanly.",
+    desc_speed:"Playback speed multiplier (1.0 = original song speed). Only affects playback inside the editor; saved charts stay at 1.0. Use < 1.0 for detail inspection, > 1.0 for fast sanity passes.",
+    desc_mania:"Mania lane count (2 – 9). Controls both the visual grid and the keybind layout. Vanilla FNF is 4K; changing this rerenders the grid with the chosen number of lanes.",
+    desc_opponent:"Sprite name of the opponent character. Folder must exist under assets/shared/images/. A missing name renders as a black placeholder.",
+    desc_girlfriend:"Sprite name of girlfriend. She decorates the middle of the stage and bops her head to the beat.",
+    desc_player:"Sprite name of the player character. Usually BF, but you can plug in any protagonist of your mod.",
+    desc_stage:"Name of the stage / background asset, matching a folder in assets/shared/images/stages/. A missing stage name leaves the background black.",
+    desc_testMode:"Enter EditorPlayState test mode: overlays stay on, judgement leniency is relaxed, and you can press Esc to drop back into the editor without dying. For quick chart walkthroughs.",
+    desc_normalMode:"Launch the normal PlayState from the current playhead. Full real judgement, real combo, real Game Over. Choose this if you actually want to play-test the chart for real. Enter shortcut.",
+    desc_helpNav:"Navigation & scrolling shortcuts: W/S scroll, A/D section, Up/Down snap-move, Left/Right quantization, L move-note mode.",
+    desc_helpEdit:"Editing & clipboard shortcuts: E/Q sustain, Ctrl+C copy section, Ctrl+V paste section, Ctrl+Z undo, Ctrl+S save.",
+    desc_helpPlay:"Playback, zoom & speed shortcuts: Space play/pause, Z/X zoom, R reset section, [ / ] speed, Esc playtest, Enter normal play.",
+    desc_undo:"Undo the last edit. Only applies to menu operations like copy/paste/clear/swap/mirror; note-drag edits are not undoable.",
+    ev_Nothing:"Empty event. Triggers nothing. Useful as a time marker.",
+    ev_AddCameraZoom:"Punch the camera zoom. Value 1 = game zoom amount, Value 2 = HUD zoom amount.",
+    ev_PlayAnimation:"Play an animation on a character. Value 1 = character (bf/dad/gf), Value 2 = animation name.",
+    ev_SetProperty:"Set a game object property directly. Value 1 = property path, Value 2 = value (string or number).",
+    ev_PlaySound:"Play a sound file. Value 1 = filename (with path), Value 2 = volume (0-1)."
+  },
+  pt: {
+    menu_charting:"Charting", menu_data:"Dados", menu_event:"Evento", menu_note:"Nota",
+    menu_section:"Seção", menu_song:"Música", menu_test:"Testar", menu_help:"Ajuda",
+    it_metronome:"Metrônomo", it_autoscroll:"Desativar Rolagem Auto (Não Recomendado)", it_bpm:"BPM", it_offset:"Deslocamento (ms)",
+    it_waveInst:"Onda · Instrumental", it_waveMain:"Onda · Vocais Principais", it_waveOpp:"Onda · Vocais Opositor",
+    it_muteInst:"Silenciar Instrumental", it_muteMain:"Silenciar Vocais Principais", it_muteOpp:"Silenciar Vocais Opositor",
+    it_vortex:"Editor Vortex", it_ignoreWarnings:"Ignorar Avisos de Progresso",
+    it_sfxBf:"Tocar Som · Notas BF", it_sfxOpp:"Tocar Som · Notas Opositor",
+    it_goChar:"Personagem Game Over", it_goSound:"Som de Morte", it_goLoop:"Música de Loop", it_goEnd:"Música de Tentar de Novo",
+    it_noRgb:"Desativar RGB das Notas", it_noteSkin:"Textura da Nota", it_noteSplash:"Respingos da Nota", it_applyNotes:"Aplicar Mudanças de Nota",
+    it_eventType:"Tipo de Evento", it_val1:"Valor 1", it_val2:"Valor 2",
+    it_delEvent:"Remover Evento", it_addEvent:"Adicionar Evento", it_prevEvent:"Anterior", it_nextEvent:"Próximo",
+    it_susLen:"Duração do Sustain", it_strumMs:"Tempo do Strum (ms)", it_noteType:"Tipo de Nota",
+    it_mustHit:"Seção do Jogador", it_gfSec:"Seção GF", it_altAnim:"Animação Alternativa", it_beatsPerSec:"Batidas por Seção",
+    it_changeBpm:"Mudar BPM", it_sectionBpm:"BPM da Seção",
+    it_copySec:"Copiar Seção", it_pasteSec:"Colar Seção", it_clearSec:"Limpar", it_swapSec:"Trocar Seção", it_copyLastSec:"Copiar Última Seção",
+    it_includeNotes:"Notas", it_includeEvents:"Eventos", it_duetNotes:"Notas em Dueto", it_mirrorNotes:"Espelhar Notas",
+    it_songTitle:"Título da Música", it_hasVoice:"Tem Faixa Vocal",
+    it_save:"Salvar", it_reloadAudio:"Recarregar Áudio", it_reloadJson:"Recarregar JSON", it_engine:"Engine",
+    it_loadAutosave:"Carregar Auto-Save", it_loadEvents:"Carregar Eventos", it_saveEvents:"Salvar Eventos",
+    it_clearEvents:"Limpar Eventos", it_clearNotes:"Limpar Notas", it_speed:"Velocidade", it_mania:"Mania",
+    it_opponent:"Opositor", it_girlfriend:"Namorada", it_player:"Jogador", it_stage:"Palco",
+    it_testMode:"Jogar em Modo de Teste", it_normalMode:"Jogar no Modo Normal",
+    it_helpNav:"Navegação", it_helpEdit:"Edição", it_helpPlay:"Reprodução / Zoom", it_undo:"Desfazer",
+    st_zoom:"Zoom: ", st_tempo:"", st_sec:"Seção: ", st_beat:"Batida: ",
+    st_snap:"Snap do Beat: ", st_move:"Mover Nota: ",
+    st_move_on:"Ligado", st_move_off:"Desligado",
+    ep_eventTag:"Evento", ep_val1:"Valor 1", ep_val2:"Valor 2",
+    desc_metronome:"Toca um clique seco em cada batida (tom curto de 800Hz por padrão) para ajudar você a alinhar o tempo e perceber desvios. Combine com os mutes se o clique ficar irritante.",
+    desc_autoscroll:"Quando desligado, a grade não segue automaticamente a posição de reprodução. A música toda fica visível como um grande mapa — ótimo para ajustes de arranjo em larga escala, mas definitivamente não para iniciantes.",
+    desc_bpm:"Batidas por minuto. Este valor comanda TODOS os cálculos temporais do editor: tamanho das células, metrônomo, renderização das formas de onda, snap do arrasto e ticks de reprodução. Se mudar, clique em Recarregar JSON para confirmar a grade.",
+    desc_offset:"Compensação de latência de áudio (ms). Valores positivos empurram todo o chart para a frente (ajusta atraso de fone BT); valores negativos o puxam para trás (corrige pré-trigger). Uma diferença de ±5ms é imperceptível; a ±20ms você já sente.",
+    desc_waveInst:"Sobrepõe a forma de onda do instrumental (Inst.ogg) sobre a grade. Ajuda a enxergar chimbas, caixas e baixo rapidamente — perfeito para charts bem rítmicos / de bateria.",
+    desc_waveMain:"★ Novo layout: a forma de onda dos vocais principais (BF/jogador) fica fixada no LADO ESQUERDO da grade (pistas do BF) e não conflita mais com a do opositor — as duas podem ficar ligadas juntas.",
+    desc_waveOpp:"★ Novo layout: a forma de onda dos vocais do opositor (Vocals-dad / Vocals-mom etc.) fica fixada no LADO DIREITO (pistas do opositor) e pode ser exibida junto com a principal.",
+    desc_muteInst:"Silenciar o instrumental (Inst.ogg) durante a reprodução para isolar só os vocais e conferir se cada sílaba está no lugar.",
+    desc_muteMain:"Silenciar os vocais principais do jogador, deixando só instrumental + opositor. Bom para focar no lado do opositor sem a voz do BF te distrair.",
+    desc_muteOpp:"Silenciar os vocais do opositor, deixando só instrumental + jogador. Use para inspecionar com precisão a qualidade do chart do jogador.",
+    desc_vortex:"Ativa o modo editor Vortex, que libera edição livre em mais do que as 4 pistas padrão. Use para charts mania, duplos jogadores ou quantidades não convencionais de pistas.",
+    desc_ignoreWarnings:"Desativa os avisos vermelhos de progresso (notas insuficientes, 0 notas, duração abaixo do limiar etc.). Só ligue isto para micro-songs ou trechos curtos de treino.",
+    desc_sfxBf:"Toca um 'tic' curto sempre que você colocar uma nota do BF (jogador). Diz instantaneamente se o ataque da nota cai no compasso — ideal para mapeamento preciso da bateria.",
+    desc_sfxOpp:"Toca um tic ao colocar notas do opositor. Mesma vantagem do item acima — ligue quando o ritmo do opositor for diferente do jogador.",
+    desc_goChar:"Sprite do personagem mostrado na tela de Game Over. Precisa bater com o nome da tabela de personagens (ex.: bf-pixel, bf, gf-pixel). Usa o BF padrão se faltar.",
+    desc_goSound:"Arquivo de som tocado no exato momento que o jogador morre (combo vai a 0). Tem que estar cadastrado na lista de sons do metadata; nomes desconhecidos são silenciosamente ignorados.",
+    desc_goLoop:"Música de fundo em loop na tela de Game Over. Começa a tocar no momento em que o jogador cai no painel de Game Over.",
+    desc_goEnd:"Áudio curto de finalização tocado logo antes de o editor tentar novamente a música.",
+    desc_noRgb:"Desativa a coloração RGB de cada nota, fazendo todas usarem as cores originais da skin. Use quando a skin já tiver gradientes ou temas próprios. Também dá um pequeno ganho de performance.",
+    desc_noteSkin:"Nome base do arquivo com as texturas das notas, localizado em assets/shared/images/notes/. O engine automaticamente concatena _left / _down / _up / _right.",
+    desc_noteSplash:"Nome do asset do efeito de respingo quando a nota é acertada. São PNGs transparentes com 4 pequenos respingos; o engine escolhe um e rotaciona aleatoriamente.",
+    desc_applyNotes:"Aplica em lote as configurações atuais de skin / respingo / sem-RGB em todas as notas já colocadas no chart. Um clique em vez de ajustar uma por uma.",
+    desc_eventType:"Selecione o tipo do evento atual. O painel de descrição à direita atualiza com o significado exato de Valor 1 / Valor 2, intervalos recomendados e padrões comuns.",
+    desc_val1:"Primeiro parâmetro do evento. O significado muda por tipo: quantidade de zoom para câmera, nome do personagem para animação, caminho da propriedade para SetProperty.",
+    desc_val2:"Segundo parâmetro do evento. Eventos de câmera usam para o zoom do HUD; eventos de animação recebem o id da animação; eventos de som usam para o volume.",
+    desc_addEvent:"Insere um evento novinho do tipo selecionado exatamente na cabeça de reprodução (aquela linha vermelha vertical) e já deixa selecionado.",
+    desc_delEvent:"Apaga o evento atualmente selecionado de forma permanente. Não tem desfazer; clique em Salvar antes de apagar alguma coisa importante.",
+    desc_prevEvent:"Move a seleção para trás, ao evento anterior na ordem cronológica.",
+    desc_nextEvent:"Move a seleção para a frente, ao próximo evento na ordem cronológica.",
+    desc_susLen:"Duração do sustain da nota, medido em batidas (1 = uma batida padrão). 0 vira nota curta, 0.5 é meia batida, 2 é duas batidas, etc.",
+    desc_strumMs:"Momento exato em milissegundos (contado do começo da música) em que a nota deve ser acertada pelo jogador.",
+    desc_noteType:"Marca a nota como especial. Opções: None = normal, Alt Animation = usa grupo de animação alt, Hey! = toca o clipe de VO, Hurt Note = dá dano ao acertar, GF Sing = dispara GF cantando, No Animation = visual silencioso.",
+    desc_mustHit:"Quando Ligado, esta seção é tocada pelo BF (jogador); quando Desligado, pelo opositor. Escolha um por seção — não fique misturando aleatoriamente.",
+    desc_gfSec:"Quando Ligado, a namorada (GF) canta junto nesta seção. Use em pontes ou refrões para enfatizar a participação dela.",
+    desc_altAnim:"Quando Ligado, todos os personagens usam o conjunto de animações 'alt' nesta seção (ex.: BF de óculos escuros, GF em nova pose).",
+    desc_beatsPerSec:"Quantas batidas cabem nesta seção (padrão 4). Mude para fazer compassos exóticos: 3/4, 5/4, 7/8 etc. 4 batidas é o padrão absoluto do FNF.",
+    desc_changeBpm:"Quando Ligado, esta seção usa o BPM da seção ao invés do BPM global da música. Use para mudanças de andamento no meio da música.",
+    desc_sectionBpm:"BPM independente da seção. Só ativo quando 'Mudar BPM' estiver ligado. Tome cuidado com snaps desalinhados quando seções adjacentes tiverem BPMs muito diferentes.",
+    desc_copySec:"Copia toda a seção atual (notas do jogador + notas do opositor + eventos) para a área de transferência, respeitando 'Incluir Notas' / 'Incluir Eventos'.",
+    desc_pasteSec:"Cola o conteúdo da área de transferência como novo conteúdo da seção atual. Colar sobrescreve — faça backup ou salve antes.",
+    desc_clearSec:"Apaga TUDO (notas + eventos) da seção atual. 100% destrutivo, não reversível — salve antes de limpar.",
+    desc_swapSec:"Troca a propriedade (mustHit) e a direção das setas entre jogador e opositor nesta seção — essencialmente espelhando a battle.",
+    desc_copyLastSec:"Duplica toda a seção anterior para a atual. Economiza horrores em refrões repetidos ou loops verso/refrão.",
+    desc_includeNotes:"Se as operações copiar / colar / espelhar / trocar devem tocar nas notas. Desligue para mexer só na camada de eventos.",
+    desc_includeEvents:"Se as operações copiar / colar / espelhar / trocar devem tocar nos eventos. Desligue para mexer só na camada de notas.",
+    desc_duetNotes:"Clona cada nota desta seção para que jogador E opositor acertem idênticas simultaneamente. Usado em duetos de refrão.",
+    desc_mirrorNotes:"Espelha horizontalmente esta seção: setas ↔ esquerda-direita, baixo ↔ cima. Espelha só a direção, não o tempo.",
+    desc_songTitle:"Título da música, que também serve como nome padrão para procurar chart e arquivos de áudio (sem extensão). Use nomes curtos em inglês para máxima sanidade.",
+    desc_hasVoice:"Se a música vem com faixa vocal separada (Vocals.ogg / Vocals-dad.ogg / Vocals-mom.ogg). Desligado, o engine tenta tocar só o Inst.ogg.",
+    desc_save:"Salva o JSON do chart atual na pasta charts/ usando o título da música como nome do arquivo. Clique sempre, clique sempre. Atalho Ctrl+S.",
+    desc_reloadAudio:"Relê todos os arquivos de áudio da música do disco. Use logo depois de substituir Inst.ogg ou Vocals.ogg externamente — não precisa reiniciar o editor.",
+    desc_reloadJson:"Recarrega o arquivo JSON do chart do disco. Use quando você editou o JSON num editor de texto e quer refletir as alterações, ou para descartar alterações na memória.",
+    desc_engine:"Troca a versão do engine / modo de compatibilidade. Engines diferentes têm propriedades de notas e nomes de eventos levemente distintos; escolher o correto aqui evita muitas dores de cabeça com charts antigos.",
+    desc_loadAutosave:"Carrega o último chart salvo automaticamente pelo editor, da pasta autosave/. Este é o seu paraquedas depois de um crash ou edição ruim não salva.",
+    desc_loadEvents:"Mescla um arquivo JSON de eventos da pasta events/ dentro do chart atual. Eventos duplicados NÃO são removidos — eles se acumulam.",
+    desc_saveEvents:"Exporta apenas a lista de eventos do chart atual e salva em events/. Permite compartilhar uma sequência de eventos (câmeras etc.) entre vários charts da mesma música.",
+    desc_clearEvents:"Apaga PERMANENTEMENTE todos os eventos da música inteira (câmeras, animações, SetProperty, sons, tudo). Sem desfazer. Salve antes. Por favor.",
+    desc_clearNotes:"Apaga PERMANENTEMENTE todas as notas da música — todos os personagens, pistas e tipos. Deixa intactas BPM, seções e palco, para você reescrever o chart do zero.",
+    desc_speed:"Multiplicador de velocidade de reprodução (1.0 = original). Só afeta a reprodução DENTRO do editor; o chart salvo continua em 1.0. Use < 1.0 para inspecionar detalhes, > 1.0 para uma passada rápida.",
+    desc_mania:"Número de pistas do Mania (2 a 9). Controla tanto a grade visual quanto o layout das teclas. FNF vanilla é 4K; mudar rerenderiza a grade com o número escolhido de pistas.",
+    desc_opponent:"Nome do sprite do personagem opositor. A pasta precisa existir em assets/shared/images/. Se faltar, aparece um bloco preto como placeholder.",
+    desc_girlfriend:"Nome do sprite da namorada. Ela decora o meio do palco e balança a cabeça no ritmo das batidas.",
+    desc_player:"Nome do sprite do personagem do jogador. Geralmente BF, mas você pode colocar qualquer protagonista do seu mod.",
+    desc_stage:"Nome do asset do palco / fundo, correspondente a uma pasta em assets/shared/images/stages/. Se faltar, o fundo fica preto.",
+    desc_testMode:"Entra no modo de teste EditorPlayState: overlays permanecem, julgamento é mais tolerante, e você aperta Esc para voltar ao editor sem morrer. Para conferir o chart rapidamente.",
+    desc_normalMode:"Inicia o PlayState normal a partir da cabeça de reprodução. Julgamento real, combo real, Game Over de verdade. Escolha isto se você quer jogar-testar o chart como ele será. Atalho Enter.",
+    ev_Nothing:"Evento vazio. Não dispara nada. Útil como marcador de tempo.",
+    ev_AddCameraZoom:"Dá um punch no zoom da câmera. Valor 1 = zoom do jogo, Valor 2 = zoom do HUD.",
+    ev_PlayAnimation:"Toca uma animação num personagem. Valor 1 = personagem (bf/dad/gf), Valor 2 = nome da animação.",
+    ev_SetProperty:"Define uma propriedade de objeto do jogo. Valor 1 = caminho, Valor 2 = valor (string ou número).",
+    ev_PlaySound:"Toca um arquivo de som. Valor 1 = nome (com caminho), Valor 2 = volume (0-1)."
+  }
+};
+
+var curLang = "zh";
+
+/* ============ 描述条：hover 时切换文字 ============ */
+function bindDescBar() {
+  document.querySelectorAll(".dropdown.has-hover").forEach(function (dd) {
+    var descText = dd.querySelector(".desc-text");
+    if (!descText) return;
+    dd.querySelectorAll("[data-desc]").forEach(function (row) {
+      row.addEventListener("mouseenter", function () {
+        var key = row.getAttribute("data-desc");
+        var txt = I18N[curLang][key];
+        if (txt) descText.textContent = txt;
+      });
+    });
+    dd.addEventListener("mouseleave", function () {
+      descText.textContent = "";
+    });
+  });
+}
+
+/* ============ 事件描述面板 ============ */
+function updateEventPanel() {
+  var sel = document.getElementById("eventTypeSelect");
+  if (!sel) return;
+  var type = sel.value;
+  var nameEl = document.getElementById("epName");
+  var descEl = document.getElementById("epDesc");
+  var v1El = document.getElementById("epVal1");
+  var v2El = document.getElementById("epVal2");
+  if (!nameEl || !descEl) return;
+  nameEl.textContent = type;
+  var key = "ev_" + type.replace(/[^A-Za-z0-9]/g, "");
+  descEl.textContent = I18N[curLang][key] || "";
+  // 同步值 1 / 值 2 输入
+  var v1Input = document.querySelectorAll('#event .row.val input')[0];
+  var v2Input = document.querySelectorAll('#event .row.val input')[1];
+  if (v1El && v1Input) v1El.textContent = v1Input.value;
+  if (v2El && v2Input) v2El.textContent = v2Input.value;
+}
+
+function bindEventPanel() {
+  var sel = document.getElementById("eventTypeSelect");
+  if (sel) sel.addEventListener("change", updateEventPanel);
+  var v1 = document.querySelectorAll('#event .row.val input')[0];
+  var v2 = document.querySelectorAll('#event .row.val input')[1];
+  if (v1) v1.addEventListener("input", updateEventPanel);
+  if (v2) v2.addEventListener("input", updateEventPanel);
+}
+
+/* ============ 打开 / 关闭菜单 ============ */
+function closeAllMenus() {
+  document.querySelectorAll("#menubar .menu").forEach(function (m) { m.classList.remove("open"); });
+}
+document.querySelectorAll("#menubar .menu").forEach(function (menu) {
+  var btn = menu.querySelector(".menu-title");
+  btn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    var wasOpen = menu.classList.contains("open");
+    closeAllMenus();
+    if (!wasOpen) {
+      menu.classList.add("open");
+      if (menu.dataset.key === "event") updateEventPanel();
+    }
+  });
+});
+
+/* ============ checkbox / command ============ */
+document.querySelectorAll(".dropdown .row.check.hoverable").forEach(function (row) {
+  row.addEventListener("click", function (e) { e.stopPropagation(); row.classList.toggle("on"); });
+});
+document.querySelectorAll(".dropdown .row.val input, .dropdown .row.sel select").forEach(function (el) {
+  el.addEventListener("click", function (e) { e.stopPropagation(); });
+});
+document.querySelectorAll(".dropdown .row.cmd").forEach(function (row) {
+  row.addEventListener("click", function (e) {
+    e.stopPropagation();
+    var lbl = row.querySelector(".lbl").textContent;
+    toast(lbl + "（原型演示）");
+    closeAllMenus();
+  });
+});
+document.addEventListener("click", closeAllMenus);
+document.addEventListener("keydown", function (e) {
+  if (e.key === "Escape") closeAllMenus();
+});
+
+/* ============ 翻译切换 ============ */
+function applyLang(lang) {
+  curLang = lang;
+  var t = I18N[lang];
+  if (!t) return;
+  document.querySelectorAll("[data-i18n]").forEach(function (el) {
+    var k = el.getAttribute("data-i18n");
+    if (t[k] !== undefined) el.textContent = t[k];
+  });
+  document.querySelectorAll("[data-i18n-row]").forEach(function (row) {
+    var k = row.getAttribute("data-i18n-row");
+    var lbl = row.querySelector(".lbl");
+    if (lbl && t[k] !== undefined) lbl.textContent = t[k];
+  });
+  var stMove = document.querySelector("#statusbar .item:last-child .v");
+  if (stMove) stMove.textContent = t.st_move_off;
+  updateEventPanel();
+}
+document.querySelectorAll(".controls button[data-lang]").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    document.querySelectorAll(".controls button[data-lang]").forEach(function (b) { b.classList.remove("active"); });
+    btn.classList.add("active");
+    applyLang(btn.dataset.lang);
+  });
+});
+
+/* ============ toast ============ */
+function toast(msg) {
+  var el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(function () { el.classList.remove("show"); }, 1400);
+}
+
+bindDescBar();
+bindEventPanel();
+updateEventPanel();
+
+/* ============ PC 键盘图渲染 ============ */
+var KB_ROWS = [
+  [
+    { k:"Esc", c:"used-single", h:"试玩模式（EditorPlayState）" },
+    { k:"F1", c:"used-menu", h:"打开【谱面】菜单" },
+    { k:"F2", c:"used-menu", h:"打开【数据】菜单" },
+    { k:"F3", c:"used-menu", h:"打开【事件】菜单" },
+    { k:"F4", c:"used-menu", h:"打开【音符】菜单" },
+    { k:"F5", c:"used-menu", h:"打开【小节】菜单" },
+    { k:"F6", c:"used-menu", h:"打开【歌曲】菜单" },
+    { k:"F7", c:"used-menu", h:"打开【测试】菜单" },
+    { k:"F8", c:"used-menu", h:"打开【帮助】菜单" },
+    { k:"PrtSc" }, { k:"ScrLk" }, { k:"Pause" }
+  ],
+  [
+    { k:"`", c:"used-combo", h:"K + ` = 设置 Mania 为 1K" },
+    { k:"1", c:"used-single", h:"Vortex 轨道 1 放置/删除音符；K + 1 = Mania 2K" },
+    { k:"2", c:"used-single", h:"Vortex 轨道 2；K + 2 = Mania 3K" },
+    { k:"3", c:"used-single", h:"Vortex 轨道 3；K + 3 = Mania 4K" },
+    { k:"4", c:"used-single", h:"Vortex 轨道 4；K + 4 = Mania 5K" },
+    { k:"5", c:"used-single", h:"Vortex 轨道 5；K + 5 = Mania 6K" },
+    { k:"6", c:"used-single", h:"Vortex 轨道 6；K + 6 = Mania 7K" },
+    { k:"7", c:"used-single", h:"Vortex 轨道 7；K + 7 = Mania 8K" },
+    { k:"8", c:"used-single", h:"Vortex 轨道 8；K + 8 = Mania 9K" },
+    { k:"9", c:"used-combo", h:"K + 9 = Mania 10K" },
+    { k:"0" }, { k:"-" }, { k:"=" },
+    { k:"Backspace", c:"used-single", h:"自动保存并返回主菜单", w:"wide1" }
+  ],
+  [
+    { k:"Tab", c:"used-combo", h:"切换面板；Ctrl+Shift+Tab = 打开/关闭 Vortex", w:"wide1" },
+    { k:"Q", c:"used-single", h:"缩短持续长度；Ctrl+Shift+Q = 重载音频" },
+    { k:"W", c:"used-single", h:"向上滚动（Ctrl+W 慢速 / Shift+W 快速）；Ctrl+Shift+W = 重载 JSON" },
+    { k:"E", c:"used-single", h:"延长持续长度；Ctrl+Shift+E = 载入自动保存" },
+    { k:"R", c:"used-single", h:"重置小节；Ctrl+Shift+R = 载入事件" },
+    { k:"T" }, { k:"Y" },
+    { k:"U", c:"used-single", h:"玩家小节；Ctrl+U = 交换小节；Alt+U = BF 波形图；Alt+Ctrl+U = 静音 BF" },
+    { k:"I", c:"used-single", h:"GF 小节；Ctrl+I = 二重奏；Alt+I = Inst 波形图；Alt+Ctrl+I = 静音 Inst" },
+    { k:"O", c:"used-single", h:"Opponents 小节；Ctrl+O = 镜像音符；Alt+O = Opp 波形图；Alt+Ctrl+O = 静音 Opp" },
+    { k:"P" },
+    { k:"[", c:"used-single", h:"播放速度 -0.01（Shift+[ 连续；Alt+[ 重置 1.0）" },
+    { k:"]", c:"used-single", h:"播放速度 +0.01（Shift+] 连续；Alt+] 重置 1.0）" },
+    { k:"\\" }
+  ],
+  [
+    { k:"Caps", w:"wide1" },
+    { k:"A", c:"used-single", h:"上一个 小节" },
+    { k:"S", c:"used-single", h:"向下滚动；Ctrl+S = 保存；Ctrl+Shift+S = 保存事件" },
+    { k:"D", c:"used-single", h:"下一个 小节" },
+    { k:"F" }, { k:"G" }, { k:"H" }, { k:"J" },
+    { k:"K", c:"used-single", h:"移动音符模式 开/关；按住 K 再按数字键 = 设置 Mania" },
+    { k:"L", c:"used-single", h:"移动音符模式 开 / 关" },
+    { k:";" }, { k:"'" },
+    { k:"Enter", c:"used-single", h:"正常游玩模式（PlayState）", w:"wide1" }
+  ],
+  [
+    { k:"Shift", c:"used-mod", h:"左 Shift：滚动 4× / 连续调速 / 特殊音符类型；右 Shift + Del = 清空事件", w:"wide2" },
+    { k:"Z", c:"used-single", h:"缩小（Ctrl+Z = 撤销）" },
+    { k:"X", c:"used-single", h:"放大" },
+    { k:"C", c:"used-combo", h:"Ctrl+C = 复制小节" },
+    { k:"V", c:"used-combo", h:"Ctrl+V = 粘贴小节" },
+    { k:"B" }, { k:"N" }, { k:"M" }, { k:"," }, { k:"." }, { k:"/" },
+    { k:"Shift", c:"used-mod", h:"右 Shift + Del = 清空事件（clear_events）", w:"wide2" }
+  ],
+  [
+    { k:"Ctrl", c:"used-mod", h:"左 Ctrl：Ctrl+C/V/Z/S、Ctrl+U/I/O、Ctrl+Shift+Q/W/E/R/S、Ctrl+Shift+Tab", w:"wide1" },
+    { k:"Win" },
+    { k:"Alt", c:"used-mod", h:"Alt+U/I/O = 波形图开关；Alt+Ctrl+U/I/O = 静音；Alt+[ ] = 重置速度", w:"wide1" },
+    { k:"Space", c:"used-single", h:"播放 / 暂停", w:"space" },
+    { k:"Alt", c:"used-mod", h:"修饰键（同上）", w:"wide1" },
+    { k:"Win" }, { k:"Menu" },
+    { k:"Ctrl", c:"used-mod", h:"右 Ctrl + Del = 清空 Note（clear_notes）", w:"wide1" }
+  ],
+  [
+    { k:"←", c:"used-single", h:"切换上一个量化值（网格平移已移除，谱面固定居中）" },
+    { k:"↓", c:"used-single", h:"按吸附单位向后移动播放头" },
+    { k:"↑", c:"used-single", h:"按吸附单位向前移动播放头" },
+    { k:"→", c:"used-single", h:"切换下一个量化值（网格平移已移除，谱面固定居中）" }
+  ],
+  [
+    { k:"Ins" }, { k:"Home" }, { k:"PgUp" },
+    { k:"Del", c:"used-combo", h:"右 Shift + Del = 清空事件；右 Ctrl + Del = 清空 Note" },
+    { k:"End" }, { k:"PgDn" }
+  ]
+];
+
+function renderKeyboard() {
+  var kb = document.getElementById("kb");
+  if (!kb) return;
+  KB_ROWS.forEach(function (row) {
+    var r = document.createElement("div");
+    r.className = "kb-row";
+    row.forEach(function (key) {
+      var d = document.createElement("div");
+      d.className = "kb-key" + (key.c ? " " + key.c : "") + (key.w ? " " + key.w : "");
+      var span = document.createElement("span");
+      span.className = "k";
+      span.textContent = key.k;
+      d.appendChild(span);
+      if (key.h) {
+        var h = document.createElement("div");
+        h.className = "hint";
+        h.textContent = key.h;
+        d.appendChild(h);
+      }
+      r.appendChild(d);
+    });
+    kb.appendChild(r);
+  });
+}
+renderKeyboard();
+
+/* ============ 快捷键演示（按下对应快捷键 → 弹窗提示当前调用） ============ */
+var FKEY_MAP = { F1:"charting", F2:"data", F3:"event", F4:"note", F5:"section", F6:"song", F7:"test", F8:"help" };
+var kbHeld = { k:false };
+
+function demo(name) {
+  toast("当前正在调用：" + name);
+}
+
+document.addEventListener("keydown", function (e) {
+  /* F1~F8：打开一级菜单 */
+  if (FKEY_MAP[e.key]) {
+    var menu = document.querySelector('#menubar .menu[data-key="' + FKEY_MAP[e.key] + '"]');
+    if (menu) {
+      closeAllMenus();
+      menu.classList.add("open");
+      if (FKEY_MAP[e.key] === "event") updateEventPanel();
+    }
+    e.preventDefault();
+    return;
+  }
+
+  var c = e.ctrlKey, s = e.shiftKey, a = e.altKey;
+  var k = e.key, kl = k.toLowerCase();
+  var loc = e.location; // 1=左修饰键, 2=右修饰键
+  var rightShift = s && loc === 2;
+  var rightCtrl = c && loc === 2;
+
+  /* 右 Shift+Del = 清空事件 / 右 Ctrl+Del = 清空 Note */
+  if (k === "Delete") {
+    if (rightShift) { e.preventDefault(); demo("清空事件（右 Shift+Del）"); return; }
+    if (rightCtrl)  { e.preventDefault(); demo("清空 Note（右 Ctrl+Del）"); return; }
+  }
+
+  /* Ctrl+Shift+Q/W/E/R/S + Tab */
+  if (c && s && !a) {
+    if (k === "Tab")       { e.preventDefault(); demo("打开/关闭 Vortex（Ctrl+Shift+Tab）"); return; }
+    if (kl === "q")        { e.preventDefault(); demo("重载音频（Ctrl+Shift+Q）"); return; }
+    if (kl === "w")        { e.preventDefault(); demo("重载 JSON（Ctrl+Shift+W）"); return; }
+    if (kl === "e")        { e.preventDefault(); demo("载入自动保存（Ctrl+Shift+E）"); return; }
+    if (kl === "r")        { e.preventDefault(); demo("载入事件（Ctrl+Shift+R）"); return; }
+    if (kl === "s")        { e.preventDefault(); demo("保存事件（Ctrl+Shift+S）"); return; }
+  }
+
+  /* Alt+Ctrl+U/I/O = 静音 */
+  if (a && c && !s) {
+    if (kl === "u") { e.preventDefault(); demo("静音 BF（Alt+Ctrl+U）"); return; }
+    if (kl === "i") { e.preventDefault(); demo("静音 Inst（Alt+Ctrl+I）"); return; }
+    if (kl === "o") { e.preventDefault(); demo("静音 Opponents（Alt+Ctrl+O）"); return; }
+  }
+
+  /* Alt+U/I/O = 波形图开关 */
+  if (a && !c && !s) {
+    if (kl === "u") { e.preventDefault(); demo("BF 波形图 开关（Alt+U）"); return; }
+    if (kl === "i") { e.preventDefault(); demo("Inst 波形图 开关（Alt+I）"); return; }
+    if (kl === "o") { e.preventDefault(); demo("Opponents 波形图 开关（Alt+O）"); return; }
+  }
+
+  /* Ctrl+U/I/O = 小节操作 */
+  if (c && !s && !a) {
+    if (kl === "u") { e.preventDefault(); demo("交换小节（Ctrl+U）"); return; }
+    if (kl === "i") { e.preventDefault(); demo("二重奏（Ctrl+I）"); return; }
+    if (kl === "o") { e.preventDefault(); demo("镜像音符（Ctrl+O）"); return; }
+    if (kl === "s") { e.preventDefault(); demo("保存谱面（Ctrl+S）"); return; }
+    if (kl === "z") { e.preventDefault(); demo("撤销（Ctrl+Z）"); return; }
+    if (kl === "c") { e.preventDefault(); demo("复制小节（Ctrl+C）"); return; }
+    if (kl === "v") { e.preventDefault(); demo("粘贴小节（Ctrl+V）"); return; }
+  }
+
+  /* U / I / O 单键 */
+  if (!c && !s && !a) {
+    if (kl === "u") { e.preventDefault(); demo("玩家小节（U）"); return; }
+    if (kl === "i") { e.preventDefault(); demo("GF 小节（I）"); return; }
+    if (kl === "o") { e.preventDefault(); demo("Opponents 小节（O）"); return; }
+  }
+
+  /* 按住 K + 数字 = 设置 Mania */
+  if (kbHeld.k && !c && !s && !a) {
+    var maniaMap = { "`":1, "1":2, "2":3, "3":4, "4":5, "5":6, "6":7, "7":8, "8":9, "9":10 };
+    if (maniaMap[k] !== undefined) { e.preventDefault(); demo("设置 Mania 为 " + maniaMap[k] + "K（K+数字）"); return; }
+  }
+});
+
+document.addEventListener("keydown", function (e) {
+  if (!e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") kbHeld.k = true;
+});
+document.addEventListener("keyup", function (e) {
+  if (e.key.toLowerCase() === "k") kbHeld.k = false;
+});
+</script>
+</body>
+</html>

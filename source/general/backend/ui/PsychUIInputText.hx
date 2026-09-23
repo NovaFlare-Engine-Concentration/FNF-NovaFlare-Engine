@@ -546,7 +546,8 @@ class PsychUIInputText extends FlxSpriteGroup
 	override function update(elapsed:Float)
 	{
 		super.update(elapsed);
-		if (ignoreCheck)
+		// destroy 后（exists=false）不再处理输入/光标，避免访问已置 null 的 _boundaries
+		if (ignoreCheck || !exists)
 			return;
 
 		if (FlxG.mouse.justPressed)
@@ -623,7 +624,9 @@ class PsychUIInputText extends FlxSpriteGroup
 
 	public function updateCaret()
 	{
-		if (textObj == null || !textObj.exists)
+		// textObj 独立于本输入框存在（未 add 到自身），destroy 后仍可能存活，
+		// 但 _boundaries 已被 destroy 置 null，必须防护
+		if (textObj == null || !textObj.exists || _boundaries == null)
 			return;
 
 		var textField = textObj.textField;
@@ -903,8 +906,12 @@ class PsychUIInputText extends FlxSpriteGroup
 
 	function set_text(v:String)
 	{
-		for (i in 0..._boundaries.length)
-			_boundaries.pop();
+		// destroy 后 _boundaries 为 null，必须防护
+		if (_boundaries != null)
+		{
+			for (i in 0..._boundaries.length)
+				_boundaries.pop();
+		}
 		v = filter(v);
 
 		textObj.text = '';
@@ -1074,7 +1081,10 @@ class PsychUIInputText extends FlxSpriteGroup
 				default:
 					throw new flash.errors.Error("FlxInputText: Unknown filterMode (" + filterMode + ")");
 			}
-			text = pattern.replace(text, "");
+			// ★ 防御：与 flixel-ui 的 FlxInputText.filter 同款隐患，
+			//   CUSTOM_FILTER 下 customFilterPattern 可能尚未赋值（null）。
+			if (pattern != null)
+				text = pattern.replace(text, "");
 		}
 		return text;
 	}

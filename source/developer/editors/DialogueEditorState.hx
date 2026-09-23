@@ -1,40 +1,83 @@
-﻿package developer.editors;
-
-import haxe.Json;
+package developer.editors;
 
 import openfl.net.FileReference;
 import openfl.events.Event;
 import openfl.events.IOErrorEvent;
 import openfl.net.FileFilter;
+import haxe.Json;
 
-import flixel.addons.ui.FlxUI;
-import flixel.addons.ui.FlxUICheckBox;
 import flixel.addons.ui.FlxUIInputText;
 import flixel.addons.ui.FlxUINumericStepper;
-import flixel.addons.ui.FlxUITabMenu;
-import flixel.ui.FlxButton;
+import flixel.addons.ui.FlxUICheckBox;
+import flixel.addons.ui.FlxUI;
+import flixel.group.FlxSpriteGroup;
+import flixel.text.FlxText;
 
 import general.objects.TypedAlphabet;
 
 import games.cutscenes.DialogueBoxPsych;
 import games.cutscenes.DialogueCharacter;
 
+/**
+ * 对话编辑器（NovaFlare 新版 UI）：
+ *  - Adobe 风格顶栏菜单（DialogueEditorMenuBar）+ 底部状态栏 + EditorChromeUI 窗口栏
+ *  - 对白预览区保留在主相机（角色/气泡/打字文字），可 A/D/W/S 切换行/表情
+ *  - 所有字段编辑收进顶栏菜单；原生 FlxUI 控件只作数据源（隐藏），由菜单自绘接管
+ */
 class DialogueEditorState extends MusicBeatState
 {
 	var character:DialogueCharacter;
 	var box:FlxSprite;
 	var daText:TypedAlphabet;
 
-	var selectedText:FlxText;
-	var animText:FlxText;
-
 	var defaultLine:DialogueLine;
 	var dialogueFile:DialogueFile = null;
+	var unsavedProgress:Bool = false;
+
+	var camGame:FlxCamera;
+	var camHUD:FlxCamera;
+
+	// ===== 顶栏菜单（Adobe 风格）=====
+	var menuBar:DialogueEditorMenuBar;
+	#if (cpp && windows)
+	var windowChrome:EditorChromeUI;
+	var modInfoPopup:general.objects.ModInfoPopup;
+	#end
+
+	// ★ 双层方案（同一 camHUD）：uiLayer 底层（菜单等 UI），overlayLayer 顶层（widget / 输入覆盖层）
+	var uiLayer:FlxSpriteGroup;
+	var overlayLayer:FlxSpriteGroup;
+
+	// ===== 原生控件（只作数据源，不渲染；由 menuBar 自绘接管显示）=====
+	var w_char:FlxUIInputText;   // 角色文件
+	var w_text:FlxUIInputText;   // 对白文本
+	var w_sound:FlxUIInputText;  // 打字音效
+	var w_speed:FlxUINumericStepper; // 打字速度
+	var w_angry:FlxUICheckBox;   // 生气气泡
+
+	// 程序化同步控件值时置 true，避免误触发 unsavedProgress
+	var syncingWidgets:Bool = false;
+
+	// 诊断标记：曾在每次调用（含 update() 每帧一次）时同步 append 'ui_mark.log'。
+	// 该写盘已移除；函数保留为空 inline，使全部调用点在编译期消失，
+	// 调用点仍用于标注 create() 的装配顺序，便于后续排查。
+	static inline function mark(s:String):Void {}
+	var curSelected:Int = 0;
+	var curAnim:Int = 0;
+	var transitioning:Bool = false;
 
 	override function create()
 	{
 		persistentUpdate = persistentDraw = true;
-		FlxG.camera.bgColor = FlxColor.fromHSL(0, 0, 0.5);
+		mark('DE.create:persist');
+
+		camGame = initPsychCamera();
+		mark('DE.create:initPsychCamera');
+		camGame.bgColor = FlxColor.fromHSL(0, 0, 0.5);
+		camHUD = new FlxCamera();
+		camHUD.bgColor.alpha = 0;
+		FlxG.cameras.add(camHUD, false);
+		mark('DE:camHUD_added');
 
 		defaultLine = {
 			portrait: DialogueCharacter.DEFAULT_CHARACTER,
@@ -46,14 +89,20 @@ class DialogueEditorState extends MusicBeatState
 		};
 
 		dialogueFile = {
-			dialogue: [copyDefaultLine()]
+			dialogue: [
+				copyDefaultLine()
+			]
 		};
 
+		// ===== 预览区（主相机）=====
 		character = new DialogueCharacter();
+		mark('DE:pre_char');
 		character.scrollFactor.set();
+		character.cameras = [camGame];
 		add(character);
 
 		box = new FlxSprite(70, 370);
+		mark('DE:pre_box');
 		box.antialiasing = ClientPrefs.data.antialiasing;
 		box.frames = Paths.getSparrowAtlas('speech_bubble');
 		box.scrollFactor.set();
@@ -64,114 +113,197 @@ class DialogueEditorState extends MusicBeatState
 		box.animation.play('normal', true);
 		box.setGraphicSize(Std.int(box.width * 0.9));
 		box.updateHitbox();
+		box.cameras = [camGame];
 		add(box);
 
-		addEditorBox();
-		FlxG.mouse.visible = true;
-
-		var lineTxt:String;
-
-		if (controls.mobileC)
-		{
-			lineTxt = "Press A to remove the current dialogue line, Press X to add another line after the current one.";
-		}
-		else
-		{
-			lineTxt = "Press O to remove the current dialogue line, Press P to add another line after the current one.";
-		}
-
-		var addLineText:FlxText = new FlxText(10, 10, FlxG.width - 20, lineTxt, 8);
-		addLineText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-		addLineText.scrollFactor.set();
-		add(addLineText);
-
-		selectedText = new FlxText(10, 32, FlxG.width - 20, '', 8);
-		selectedText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-		selectedText.scrollFactor.set();
-		add(selectedText);
-
-		animText = new FlxText(10, 62, FlxG.width - 20, '', 8);
-		animText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-		animText.scrollFactor.set();
-		add(animText);
-
 		daText = new TypedAlphabet(DialogueBoxPsych.DEFAULT_TEXT_X, DialogueBoxPsych.DEFAULT_TEXT_Y, DEFAULT_TEXT);
+		mark('DE:pre_daText');
 		daText.setScale(0.7);
+		daText.cameras = [camGame];
 		add(daText);
+
+		// ===== UI 层（camHUD）=====
+		uiLayer = new FlxSpriteGroup();
+		mark('DE:uiLayer');
+		uiLayer.cameras = [camHUD];
+		uiLayer.scrollFactor.set();
+		add(uiLayer);
+
+		createLegacyWidgets();
+		mark('DE.create:widgetsCreated');
+		setupMenuBar();
+		mark('DE.create:menuBarSetup');
+		setupOverlayLayer();
+		addLegacyWidgetsToScene();
+		hideAllLegacyWidgets();
+
+		#if (cpp && windows)
+		// 引擎自绘窗口控制组（右上角：图标+标题 / - □ ×，可拖动窗口）
+		windowChrome = new EditorChromeUI();
+		windowChrome.scrollFactor.set();
+		windowChrome.cameras = [camHUD];
+		add(windowChrome);
+		// 点击标题 → Mod 信息弹窗
+		modInfoPopup = new general.objects.ModInfoPopup();
+		modInfoPopup.scrollFactor.set();
+		modInfoPopup.cameras = [camHUD];
+		add(modInfoPopup);
+		windowChrome.onTitleClick = () -> modInfoPopup.openUnder(windowChrome);
+		// 顶栏左侧「退出 对话编辑器」按钮
+		windowChrome.setupExitButton('dialogueEditor', doExit);
+		#end
+
+		FlxG.mouse.visible = true;
+		mark('DE.create:mouseVisible');
 		changeText();
-		addVirtualPad(LEFT_FULL, A_B_X_Y);
+		mark('DE.create:changeText');
 		super.create();
+		mark('DE.create:superCreate');
 	}
 
-	var UI_box:FlxUITabMenu;
-
-	function addEditorBox()
+	// ============ 顶栏菜单（Adobe 风格，与 CharacterEditorMenuBar 同架构）============
+	function setupMenuBar():Void
 	{
-		var tabs = [{name: 'Dialogue Line', label: 'Dialogue Line'},];
-		UI_box = new FlxUITabMenu(null, tabs, true);
-		UI_box.resize(250, 210);
-		UI_box.x = FlxG.width - UI_box.width - 10;
-		UI_box.y = 10;
-		UI_box.scrollFactor.set();
-		UI_box.alpha = 0.8;
-		addDialogueLineUI();
-		add(UI_box);
-	}
-
-	var characterInputText:FlxUIInputText;
-	var lineInputText:FlxUIInputText;
-	var angryCheckbox:FlxUICheckBox;
-	var speedStepper:FlxUINumericStepper;
-	var soundInputText:FlxUIInputText;
-
-	function addDialogueLineUI()
-	{
-		var tab_group = new FlxUI(null, UI_box);
-		tab_group.name = "Dialogue Line";
-
-		characterInputText = new FlxUIInputText(10, 20, 80, DialogueCharacter.DEFAULT_CHARACTER, 8);
-		blockPressWhileTypingOn.push(characterInputText);
-
-		speedStepper = new FlxUINumericStepper(10, characterInputText.y + 40, 0.005, 0.05, 0, 0.5, 3);
-
-		angryCheckbox = new FlxUICheckBox(speedStepper.x + 120, speedStepper.y, null, null, "Angry Textbox", 200);
-		angryCheckbox.callback = function()
-		{
-			updateTextBox();
-			dialogueFile.dialogue[curSelected].boxState = (angryCheckbox.checked ? 'angry' : 'normal');
+		menuBar = new DialogueEditorMenuBar();
+		menuBar.scrollFactor.set();
+		menuBar.uiCamera = camHUD;
+		menuBar.cameras = [camHUD];
+		menuBar.onAction = function(actionKey:String) {
+			handleMenuAction(actionKey);
+		};
+		menuBar.onMenuOpened = function(menuKey:String) {
+			refreshMenuWidgets(menuKey);
 		};
 
-		soundInputText = new FlxUIInputText(10, speedStepper.y + 40, 150, '', 8);
-		blockPressWhileTypingOn.push(soundInputText);
+		// 注册 widget 引用（仅用于下拉菜单显示状态文本）
+		menuBar.registerWidget('w_char', w_char);
+		menuBar.registerWidget('w_angry', w_angry);
+		menuBar.registerWidget('w_speed', w_speed);
+		menuBar.registerWidget('w_sound', w_sound);
+		menuBar.registerWidget('w_text', w_text);
 
-		lineInputText = new FlxUIInputText(10, soundInputText.y + 35, 200, DEFAULT_TEXT, 8);
-		blockPressWhileTypingOn.push(lineInputText);
-
-		var loadButton:FlxButton = new FlxButton(20, lineInputText.y + 25, "Load Dialogue", function()
-		{
-			loadDialogue();
-		});
-		var saveButton:FlxButton = new FlxButton(loadButton.x + 120, loadButton.y, "Save Dialogue", function()
-		{
-			saveDialogue();
-		});
-
-		tab_group.add(new FlxText(10, speedStepper.y - 18, 0, 'Interval/Speed (ms):'));
-		tab_group.add(new FlxText(10, characterInputText.y - 18, 0, 'Character:'));
-		tab_group.add(new FlxText(10, soundInputText.y - 18, 0, 'Sound file name:'));
-		tab_group.add(new FlxText(10, lineInputText.y - 18, 0, 'Text:'));
-		tab_group.add(characterInputText);
-		tab_group.add(angryCheckbox);
-		tab_group.add(speedStepper);
-		tab_group.add(soundInputText);
-		tab_group.add(lineInputText);
-		tab_group.add(loadButton);
-		tab_group.add(saveButton);
-		UI_box.addGroup(tab_group);
+		uiLayer.add(menuBar);
 	}
 
-	function copyDefaultLine():DialogueLine
+	/** 创建顶层覆盖层容器（输入覆盖层挂这里，渲染在所有 UI 之上） */
+	function setupOverlayLayer():Void
 	{
+		overlayLayer = new FlxSpriteGroup();
+		overlayLayer.cameras = [camHUD];
+		overlayLayer.scrollFactor.set();
+		add(overlayLayer);
+		menuBar.overlayLayer = overlayLayer;
+	}
+
+	// ============ 隐藏的原生控件（只作数据源）============
+	function createLegacyWidgets():Void
+	{
+		w_char = new FlxUIInputText(0, 0, 100, DialogueCharacter.DEFAULT_CHARACTER, 8);
+		mark('DE:w_char');
+		w_text = new FlxUIInputText(0, 0, 300, DEFAULT_TEXT, 8);
+		w_sound = new FlxUIInputText(0, 0, 120, '', 8);
+		w_speed = new FlxUINumericStepper(0, 0, 0.005, 0.05, 0, 0.5, 3);
+		mark('DE:w_speed');
+		w_angry = new FlxUICheckBox(0, 0, null, null, "Angry Bubble", 100);
+		mark('DE:w_angry');
+
+		// 生气气泡切换
+		w_angry.callback = function()
+		{
+			if (syncingWidgets) return;
+			var wantAngry:Bool = (dialogueFile.dialogue[curSelected].boxState == 'angry');
+			if (w_angry.checked != wantAngry)
+			{
+				dialogueFile.dialogue[curSelected].boxState = (w_angry.checked ? 'angry' : 'normal');
+				updateTextBox();
+				unsavedProgress = true;
+			}
+		};
+	}
+
+	function addLegacyWidgetsToScene():Void
+	{
+		function addOne(w:Dynamic):Void {
+			if (w == null) return;
+			try { overlayLayer.add(w); } catch (e:Dynamic) {}
+			try { w.scrollFactor.set(0, 0); } catch (e:Dynamic) {}
+			try { w.setScrollFactor(0, 0); } catch (e:Dynamic) {}
+			try { w.cameras = [camHUD]; } catch (e:Dynamic) {}
+			try { w.visible = false; } catch (e:Dynamic) {}
+			try { w.active = true; } catch (e:Dynamic) {}
+		}
+		addOne(w_char);
+		addOne(w_text);
+		addOne(w_sound);
+		addOne(w_speed);
+		addOne(w_angry);
+	}
+
+	function hideAllLegacyWidgets():Void
+	{
+		var all:Array<Dynamic> = [w_char, w_text, w_sound, w_speed, w_angry];
+		for (w in all)
+			EditorInputStyle.deepHide(w);
+	}
+
+	// ============ 菜单动作分发 ============
+	function handleMenuAction(actionKey:String):Void
+	{
+		switch (actionKey)
+		{
+			case 'prev_line':
+				changeText(-1);
+			case 'next_line':
+				changeText(1);
+			case 'add_line':
+				dialogueFile.dialogue.insert(curSelected + 1, copyDefaultLine());
+				changeText(1);
+				unsavedProgress = true;
+			case 'remove_line':
+				dialogueFile.dialogue.remove(dialogueFile.dialogue[curSelected]);
+				if (dialogueFile.dialogue.length < 1)
+				{
+					dialogueFile.dialogue = [copyDefaultLine()];
+				}
+				changeText();
+		mark('DE.create:changeText');
+				unsavedProgress = true;
+			case 'replay_text':
+				reloadText(false);
+			case 'prev_anim':
+				scrollAnim(-1);
+			case 'next_anim':
+				scrollAnim(1);
+			case 'load':
+				loadDialogue();
+			case 'save':
+				saveDialogue();
+			case 'exit':
+				doExit();
+		}
+	}
+
+	/** 菜单打开后刷新 widget 显示值（从当前对白行数据同步） */
+	function refreshMenuWidgets(menuKey:String):Void
+	{
+		syncWidgetsFromLine();
+	}
+
+	function syncWidgetsFromLine():Void
+	{
+		if (dialogueFile == null || dialogueFile.dialogue.length < 1) return;
+		var line:DialogueLine = dialogueFile.dialogue[curSelected];
+		syncingWidgets = true;
+		w_char.text = line.portrait;
+		w_text.text = line.text;
+		w_sound.text = line.sound;
+		w_speed.value = line.speed;
+		w_angry.checked = (line.boxState == 'angry');
+		syncingWidgets = false;
+	}
+
+	// ============ 对白行工具 ============
+	function copyDefaultLine():DialogueLine {
 		var copyLine:DialogueLine = {
 			portrait: defaultLine.portrait,
 			expression: defaultLine.expression,
@@ -183,23 +315,18 @@ class DialogueEditorState extends MusicBeatState
 		return copyLine;
 	}
 
-	function updateTextBox()
-	{
+	function updateTextBox() {
 		box.flipX = false;
-		var isAngry:Bool = angryCheckbox.checked;
+		var isAngry:Bool = (dialogueFile.dialogue[curSelected].boxState == 'angry');
 		var anim:String = isAngry ? 'angry' : 'normal';
 
-		switch (character.jsonFile.dialogue_pos)
-		{
+		switch(character.jsonFile.dialogue_pos) {
 			case 'left':
 				box.flipX = true;
 			case 'center':
-				if (isAngry)
-				{
+				if(isAngry) {
 					anim = 'center-angry';
-				}
-				else
-				{
+				} else {
 					anim = 'center';
 				}
 		}
@@ -207,8 +334,7 @@ class DialogueEditorState extends MusicBeatState
 		DialogueBoxPsych.updateBoxOffsets(box);
 	}
 
-	function reloadCharacter()
-	{
+	function reloadCharacter() {
 		character.frames = Paths.getSparrowAtlas('dialogue/' + character.jsonFile.image);
 		character.jsonFile = character.jsonFile;
 		character.reloadAnimations();
@@ -217,392 +343,275 @@ class DialogueEditorState extends MusicBeatState
 		character.x = DialogueBoxPsych.LEFT_CHAR_X;
 		character.y = DialogueBoxPsych.DEFAULT_CHAR_Y;
 
-		switch (character.jsonFile.dialogue_pos)
-		{
+		switch(character.jsonFile.dialogue_pos) {
 			case 'right':
 				character.x = FlxG.width - character.width + DialogueBoxPsych.RIGHT_CHAR_X;
-
+			
 			case 'center':
 				character.x = FlxG.width / 2;
 				character.x -= character.width / 2;
 		}
 		character.x += character.jsonFile.position[0];
 		character.y += character.jsonFile.position[1];
-		character.playAnim(); // Plays random animation
+		character.playAnim();
 		characterAnimSpeed();
-
-		if (character.animation.curAnim != null && character.jsonFile.animations != null)
-		{
-			if (controls.mobileC)
-			{
-				animText.text = 'Animation: '
-					+ character.jsonFile.animations[curAnim].anim
-						+ ' ('
-						+ (curAnim + 1)
-						+ ' / '
-						+ character.jsonFile.animations.length
-						+ ') - Press UP or DOWN to scroll';
-			}
-			else
-			{
-				animText.text = 'Animation: '
-					+ character.jsonFile.animations[curAnim].anim
-						+ ' ('
-						+ (curAnim + 1)
-						+ ' / '
-						+ character.jsonFile.animations.length
-						+ ') - Press W or S to scroll';
-			}
-		}
-		else
-		{
-			animText.text = 'ERROR! NO ANIMATIONS FOUND';
-		}
 	}
 
 	private static var DEFAULT_TEXT:String = "coolswag";
 	private static var DEFAULT_SPEED:Float = 0.05;
 	private static var DEFAULT_BUBBLETYPE:String = "normal";
 
-	function reloadText(skipDialogue:Bool)
-	{
-		var textToType:String = lineInputText.text;
-		if (textToType == null || textToType.length < 1)
-			textToType = ' ';
+	function reloadText(skipDialogue:Bool) {
+		var textToType:String = w_text.text;
+		if(textToType == null || textToType.length < 1) textToType = ' ';
 
 		daText.text = textToType;
 
-		if (skipDialogue)
+		if(skipDialogue) 
 			daText.finishText();
-		else if (daText.delay > 0)
+		else if(daText.delay > 0)
 		{
-			if (character.jsonFile.animations.length > curAnim && character.jsonFile.animations[curAnim] != null)
-			{
+			if(character.jsonFile.animations.length > curAnim && character.jsonFile.animations[curAnim] != null) {
 				character.playAnim(character.jsonFile.animations[curAnim].anim);
 			}
 			characterAnimSpeed();
 		}
 
 		daText.y = DialogueBoxPsych.DEFAULT_TEXT_Y;
-		if (daText.rows > 2)
-			daText.y -= DialogueBoxPsych.LONG_TEXT_ADD;
+		if(daText.rows > 2) daText.y -= DialogueBoxPsych.LONG_TEXT_ADD;
 
 		#if DISCORD_ALLOWED
 		// Updating Discord Rich Presence
-		var rpcText:String = lineInputText.text;
-		if (rpcText == null || rpcText.length < 1)
-			rpcText = '(Empty)';
-		if (rpcText.length < 3)
-			rpcText += '   '; // Fixes a bug on RPC that triggers an error when the text is too short
+		var rpcText:String = w_text.text;
+		if(rpcText == null || rpcText.length < 1) rpcText = '(Empty)';
+		if(rpcText.length < 3) rpcText += '   ';
 		DiscordClient.changePresence("Dialogue Editor", rpcText);
 		#end
 	}
 
+	// ============ FlxUI 控件变更（菜单自绘控件写回数据源后广播）============
 	override function getEvent(id:String, sender:Dynamic, data:Dynamic, ?params:Array<Dynamic>)
 	{
+		if (syncingWidgets) return;
+
 		if (id == FlxUIInputText.CHANGE_EVENT && (sender is FlxUIInputText))
 		{
-			if (sender == characterInputText)
+			if (sender == w_char)
 			{
-				character.reloadCharacterJson(characterInputText.text);
+				character.reloadCharacterJson(w_char.text);
 				reloadCharacter();
-				if (character.jsonFile.animations.length > 0)
-				{
-					curAnim = 0;
-					if (character.jsonFile.animations.length > curAnim && character.jsonFile.animations[curAnim] != null)
-					{
-						character.playAnim(character.jsonFile.animations[curAnim].anim, daText.finishedText);
-						if (controls.mobileC)
-						{
-							animText.text = 'Animation: '
-								+ character.jsonFile.animations[curAnim].anim
-									+ ' ('
-									+ (curAnim + 1)
-									+ ' / '
-									+ character.jsonFile.animations.length
-									+ ') - Press UP or DOWN to scroll';
-						}
-						else
-						{
-							animText.text = 'Animation: '
-								+ character.jsonFile.animations[curAnim].anim
-									+ ' ('
-									+ (curAnim + 1)
-									+ ' / '
-									+ character.jsonFile.animations.length
-									+ ') - Press W or S to scroll';
-						}
-					}
-					else
-					{
-						animText.text = 'ERROR! NO ANIMATIONS FOUND';
-					}
-					characterAnimSpeed();
-				}
-				dialogueFile.dialogue[curSelected].portrait = characterInputText.text;
+				dialogueFile.dialogue[curSelected].portrait = w_char.text;
 				reloadText(false);
 				updateTextBox();
 			}
-			else if (sender == lineInputText)
+			else if (sender == w_text)
 			{
-				dialogueFile.dialogue[curSelected].text = lineInputText.text;
-
-				daText.text = lineInputText.text;
-				if (daText.text == null)
-					daText.text = '';
+				dialogueFile.dialogue[curSelected].text = w_text.text;
+				daText.text = w_text.text;
+				if(daText.text == null) daText.text = '';
 				reloadText(true);
 			}
-			else if (sender == soundInputText)
+			else if (sender == w_sound)
 			{
 				daText.finishText();
-				dialogueFile.dialogue[curSelected].sound = soundInputText.text;
-				daText.sound = soundInputText.text;
-				if (daText.sound == null)
-					daText.sound = '';
+				dialogueFile.dialogue[curSelected].sound = w_sound.text;
+				daText.sound = w_sound.text;
+				if(daText.sound == null) daText.sound = '';
 			}
+			unsavedProgress = true;
 		}
-		else if (id == FlxUINumericStepper.CHANGE_EVENT && (sender == speedStepper))
+		else if (id == FlxUINumericStepper.CHANGE_EVENT && (sender == w_speed))
 		{
-			dialogueFile.dialogue[curSelected].speed = speedStepper.value;
-			if (Math.isNaN(dialogueFile.dialogue[curSelected].speed)
-				|| dialogueFile.dialogue[curSelected].speed == null
-				|| dialogueFile.dialogue[curSelected].speed < 0.001)
-			{
+			dialogueFile.dialogue[curSelected].speed = w_speed.value;
+			if(Math.isNaN(dialogueFile.dialogue[curSelected].speed) || dialogueFile.dialogue[curSelected].speed == null || dialogueFile.dialogue[curSelected].speed < 0.001) {
 				dialogueFile.dialogue[curSelected].speed = 0.0;
 			}
 			daText.delay = dialogueFile.dialogue[curSelected].speed;
 			reloadText(false);
+			unsavedProgress = true;
 		}
 	}
 
-	var curSelected:Int = 0;
-	var curAnim:Int = 0;
-	var blockPressWhileTypingOn:Array<FlxUIInputText> = [];
-	var transitioning:Bool = false;
-
-	override function update(elapsed:Float)
-	{
-		if (transitioning)
-		{
+	override function update(elapsed:Float) {
+		mark('DE.update:frame');
+		if(transitioning) {
 			super.update(elapsed);
 			return;
 		}
 
-		if (character.animation.curAnim != null)
-		{
-			if (daText.finishedText)
-			{
-				if (character.animationIsLoop() && character.animation.curAnim.finished)
-				{
+		// 保持动画循环/打字状态
+		if(character.animation.curAnim != null) {
+			if(daText.finishedText) {
+				if(character.animationIsLoop() && character.animation.curAnim.finished) {
 					character.playAnim(character.animation.curAnim.name, true);
 				}
-			}
-			else if (character.animation.curAnim.finished)
-			{
+			} else if(character.animation.curAnim.finished) {
 				character.animation.curAnim.restart();
 			}
 		}
 
-		var blockInput:Bool = false;
-		for (inputText in blockPressWhileTypingOn)
+		// 输入框弹层打字时屏蔽编辑器热键
+		var typing:Bool = false;
+		try
 		{
-			if (inputText.hasFocus)
-			{
-				ClientPrefs.toggleVolumeKeys(false);
-				blockInput = true;
-
-				if (FlxG.keys.justPressed.ENTER)
-				{
-					if (inputText == lineInputText)
-					{
-						inputText.text += '\\n';
-						inputText.caretIndex += 2;
-					}
-					else
-					{
-						inputText.hasFocus = false;
-					}
-				}
-				break;
-			}
+			var wc:Dynamic = w_char;
+			var wt:Dynamic = w_text;
+			var ws:Dynamic = w_sound;
+			typing = (wc.hasFocus == true || wt.hasFocus == true || ws.hasFocus == true);
 		}
+		catch (e:Dynamic) {}
 
-		if (!blockInput)
+		if(!typing)
 		{
 			ClientPrefs.toggleVolumeKeys(true);
-			if (FlxG.keys.justPressed.SPACE || virtualPad.buttonY.justPressed)
-			{
+			if(FlxG.keys.justPressed.F1) openHelpMenu();
+			if(FlxG.keys.justPressed.SPACE) {
 				reloadText(false);
 			}
-			if (FlxG.keys.justPressed.ESCAPE || virtualPad.buttonB.justPressed)
-			{
-				MusicBeatState.switchState(new developer.editors.MasterEditorMenu());
-				FlxG.sound.playMusic(Paths.music('freakyMenu'), 1);
-				transitioning = true;
-			}
-			var negaMult:Array<Int> = [1, -1];
-			var controlAnim:Array<Bool> = [
-				FlxG.keys.justPressed.W || virtualPad.buttonUp.justPressed,
-				FlxG.keys.justPressed.S || virtualPad.buttonDown.justPressed
-			];
-			var controlText:Array<Bool> = [
-				FlxG.keys.justPressed.D || virtualPad.buttonRight.justPressed,
-				FlxG.keys.justPressed.A || virtualPad.buttonLeft.justPressed
-			];
-			for (i in 0...controlAnim.length)
-			{
-				if (controlAnim[i] && character.jsonFile.animations.length > 0)
+			if(FlxG.keys.justPressed.ESCAPE) {
+				if(!unsavedProgress)
 				{
-					curAnim -= negaMult[i];
-					if (curAnim < 0)
-						curAnim = character.jsonFile.animations.length - 1;
-					else if (curAnim >= character.jsonFile.animations.length)
-						curAnim = 0;
-
-					var animToPlay:String = character.jsonFile.animations[curAnim].anim;
-					if (character.dialogueAnimations.exists(animToPlay))
-					{
-						character.playAnim(animToPlay, daText.finishedText);
-						dialogueFile.dialogue[curSelected].expression = animToPlay;
-					}
-					if (controls.mobileC)
-					{
-						animText.text = 'Animation: ' + animToPlay + ' (' + (curAnim + 1) + ' / ' + character.jsonFile.animations.length
-							+ ') - Press UP or DOWN to scroll';
-					}
-					else
-					{
-						animText.text = 'Animation: ' + animToPlay + ' (' + (curAnim + 1) + ' / ' + character.jsonFile.animations.length
-							+ ') - Press W or S to scroll';
-					}
+					MusicBeatState.switchState(new MasterEditorMenu());
+					FlxG.sound.playMusic(Paths.music('freakyMenu'));
+					transitioning = true;
 				}
-				if (controlText[i])
-				{
+				else openSubState(new ConfirmationPopupSubstate(function() transitioning = true, {langGroup: 'dialogue', danger: true}));
+				return;
+			}
+
+			var negaMult:Array<Int> = [1, -1];
+			var controlAnim:Array<Bool> = [FlxG.keys.justPressed.W, FlxG.keys.justPressed.S];
+			var controlText:Array<Bool> = [FlxG.keys.justPressed.D, FlxG.keys.justPressed.A];
+			for (i in 0...controlAnim.length) {
+				if(controlAnim[i]) {
+					scrollAnim(-negaMult[i]);
+				}
+				if(controlText[i]) {
 					changeText(negaMult[i]);
 				}
 			}
 
-			if (FlxG.keys.justPressed.O || virtualPad.buttonA.justPressed)
-			{
+			if(FlxG.keys.justPressed.O) {
 				dialogueFile.dialogue.remove(dialogueFile.dialogue[curSelected]);
-				if (dialogueFile.dialogue.length < 1) // You deleted everything, dumbo!
+				if(dialogueFile.dialogue.length < 1)
 				{
-					dialogueFile.dialogue = [copyDefaultLine()];
+					dialogueFile.dialogue = [
+						copyDefaultLine()
+					];
 				}
 				changeText();
-			}
-			else if (FlxG.keys.justPressed.P || virtualPad.buttonX.justPressed)
-			{
+		mark('DE.create:changeText');
+				unsavedProgress = true;
+			} else if(FlxG.keys.justPressed.P) {
 				dialogueFile.dialogue.insert(curSelected + 1, copyDefaultLine());
 				changeText(1);
+				unsavedProgress = true;
 			}
 		}
+		else ClientPrefs.toggleVolumeKeys(false);
+
+		// 状态栏刷新
+		if (menuBar != null && menuBar.statusBar != null)
+		{
+			menuBar.statusBar.setLine((curSelected + 1) + ' / ' + dialogueFile.dialogue.length);
+			menuBar.statusBar.setChar(dialogueFile.dialogue[curSelected].portrait);
+			var animName:String = '-';
+			if (character.jsonFile.animations != null && character.jsonFile.animations.length > curAnim
+				&& character.jsonFile.animations[curAnim] != null)
+				animName = character.jsonFile.animations[curAnim].anim;
+			menuBar.statusBar.setAnim(animName);
+			menuBar.statusBar.setSpeed('' + dialogueFile.dialogue[curSelected].speed);
+		}
+
 		super.update(elapsed);
 	}
 
-	function changeText(add:Int = 0)
+	function scrollAnim(change:Int):Void
 	{
-		curSelected += add;
-		if (curSelected < 0)
-			curSelected = dialogueFile.dialogue.length - 1;
-		else if (curSelected >= dialogueFile.dialogue.length)
-			curSelected = 0;
+		if (character.jsonFile.animations == null || character.jsonFile.animations.length < 1) return;
+		curAnim -= change;
+		if(curAnim < 0) curAnim = character.jsonFile.animations.length - 1;
+		else if(curAnim >= character.jsonFile.animations.length) curAnim = 0;
 
-		var curDialogue:DialogueLine = dialogueFile.dialogue[curSelected];
-		characterInputText.text = curDialogue.portrait;
-		lineInputText.text = curDialogue.text;
-		angryCheckbox.checked = (curDialogue.boxState == 'angry');
-		speedStepper.value = curDialogue.speed;
-
-		if (curDialogue.sound == null)
-			curDialogue.sound = '';
-		soundInputText.text = curDialogue.sound;
-
-		daText.delay = speedStepper.value;
-		daText.sound = soundInputText.text;
-		if (daText.sound != null && daText.sound.trim() == '')
-			daText.sound = 'dialogue';
-
-		curAnim = 0;
-		character.reloadCharacterJson(characterInputText.text);
-		reloadCharacter();
-		reloadText(false);
-		updateTextBox();
-
-		var leLength:Int = character.jsonFile.animations.length;
-		if (leLength > 0)
-		{
-			for (i in 0...leLength)
-			{
-				var leAnim:DialogueAnimArray = character.jsonFile.animations[i];
-				if (leAnim != null && leAnim.anim == curDialogue.expression)
-				{
-					curAnim = i;
-					break;
-				}
-			}
-			character.playAnim(character.jsonFile.animations[curAnim].anim, daText.finishedText);
-			if (controls.mobileC)
-			{
-				animText.text = 'Animation: '
-					+ character.jsonFile.animations[curAnim].anim
-						+ ' ('
-						+ (curAnim + 1)
-						+ ' / '
-						+ leLength
-						+ ') - Press UP or DOWN to scroll';
-			}
-			else
-			{
-				animText.text = 'Animation: '
-					+ character.jsonFile.animations[curAnim].anim
-						+ ' ('
-						+ (curAnim + 1)
-						+ ' / '
-						+ leLength
-						+ ') - Press W or S to scroll';
-			}
-		}
-		else
-		{
-			animText.text = 'ERROR! NO ANIMATIONS FOUND';
-		}
-		characterAnimSpeed();
-
-		if (controls.mobileC)
-		{
-			selectedText.text = 'Line: (' + (curSelected + 1) + ' / ' + dialogueFile.dialogue.length + ') - Press LEFT or RIGHT to scroll';
-		}
-		else
-		{
-			selectedText.text = 'Line: (' + (curSelected + 1) + ' / ' + dialogueFile.dialogue.length + ') - Press A or D to scroll';
+		var animToPlay:String = character.jsonFile.animations[curAnim].anim;
+		if(character.dialogueAnimations.exists(animToPlay)) {
+			character.playAnim(animToPlay, daText.finishedText);
+			dialogueFile.dialogue[curSelected].expression = animToPlay;
+			unsavedProgress = true;
 		}
 	}
 
-	function characterAnimSpeed()
+	function openHelpMenu():Void
 	{
-		if (character.animation.curAnim != null)
+		if (menuBar == null) return;
+		var helpIdx:Int = -1;
+		for (i in 0...menuBar.menus.length)
+			if (menuBar.menus[i].key == 'help') { helpIdx = i; break; }
+		if (helpIdx > -1)
+			menuBar.openMenu(helpIdx);
+	}
+
+	function doExit():Void
+	{
+		if(!unsavedProgress)
 		{
-			var speed:Float = speedStepper.value;
+			MusicBeatState.switchState(new MasterEditorMenu());
+			FlxG.sound.playMusic(Paths.music('freakyMenu'));
+			transitioning = true;
+		}
+		else openSubState(new ConfirmationPopupSubstate(function() transitioning = true, {langGroup: 'dialogue', danger: true}));
+	}
+
+	// ============ 切换对白行 ============
+	function changeText(add:Int = 0) {
+		curSelected = FlxMath.wrap(curSelected + add, 0, dialogueFile.dialogue.length - 1);
+
+		syncWidgetsFromLine();
+		curAnim = 0;
+
+		var line:DialogueLine = dialogueFile.dialogue[curSelected];
+		character.reloadCharacterJson(line.portrait);
+		reloadCharacter();
+		updateTextBox();
+
+		if(character.jsonFile.animations != null && character.jsonFile.animations.length > 0)
+		{
+			for (num => animData in character.jsonFile.animations)
+			{
+				if(animData != null && animData.anim == line.expression)
+				{
+					curAnim = num;
+					break;
+				}
+			}
+
+			var selectedAnim:String = character.jsonFile.animations[curAnim].anim;
+			character.playAnim(selectedAnim, daText.finishedText);
+		}
+
+		reloadText(false);
+		characterAnimSpeed();
+	}
+
+	function characterAnimSpeed() {
+		if(character.animation.curAnim != null) {
+			var speed:Float = w_speed.value;
 			var rate:Float = 24 - (((speed - 0.05) / 5) * 480);
-			if (rate < 12)
-				rate = 12;
-			else if (rate > 48)
-				rate = 48;
+			if(rate < 12) rate = 12;
+			else if(rate > 48) rate = 48;
 			character.animation.curAnim.frameRate = rate;
 		}
 	}
 
+	// ============ 载入 / 保存 ============
 	var _file:FileReference = null;
-
-	function loadDialogue()
-	{
+	function loadDialogue() {
 		var jsonFilter:FileFilter = new FileFilter('JSON', 'json');
 		_file = new FileReference();
 		_file.addEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
 		_file.addEventListener(Event.CANCEL, onLoadCancel);
 		_file.addEventListener(IOErrorEvent.IO_ERROR, onLoadError);
-		_file.browse([jsonFilter]);
+		_file.browse([#if !mac jsonFilter #end]);
 	}
 
 	function onLoadComplete(_):Void
@@ -614,21 +623,20 @@ class DialogueEditorState extends MusicBeatState
 		#if sys
 		var fullPath:String = null;
 		@:privateAccess
-		if (_file.__path != null)
-			fullPath = _file.__path;
+		if(_file.__path != null) fullPath = _file.__path;
 
-		if (fullPath != null)
-		{
+		if(fullPath != null) {
 			var rawJson:String = File.getContent(fullPath);
-			if (rawJson != null)
-			{
+			if(rawJson != null) {
 				var loadedDialog:DialogueFile = cast Json.parse(rawJson);
-				if (loadedDialog.dialogue != null && loadedDialog.dialogue.length > 0) // Make sure it's really a dialogue file
+				if(loadedDialog.dialogue != null && loadedDialog.dialogue.length > 0)
 				{
 					var cutName:String = _file.name.substr(0, _file.name.length - 5);
 					trace("Successfully loaded file: " + cutName);
 					dialogueFile = loadedDialog;
+					unsavedProgress = false;
 					changeText();
+		mark('DE.create:changeText');
 					_file = null;
 					return;
 				}
@@ -640,9 +648,6 @@ class DialogueEditorState extends MusicBeatState
 		#end
 	}
 
-	/**
-	 * Called when the save file dialog is cancelled.
-	 */
 	function onLoadCancel(_):Void
 	{
 		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
@@ -652,9 +657,6 @@ class DialogueEditorState extends MusicBeatState
 		trace("Cancelled file loading.");
 	}
 
-	/**
-	 * Called if there is an error while saving the gameplay recording.
-	 */
 	function onLoadError(_):Void
 	{
 		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
@@ -664,20 +666,15 @@ class DialogueEditorState extends MusicBeatState
 		trace("Problem loading file");
 	}
 
-	function saveDialogue()
-	{
+	function saveDialogue() {
 		var data:String = haxe.Json.stringify(dialogueFile, "\t");
 		if (data.length > 0)
 		{
-			#if mobile
-			SUtil.saveContent("dialogue", ".json", data);
-			#else
 			_file = new FileReference();
 			_file.addEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onSaveComplete);
 			_file.addEventListener(Event.CANCEL, onSaveCancel);
 			_file.addEventListener(IOErrorEvent.IO_ERROR, onSaveError);
 			_file.save(data, "dialogue.json");
-			#end
 		}
 	}
 
@@ -687,12 +684,10 @@ class DialogueEditorState extends MusicBeatState
 		_file.removeEventListener(Event.CANCEL, onSaveCancel);
 		_file.removeEventListener(IOErrorEvent.IO_ERROR, onSaveError);
 		_file = null;
+		unsavedProgress = false;
 		FlxG.log.notice("Successfully saved file.");
 	}
 
-	/**
-	 * Called when the save file dialog is cancelled.
-	 */
 	function onSaveCancel(_):Void
 	{
 		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onSaveComplete);
@@ -701,9 +696,6 @@ class DialogueEditorState extends MusicBeatState
 		_file = null;
 	}
 
-	/**
-	 * Called if there is an error while saving the gameplay recording.
-	 */
 	function onSaveError(_):Void
 	{
 		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onSaveComplete);
@@ -713,4 +705,3 @@ class DialogueEditorState extends MusicBeatState
 		FlxG.log.error("Problem saving file");
 	}
 }
-

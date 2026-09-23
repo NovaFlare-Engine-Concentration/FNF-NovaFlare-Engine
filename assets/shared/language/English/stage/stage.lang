@@ -1,0 +1,133 @@
+# ===== Stage Editor top menu (Adobe style) =====
+# ===== Menu titles =====
+menu_stage => Stage
+menu_object => Object
+menu_camera => Camera
+menu_view => View
+menu_file => File
+menu_help => Help
+
+# ===== Status bar =====
+status_stage => Stage:
+status_directory => Dir:
+status_object => Object:
+status_pos => Pos:
+status_zoom => Zoom:
+
+# ===== Items: Stage menu =====
+item_stage_select => Stage
+item_reload_stage => Reload Stage
+item_load_template => Load Template
+item_directory => Asset Directory
+item_hide_gf => Hide Girlfriend
+item_default_zoom => Default Zoom
+item_cam_speed => Camera Speed
+label_stage_select => Stage:
+label_directory => Directory:
+label_default_zoom => Default Zoom:
+label_cam_speed => Camera Speed:
+desc_stage_select => Select the stage to edit. Switching stages rebuilds the editor (stability first).
+desc_reload_stage => Reload the current stage JSON and background from disk.
+desc_load_template => Replace current stage data with a blank template.
+desc_directory => Asset directory for this stage (e.g. week1 / week4), decides which week folder loads images.
+desc_hide_gf => Hide the girlfriend character on stage.
+desc_default_zoom => Default camera zoom for this stage.
+desc_cam_speed => Camera follow speed multiplier.
+
+# ===== Items: Object menu =====
+label_obj_name => Name:
+label_obj_type => Type:
+label_obj_image => Image:
+label_obj_pos => Position:
+label_obj_scale => Scale:
+label_obj_alpha => Alpha:
+label_obj_angle => Angle:
+item_obj_new_sprite => New Sprite (Image)
+item_obj_new_animated => New Animated Sprite
+item_obj_new_square => New Solid Color
+item_obj_delete => Delete Object
+item_obj_duplicate => Duplicate Object
+item_obj_anim => Open Animation Editor
+item_obj_move_up => Move Up a Layer
+item_obj_move_down => Move Down a Layer
+desc_obj_name => Name of the currently selected object (for Lua/HScript).
+desc_obj_type => Type of the selected object (sprite / animatedSprite / square / character).
+desc_obj_image => Image asset used by the selected object.
+desc_obj_pos => X / Y position of the selected object.
+desc_obj_scale => X / Y scale of the selected object.
+desc_obj_alpha => Opacity of the selected object (0% - 100%).
+desc_obj_angle => Rotation angle of the selected object.
+desc_obj_new_sprite => Pick an image from the images/ folder to create a plain sprite.
+desc_obj_new_animated => Pick a sprite with an XML/JSON/TXT animation file from images/.
+desc_obj_new_square => Create a 200x200 solid color block.
+desc_obj_delete => Delete the selected background object (characters can't be deleted).
+desc_obj_duplicate => Duplicate the selected object and insert it into the list.
+desc_obj_anim => Open the animation editor substate to edit frames/offsets.
+desc_obj_move_up => Move the selected object one layer up in the render order.
+desc_obj_move_down => Move the selected object one layer down in the render order.
+item_show_bf => Show Player (BF)
+item_show_dad => Show Opponent (Opp)
+item_show_gf => Show Girlfriend (GF)
+desc_show_bf => Show or hide the Boyfriend character.
+desc_show_dad => Show or hide the Opponent character.
+desc_show_gf => Show or hide the Girlfriend character (syncs Hide Girlfriend data).
+desc_obj_list_item => Click to select this object (syncs with W/S selection).
+
+# ===== Items: Camera menu =====
+label_cam_zoom => Zoom:
+label_cam_target => Target:
+label_cam_bf_x => Player X:
+label_cam_bf_y => Player Y:
+label_cam_dad_x => Opponent X:
+label_cam_dad_y => Opponent Y:
+label_cam_gf_x => Girlfriend X:
+label_cam_gf_y => Girlfriend Y:
+desc_cam_zoom => Current camera zoom (applies live while editing).
+desc_cam_target => Camera follow target (player / opponent / girlfriend).
+desc_cam_offset => Camera offset when focusing that character.
+
+# ===== Items: View menu =====
+item_low_quality => Show Low Quality Sprites
+item_high_quality => Show High Quality Sprites
+item_toggle_help => Toggle Help
+item_focus_bf => Focus Player
+item_focus_dad => Focus Opponent
+item_focus_gf => Focus Girlfriend
+desc_low_quality => Show background sprites marked as low quality.
+desc_high_quality => Show background sprites marked as high quality.
+desc_toggle_help => Show or hide the shortcut help overlay.
+desc_focus_bf => Move camera to the player character.
+desc_focus_dad => Move camera to the opponent character.
+desc_focus_gf => Move camera to the girlfriend character.
+
+# ===== Items: File menu =====
+item_save => Save
+desc_save => Save the current stage JSON (objects and camera data) to a file.
+
+# ===== Help menu =====
+help_camera => Navigation
+item_tutorial => Tutorial
+desc_tutorial => Open the beginner tutorial: stage background setup, importing assets, saving, etc.
+help_cam_zoom => Q / E - Zoom out / in
+help_cam_move => J / K / L / I - Move camera
+help_cam_reset => R - Reset zoom
+desc_help_camera => Camera navigation: Q/E zoom, J/K/L/I move, R reset.
+desc_help_cam_zoom => Q / E - zoom the camera out / in.
+desc_help_cam_move => J / K / L / I - move the camera.
+desc_help_cam_reset => R - reset camera zoom to the stage default.
+help_obj => Object Controls
+help_obj_move => Arrow keys - Move selected object
+help_obj_sel => W / S - Switch selection
+help_obj_scale => Shift - 4x movement
+desc_help_obj => Object editing: arrow keys move, W/S switch selection.
+desc_help_obj_move => Arrow keys - move the selected object in 5px steps.
+desc_help_obj_sel => W / S - switch selection in the object list.
+desc_help_obj_scale => Hold Shift - movement steps become 4x.
+help_other => Other
+help_other_shift => Shift - Speed up
+help_other_help => F7 - Help
+help_other_exit => Esc - Back to menu
+desc_help_other => Other common actions.
+desc_help_other_shift => Hold Shift - speed up camera/object movement.
+desc_help_other_help => F7 - show or hide the help overlay.
+desc_help_other_exit => Esc - exit the editor back to the main menu.

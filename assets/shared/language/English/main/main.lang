@@ -1,5 +1,14 @@
 languageName => English
 fontName => chillax
+langPreview => When you change the language in settings and then read this message, you find you've set the language successfully. So you switch the language again — oh no, why can't you understand it anymore?
 justsayLang => Lang-EN
 play => play
 back => back
+optionsTitle => Options
+optionsMenuTitle => Options Menu
+rebinding => Rebinding
+holdBCancel => Hold B to Cancel
+holdCDelete => Hold C to Delete
+holdEscCancel => Hold ESC to Cancel
+holdBackspaceDelete => Hold Backspace to DeletemodInfoEmpty => Nothing here yet, are you satisfied?
+modInfoEmptyDesc => Select a mod in the Mods menu to see its info here.

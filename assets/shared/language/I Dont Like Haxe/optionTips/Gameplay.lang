@@ -1,0 +1,40 @@
+GamePlay => 游玩设置
+
+downScroll => 箭头改为从上往下滚动
+middleScroll => 将箭头居中放置
+flipChart => 铺面箭头翻转 ，左右键交换，上下键交换
+ghostTapping => 当没有箭头时按下不会判定为Miss
+guitarHeroSustains => 如果长箭断了，则无法再次触发
+noReset => 按 R 键会立刻死亡
+showKeybinds => 游戏开始时会在箭头上方显示各个箭头的键位
+
+
+Opponent => 对手设置
+
+playOpponent => 游玩对手的铺面，相当于你现在是对手
+opponentCodeFix => 把GoodNoteHit和opponentNoteHit函数触发进行交换
+botOpponentFix => 脚本会认为您打开了机器人
+healthDrainOPPO => 对手也可以通过击中箭头推条
+healthDrainOPPOMult => 对手的推条系数
+
+
+judgement => 箭头判定设置
+
+safeFrames => 修改整体判定大小系数
+marvelousWindow => 更改Marvelous评分判定的最大区间
+sickWindow => 更改Sick评分判定的最大区间
+goodWindow => 更改Good评分判定的最大区间
+badWindow => 更改Bad评分判定的最大区间
+marvelousRating => 增加Marvelous判定
+marvelousSprite => Marvelous评分使用新的贴图
+ratingOffset => 更改整体判定的偏移
+NoteOffsetState => 更改音乐偏移和UI贴图的位置
+
+
+Gameplaybackend => 游戏后端设置
+
+gameplayGC => 允许 GameplayGC 在歌曲进行中接管内存回收，以减少 GC 停顿；可能会增加内存占用。
+fixLNL => 减少长键长度
+saveScoreBase => 回放记录保存基础，Score：分数最高，Accuracy：准确率最高，Misses：错过数最少，highestCombo：连击最多
+showReplayWatermark => 回放时在右下角显示回放水印
+gameOverVibration => 设备会在你死亡时振动（如果设备支持）

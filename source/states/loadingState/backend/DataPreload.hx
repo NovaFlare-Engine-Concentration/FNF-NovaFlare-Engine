@@ -128,7 +128,14 @@ class DataPreload
 			LoadingState.instance.chartEvents.push(event);
 
 		preloadMisc();
-		preloadScript();
+		try
+		{
+			preloadScript();
+		}
+		catch (e:Dynamic)
+		{
+			// 脚本预加载是可选的优化：单个脚本解析失败不应导致游戏崩溃
+		}
 
 		LoadingState.instance.waitPrepare = false;
 	}
@@ -313,84 +320,102 @@ class DataPreload
 			input = input.substr(1);
 		} //防止BOM字符 <UTF-8 with BOM> <\65279>
 
-		var parser = new LuaParser();
-		var e:LuaExpr = parser.parseFromString(input);
+		var e:LuaExpr = null;
+		try
+		{
+			var parser = new LuaParser();
+			e = parser.parseFromString(input);
+		}
+		catch (err:Dynamic)
+		{
+			// 部分 mod 脚本含 luahscript 解析器不支持的语法（如长括号字符串/块注释），
+			// 预加载只是可选优化，解析失败直接跳过，绝不能让加载界面崩溃
+			return;
+		}
 
 		if (e == null)
 			return;
 	
-		ScriptExprTools.lua_searchCallback(e, function(e:LuaExpr, params:Array<LuaExpr>) {
-			switch(e.expr) {
-				case EIdent('makeLuaSprite'):
-					if (ScriptExprTools.lua_getValue(params[1]) != null && ScriptExprTools.lua_getValue(params[1]) != '')
-						LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.lua_getValue(params[1])));
-				case EIdent('makeAnimatedLuaSprite'):
-					if (ScriptExprTools.lua_getValue(params[1]) != null && ScriptExprTools.lua_getValue(params[1]) != '')
+		try
+		{
+			ScriptExprTools.lua_searchCallback(e, function(e:LuaExpr, params:Array<LuaExpr>) {
+				switch(e.expr) {
+					case EIdent('makeLuaSprite'):
+						if (ScriptExprTools.lua_getValue(params[1]) != null && ScriptExprTools.lua_getValue(params[1]) != '')
 							LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.lua_getValue(params[1])));
-				case EIdent('precacheImage'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
-				case EIdent('addCharacterToList'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
+					case EIdent('makeAnimatedLuaSprite'):
+						if (ScriptExprTools.lua_getValue(params[1]) != null && ScriptExprTools.lua_getValue(params[1]) != '')
+								LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.lua_getValue(params[1])));
+					case EIdent('precacheImage'):
+						if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
+								LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
+					case EIdent('addCharacterToList'):
+						if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
+								LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
 
-				////////////////////////////////////////////////////////////////////////////////////////////////////////
+					////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-				case EIdent('precacheSound'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.soundsToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
-				case EIdent('precacheMusic'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.musicToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
+					case EIdent('precacheSound'):
+						if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
+								LoadingState.instance.putPreload(LoadingState.instance.soundsToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
+					case EIdent('precacheMusic'):
+						if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
+								LoadingState.instance.putPreload(LoadingState.instance.musicToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
 
-				case EIdent('playSound'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.soundsToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
-				case EIdent('playMusic'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.musicToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
+					case EIdent('playSound'):
+						if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
+								LoadingState.instance.putPreload(LoadingState.instance.soundsToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
+					case EIdent('playMusic'):
+						if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
+								LoadingState.instance.putPreload(LoadingState.instance.musicToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
 
-				////////////////////////////////////////////////////////////////////////////////////////////////////////
+					////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-				case EIdent('addLuaScript'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							startLuaNamed(Std.string(ScriptExprTools.lua_getValue(params[0])));
+					case EIdent('addLuaScript'):
+						if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
+								startLuaNamed(Std.string(ScriptExprTools.lua_getValue(params[0])));
 
-				case EIdent('runHaxeCode'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							hscriptFilesCheck(Std.string(ScriptExprTools.lua_getValue(params[0])), false);
-				case EIdent('startDialogue'):
-					if (PlayState.isStoryMode)  {
-						if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '') {
-							var dialogueFile = Std.string(ScriptExprTools.lua_getValue(params[0]));
-							var path:String;
-							#if MODS_ALLOWED
-							path = Paths.modsJson(Paths.formatToSongPath(PlayState.SONG.song) + '/' + dialogueFile);
-							if (!FileSystem.exists(path))
-							#end
-							path = Paths.json(Paths.formatToSongPath(PlayState.SONG.song) + '/' + dialogueFile);
+					case EIdent('runHaxeCode'):
+						if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
+								hscriptFilesCheck(Std.string(ScriptExprTools.lua_getValue(params[0])), false);
+					case EIdent('startDialogue'):
+						if (PlayState.isStoryMode)  {
+							if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '') {
+								var dialogueFile = Std.string(ScriptExprTools.lua_getValue(params[0]));
+								var path:String;
+								#if MODS_ALLOWED
+								path = Paths.modsJson(Paths.formatToSongPath(PlayState.SONG.song) + '/' + dialogueFile);
+								if (!FileSystem.exists(path))
+								#end
+								path = Paths.json(Paths.formatToSongPath(PlayState.SONG.song) + '/' + dialogueFile);
 
-							#if MODS_ALLOWED
-							if (FileSystem.exists(path))
-							#else
-							if (Assets.exists(path))
-							#end
-							{
-								var dialogueList:DialogueFile = DialogueBoxPsych.parseDialogue(path);
-								for (i in 0...dialogueList.dialogue.length)							
-									if (dialogueList.dialogue[i] != null) {							
-										LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, 'dialogue/' + Std.string(dialogueList.dialogue[i].portrait));		
-										LoadingState.instance.putPreload(LoadingState.instance.soundsToPrepare, Std.string(dialogueList.dialogue[i].sound));		
-									}														
+								#if MODS_ALLOWED
+								if (FileSystem.exists(path))
+								#else
+								if (Assets.exists(path))
+								#end
+								{
+									var dialogueList:DialogueFile = DialogueBoxPsych.parseDialogue(path);
+									for (i in 0...dialogueList.dialogue.length)							
+										if (dialogueList.dialogue[i] != null) {							
+											LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, 'dialogue/' + Std.string(dialogueList.dialogue[i].portrait));		
+											LoadingState.instance.putPreload(LoadingState.instance.soundsToPrepare, Std.string(dialogueList.dialogue[i].sound));		
+										}														
+								}
+							}
+							if (ScriptExprTools.lua_getValue(params[1]) != null && ScriptExprTools.lua_getValue(params[1]) != '') {
+								LoadingState.instance.putPreload(LoadingState.instance.musicToPrepare, Std.string(ScriptExprTools.lua_getValue(params[1])));
 							}
 						}
-						if (ScriptExprTools.lua_getValue(params[1]) != null && ScriptExprTools.lua_getValue(params[1]) != '') {
-							LoadingState.instance.putPreload(LoadingState.instance.musicToPrepare, Std.string(ScriptExprTools.lua_getValue(params[1])));
-						}
-					}
-				case _:
-			}
-		});
+					case _:
+				}
+			});
+		}
+		catch (err:Dynamic)
+		{
+			// 脚本参数数量不足（如 makeLuaSprite 只传一个参数）时访问 params[1]
+			// 会越界，预加载只是可选优化，跳过即可
+		}
 	}
 
 	static function startHscriptNamed(filePath:String)
@@ -414,7 +439,7 @@ class DataPreload
 	{
 		var input:String = '';
 		if (isFile){
-			File.getContent(file);	
+			try { input = File.getContent(file); } catch (e:Dynamic) return;
 			//trace('Hscript: load Path: ' + file);
 		} else {
 			input = file;
@@ -424,32 +449,52 @@ class DataPreload
 			input = input.substr(1);
 		} //防止BOM字符 <UTF-8 with BOM> <\65279>
 
-		var parser = new Parser();
-		parser.allowTypes = parser.allowMetadata = parser.allowJSON = true;
-		var e:Expr = parser.parseString(input);
+		var e:Expr = null;
+		try
+		{
+			var parser = new Parser();
+			parser.allowTypes = parser.allowMetadata = parser.allowJSON = true;
+			e = parser.parseString(input);
+		}
+		catch (err:Dynamic)
+		{
+			// runHaxeCode 内嵌的 hscript 代码可能含解析器不支持的语法，
+			// 预加载失败直接跳过，绝不能让加载界面崩溃
+			return;
+		}
 
-		ScriptExprTools.hx_searchCallback(e, function(e:Expr, params:Array<Expr>) {
-			switch(Tools.expr(e)) {
-				case EField(e, f, _):
-					ScriptExprTools.hx_recursion(e, function(e:Expr) {
-						switch(Tools.expr(e)) {
-							case EIdent("Paths") if(f == "image"):
-								if (ScriptExprTools.hx_getValue(params[0]) != null && ScriptExprTools.hx_getValue(params[0]) != '')
-									LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.hx_getValue(params[0])));
-							case EIdent("Paths") if(f == "cacheBitmap"):
-								if (ScriptExprTools.hx_getValue(params[0]) != null && ScriptExprTools.hx_getValue(params[0]) != '')
-									LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.hx_getValue(params[0])));
-							case EIdent("Paths") if(f == "sound"):
-								if (ScriptExprTools.hx_getValue(params[0]) != null && ScriptExprTools.hx_getValue(params[0]) != '')
-									LoadingState.instance.putPreload(LoadingState.instance.soundsToPrepare, Std.string(ScriptExprTools.hx_getValue(params[0])));
-							case EIdent("Paths") if(f == "music"):
-								if (ScriptExprTools.hx_getValue(params[0]) != null && ScriptExprTools.hx_getValue(params[0]) != '')
-									LoadingState.instance.putPreload(LoadingState.instance.musicToPrepare, Std.string(ScriptExprTools.hx_getValue(params[0])));
-							case _:
-						}
-					});
-				case _:
-			}
-		});
+		if (e == null)
+			return;
+
+		try
+		{
+			ScriptExprTools.hx_searchCallback(e, function(e:Expr, params:Array<Expr>) {
+				switch(Tools.expr(e)) {
+					case EField(e, f, _):
+						ScriptExprTools.hx_recursion(e, function(e:Expr) {
+							switch(Tools.expr(e)) {
+								case EIdent("Paths") if(f == "image"):
+									if (ScriptExprTools.hx_getValue(params[0]) != null && ScriptExprTools.hx_getValue(params[0]) != '')
+										LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.hx_getValue(params[0])));
+								case EIdent("Paths") if(f == "cacheBitmap"):
+									if (ScriptExprTools.hx_getValue(params[0]) != null && ScriptExprTools.hx_getValue(params[0]) != '')
+										LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.hx_getValue(params[0])));
+								case EIdent("Paths") if(f == "sound"):
+									if (ScriptExprTools.hx_getValue(params[0]) != null && ScriptExprTools.hx_getValue(params[0]) != '')
+										LoadingState.instance.putPreload(LoadingState.instance.soundsToPrepare, Std.string(ScriptExprTools.hx_getValue(params[0])));
+								case EIdent("Paths") if(f == "music"):
+									if (ScriptExprTools.hx_getValue(params[0]) != null && ScriptExprTools.hx_getValue(params[0]) != '')
+										LoadingState.instance.putPreload(LoadingState.instance.musicToPrepare, Std.string(ScriptExprTools.hx_getValue(params[0])));
+								case _:
+							}
+						});
+					case _:
+				}
+			});
+		}
+		catch (err:Dynamic)
+		{
+			// hscript 预加载解析失败跳过，不影响游戏
+		}
 	}
 }

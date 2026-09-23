@@ -1,0 +1,39 @@
+week => Week Editor
+
+# ===== 一级菜单按钮 =====
+menu_week => Week
+menu_other => Other
+menu_file => File
+
+# ===== File 菜单动作 =====
+item_load_week => Load Week
+item_freeplay => Freeplay Editor
+item_save_week => Save Week
+
+# ===== Week 面板（行式标签） =====
+w_songs => Songs
+w_opponent => Opponent
+w_boyfriend => Boyfriend
+w_girlfriend => Girlfriend
+w_background => Background
+w_display_name => Display Name
+w_week_name => Week Name (Reset Menu)
+w_week_file => Week File
+w_hide_story => Hide Week from Story Mode?
+
+# ===== Other 面板 =====
+w_locked => Week starts Locked
+w_hidden_unlock => Hidden until Unlocked
+w_week_before => Unlock Needs Week
+w_difficulties => Difficulties
+w_difficulties_hint => Default difficulties are "Easy, Normal, Hard" without quotes.
+
+# ===== Freeplay 编辑器 =====
+fp_editing => Editing
+fp_bg_color => BG Color
+fp_copy => Copy
+fp_paste => Paste
+fp_icon => Icon
+fp_hide_freeplay => Hide Week from Freeplay?
+fp_story_mode => Story Mode
+fp_song_list => Songs
