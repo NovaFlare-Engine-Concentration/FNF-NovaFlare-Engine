@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <project>
 	<!-- _________________________ Application Settings _________________________ -->
-	<app title="NovaFlare Engine" file="NovaFlare Engine" packageName="com.NovaFlareEngineNew" package="com.NovaFlareEngineNew" main="Main" version="1.2.1" build-number="40261004" company="NF-crew" />
+	<app title="NovaFlare Engine" file="NovaFlare Engine" packageName="com.NovaFlareEngineNew" package="com.NovaFlareEngineNew" main="Main" version="1.2.1" build-number="40261005" company="NF-crew" />
 
 	<!--Switch Export with Unique ApplicationID and Icon-->
 	<set name="APP_ID" value="0x0100f6c013bbc000" />
