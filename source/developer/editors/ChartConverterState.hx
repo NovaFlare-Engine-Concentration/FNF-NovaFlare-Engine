@@ -1,10 +1,15 @@
 package developer.editors;
 
-// NF Stage Converter — CNE / VSlice / PE stage format conversion
-// Ported from V-Stuff (convertCodenameStage, convertVSliceToPsychStage,
-// convertPsychStage). Output goes to saves/.
+// NF Chart Converter — ported from Impostor Legacy's ChartConverterState
+// Uses vendored moonchart (source/moonchart_vendored/moonchart, MIT license, v0.5.1)
+// Android adaptation: system SAF picker returns content:// URIs which cannot be read
+// as filesystem paths. NF has no FileUtil browser on mobile, so this port uses a
+// text-input flow (paste path) + a built-in scanner that auto-discovers chart/meta/
+// other json files under common storage folders.
 
 import flixel.FlxG;
+
+import haxe.Json;
 import flixel.FlxSprite;
 import flixel.group.FlxGroup.FlxTypedGroup;
 import flixel.text.FlxText;
@@ -15,14 +20,18 @@ import general.backend.MusicBeatState;
 import general.objects.Alphabet;
 import general.backend.Paths;
 
-import haxe.Json;
-import sys.io.File;
-import sys.FileSystem;
+import moonchart.formats.fnf.legacy.FNFPsych;
+import moonchart.formats.BasicFormat.DynamicFormat;
+import moonchart.backend.Util.OneOfArray;
+import moonchart.formats.BasicFormat.FormatDifficulty;
+
 
 using StringTools;
 
-class StageConverterState extends MusicBeatState
+class ChartConverterState extends MusicBeatState
 {
+	public static var goToFreeplay:Bool = false;
+
 	var bg:FlxSprite;
 	var txtGroup:FlxTypedGroup<Alphabet>;
 	var descriptionBG:FlxSprite;
@@ -31,14 +40,14 @@ class StageConverterState extends MusicBeatState
 	var pathLabel:FlxText;
 	var pathInput:FlxUIInputText;
 	var scanButton:Alphabet;
-	var titleText:Alphabet;
-	var bgColour:FlxColor = 0xFF3D5A40;
+	var bgColour:FlxColor = 0xFF674B6C;
 
+	var titleText:Alphabet;
 	var curSelection:Int = 0;
 	var canSelect:Bool = true;
-	var phase:Int = 0;
+	var phase:Int = 0; // 0 = mode select, 1 = path input
 
-	static final MODES:Array<String> = ['CNE XML → PE json', 'CNE XML → VSlice', 'VSlice → PE json', 'PE json → VSlice'];
+	static final MODES:Array<String> = ['From VSlice', 'From CNE', 'From Psych 1.0', 'From Vs. Impostor Extra', 'To VSlice: from PE', 'To VSlice: from CNE'];
 
 	override function create()
 	{
@@ -48,12 +57,13 @@ class StageConverterState extends MusicBeatState
 
 		bg = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
 		bg.scrollFactor.set();
-		bg.color = 0xFF2D4A30;
+		bg.color = 0xFF4D3551;
 		add(bg);
 
-		titleText = new Alphabet(60, 40, 'Stage Converter', true);
+		var titleText = new Alphabet(60, 40, 'Chart Converter', true);
 		titleText.alpha = 0.4;
 		add(titleText);
+		this.titleText = titleText;
 
 		txtGroup = new FlxTypedGroup<Alphabet>();
 		add(txtGroup);
@@ -64,6 +74,7 @@ class StageConverterState extends MusicBeatState
 			txt.isMenuItem = true;
 			txt.targetY = i;
 			txtGroup.add(txt);
+			txt.snapToPosition();
 		}
 
 		descriptionBG = new FlxSprite().makeGraphic(1, 1, FlxColor.BLACK);
@@ -71,10 +82,11 @@ class StageConverterState extends MusicBeatState
 		add(descriptionBG);
 
 		description = new FlxText(25, 0, FlxG.width - 50, '', 26);
-		description.setFormat(Paths.font('vcr.ttf'), 26, FlxColor.WHITE, CENTER);
+		description.setFormat(Paths.font('vcr.ttf'), 26, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
 		description.borderSize = 2.4;
 		add(description);
 
+		// ---- path input phase UI ----
 		pathBG = new FlxSprite().makeGraphic(1, 1, FlxColor.BLACK);
 		pathBG.alpha = 0.7;
 		pathBG.visible = false;
@@ -94,6 +106,7 @@ class StageConverterState extends MusicBeatState
 		scanButton.alpha = 0.8;
 		add(scanButton);
 
+		// Mobile virtual pad (same style as MasterEditorMenu)
 		#if mobile
 		addVirtualPad(LEFT_FULL, A_B);
 		addVirtualPadCamera();
@@ -108,7 +121,7 @@ class StageConverterState extends MusicBeatState
 
 		if (phase == 1)
 		{
-			updatePathPhase();
+			updatePathPhase(elapsed);
 			return;
 		}
 
@@ -145,18 +158,22 @@ class StageConverterState extends MusicBeatState
 
 		bgColour = switch (curSelection)
 		{
-			case 1: 0xFF6B5A4A;
-			case 2: 0xFF5A3D5A;
-			case 3: 0xFF4A5A6B;
-			default: 0xFF5A4A3D;
+			case 1: 0xFF4D2454;
+			case 2: 0xFF354465;
+			case 3: 0xFF674242;
+			case 4: 0xFF3D5A40;
+			case 5: 0xFF2F4858;
+			default: 0xFF674B6C;
 		}
 
 		var desc = switch (curSelection)
 		{
-			case 0: 'CNE stage XML → PE stage json + Lua props script.\nSprites, scroll factors and character layers are converted.';
-			case 1: 'CNE stage XML → VSlice stage json.\nProps, characters and cameraZoom are converted.';
-			case 2: 'VSlice stage json → PE stage json + Lua props.\nCharacter positions, camera offsets and props carry over.';
-			case 3: 'PE stage json → VSlice stage json.\nCharacter positions and camera offsets carry over.';
+			case 0: 'VSlice: chart.json + metadata.json → psych_v1 (one file per difficulty).\nProvide BOTH paths, comma separated.\nOutput: saves folder, named <song>-converted.json (-easy/-hard variants).';
+			case 1: 'CNE: chart.json + meta.json → psych_v1.\nProvide BOTH paths, comma separated.\nOutput: saves folder, named <song>-converted.json.';
+			case 2: 'Psych 1.0: normalize a chart for NovaFlare.\nProvide the chart json path.\nOutput: saves folder, named <song>-converted.json.';
+			case 3: 'Impostor merge: main + other json → one psych_v1 chart (extra notes on lanes 8+).\nProvide BOTH paths, comma separated.\nOutput: saves folder, named after the MAIN chart.';
+			case 4: 'PE chart → VSlice chart.json + metadata.json.\nProvide the chart json path. Output in saves folder.';
+			case 5: 'CNE chart → VSlice chart.json + metadata.json.\nProvide BOTH chart json and meta json, comma separated.';
 			default: '';
 		}
 		description.text = desc;
@@ -180,10 +197,12 @@ class StageConverterState extends MusicBeatState
 
 		var prompt = switch (curSelection)
 		{
-			case 0: 'CNE→PE: full path of the stage XML.\nExample: /storage/emulated/0/Download/clubhouse.xml';
-			case 1: 'CNE→VSlice: full path of the stage XML.\nExample: /storage/emulated/0/Download/clubhouse.xml';
-			case 2: 'VSlice→PE: full path of the stage json.\nExample: /storage/emulated/0/Download/stage.json';
-			case 3: 'PE→VSlice: full path of the PE stage json.\nExample: /storage/emulated/0/Download/stage.json';
+			case 0: 'VSlice mode: full path of chart json and metadata json, comma separated.\nExample: /storage/emulated/0/Download/Example-chart.json,/storage/emulated/0/Download/Example-metadata.json';
+			case 1: 'CNE mode: full path of chart json and meta json, comma separated.\nExample: /storage/emulated/0/Download/Example.json,/storage/emulated/0/Download/Example-meta.json';
+			case 2: 'Psych 1.0 mode: full path of the chart json.\nExample: /storage/emulated/0/Download/Example.json';
+			case 3: 'Impostor merge: full path of main json and other json, comma separated.\nExample: /storage/emulated/0/Download/Song.json,/storage/emulated/0/Download/Song-other.json';
+			case 4: 'PE→VSlice mode: full path of the PE chart json.\nExample: /storage/emulated/0/Download/Song.json';
+			case 5: 'CNE→VSlice mode: full path of chart json and meta json, comma separated.\nExample: /storage/emulated/0/Download/Song.json,/storage/emulated/0/Download/Song-meta.json';
 			default: '';
 		}
 		pathLabel.text = prompt;
@@ -201,7 +220,7 @@ class StageConverterState extends MusicBeatState
 		scanButton.setPosition(25, 390);
 		scanButton.visible = true;
 
-		description.text = 'Tap the box to type/paste. BACK to cancel.\nA button (or ENTER) to convert. SCAN lists files on storage.';
+		description.text = 'Tap the box to type/paste. BACK to cancel.\nA button (or ENTER) to convert. SCAN lists chart jsons on storage.';
 		layoutDescription();
 	}
 
@@ -219,7 +238,7 @@ class StageConverterState extends MusicBeatState
 		changeSel();
 	}
 
-	function updatePathPhase()
+	function updatePathPhase(elapsed:Float)
 	{
 		if (controls.BACK)
 		{
@@ -230,6 +249,9 @@ class StageConverterState extends MusicBeatState
 			return;
 		}
 
+		var pressedEnter = FlxG.keys.justPressed.ENTER;
+
+		// touch / mouse on SCAN
 		#if mobile
 		for (t in FlxG.touches.list)
 		{
@@ -248,7 +270,6 @@ class StageConverterState extends MusicBeatState
 			return;
 		}
 
-		var pressedEnter = FlxG.keys.justPressed.ENTER;
 		if ((pressedEnter && !pathInput.hasFocus) || (controls.ACCEPT && !pathInput.hasFocus))
 		{
 			runConvert(pathInput.text);
@@ -261,15 +282,16 @@ class StageConverterState extends MusicBeatState
 		var found = scanStorage();
 		if (found.length == 0)
 		{
-			description.text = 'SCAN: no xml/json files found in common folders.\nType the full path manually.';
+			description.text = 'SCAN: no chart jsons found in Download/Documents/storage root.\nType the full path manually.';
 		}
 		else
 		{
 			var list = '';
 			for (i in 0...Std.int(Math.min(12, found.length)))
 				list += found[i] + '\n';
-			description.text = 'SCAN found ${found.length} files (newest first):\n$list'
-				+ (found.length > 12 ? '(and ${found.length - 12} more...)\n' : '');
+			description.text = 'SCAN found ${found.length} chart jsons (newest first):\n$list'
+				+ (found.length > 12 ? '(and ${found.length - 12} more...)\n' : '')
+				+ 'Type one or two of them above.';
 		}
 		layoutDescription();
 	}
@@ -286,6 +308,9 @@ class StageConverterState extends MusicBeatState
 		];
 		for (root in roots)
 			scanDir(root, results, 0);
+		#end
+		#if sys
+		try scanDir(Sys.getCwd(), results, 0) catch (e:Dynamic) {}
 		#end
 
 		results.sort(function(a, b)
@@ -318,12 +343,18 @@ class StageConverterState extends MusicBeatState
 							continue;
 						scanDir(p, out, depth + 1);
 					}
-					else if ((name.toLowerCase().endsWith('.xml') || name.toLowerCase().endsWith('.json')) && !name.startsWith('.'))
+					else if (name.toLowerCase().endsWith('.json') && !name.startsWith('.'))
 					{
 						try
 						{
-							if (FileSystem.stat(p).size < 1048576)
-								out.push(p);
+							if (FileSystem.stat(p).size < 4194304)
+							{
+								var head = File.getContent(p);
+								if (head.indexOf('"notes"') != -1
+									|| head.indexOf('"strumLines"') != -1
+									|| head.indexOf('"scrollSpeed"') != -1)
+									out.push(p);
+							}
 						}
 						catch (e:Dynamic) {}
 					}
@@ -344,16 +375,272 @@ class StageConverterState extends MusicBeatState
 		}
 		if (paths.length == 0)
 		{
-			showError('No path given. Type the full path of the file.');
+			showError('No path given. Type the full path of the json file(s).');
 			return;
 		}
 
+		for (i in 0...paths.length)
+			paths[i] = normalizePath(paths[i]);
+
 		switch (curSelection)
 		{
-			case 0: convertCNEToPE(paths[0]);
-			case 1: convertCNEToVSlice(paths[0]);
-			case 2: convertVSliceToPE(paths[0]);
-			case 3: convertPEToVSlice(paths[0]);
+			case 0: convertVSlice(paths);
+			case 1: convertCNE(paths);
+			case 2: convertPsych(paths);
+			case 3: convertImpostor(paths);
+			case 4: convertPEToVSlice(paths);
+			case 5: convertCNEToVSlice(paths);
+		}
+	}
+
+	function normalizePath(p:String):String
+	{
+		if (p == null) return '';
+		p = StringTools.trim(p);
+		if (p.startsWith('content://'))
+		{
+			var marker = '/document/';
+			var idx = p.indexOf(marker);
+			if (idx != -1)
+			{
+				var docId = p.substr(idx + marker.length);
+				try docId = StringTools.urlDecode(docId) catch (e:Dynamic) {}
+				if (docId.startsWith('primary:'))
+					return '/storage/emulated/0/' + docId.substr('primary:'.length);
+				if (docId.startsWith('raw:'))
+					return docId.substr('raw:'.length);
+			}
+			return p;
+		}
+		return p;
+	}
+
+	// ------------------------------------------------------------------
+	// Converters
+	// ------------------------------------------------------------------
+
+	function convertVSlice(paths:Array<String>)
+	{
+		var pathToChart:String = null;
+		var pathToMeta:String = null;
+		for (f in paths)
+		{
+			var fl = f.toLowerCase();
+			if (pathToChart == null && fl.indexOf('chart') != -1) pathToChart = f;
+			if (pathToMeta == null && fl.indexOf('metadata') != -1) pathToMeta = f;
+		}
+
+		if (pathToChart == null || pathToMeta == null)
+		{
+			showError('VSlice needs BOTH a *chart* json and a *metadata* json.\nGot: ' + paths.join(', '));
+			return;
+		}
+		if (!readable(pathToChart) || !readable(pathToMeta))
+		{
+			showUnreadable(pathToChart, pathToMeta);
+			return;
+		}
+
+		try
+		{
+			var vSliceChart = new moonchart.formats.fnf.FNFVSlice().fromFile(pathToChart, pathToMeta);
+
+			for (diff in vSliceChart.diffs)
+			{
+				var formattedPath = pathToChart.substr(0, pathToChart.length - 5);
+				if (formattedPath.contains('-chart'))
+					formattedPath = formattedPath.replace('-chart', '');
+				var formattedDiff = diff == 'normal' ? '' : '-$diff';
+				saveFromFormat(formattedPath + formattedDiff, vSliceChart, diff);
+			}
+		}
+		catch (e:Dynamic)
+		{
+			showError('Failed to convert VSlice chart.\n' + Std.string(e));
+		}
+	}
+
+	function convertCNE(paths:Array<String>)
+	{
+		var pathToChart:String = null;
+		var pathToMeta:String = null;
+		for (f in paths)
+		{
+			var fl = f.toLowerCase();
+			if (pathToChart == null && fl.indexOf('meta') == -1) pathToChart = f;
+			if (pathToMeta == null && fl.indexOf('meta') != -1) pathToMeta = f;
+		}
+
+		if (pathToChart == null || pathToMeta == null)
+		{
+			showError('CNE needs BOTH a chart json and a *meta* json.\nGot: ' + paths.join(', '));
+			return;
+		}
+		if (!readable(pathToChart) || !readable(pathToMeta))
+		{
+			showUnreadable(pathToChart, pathToMeta);
+			return;
+		}
+
+		try
+		{
+			var cneChart = new moonchart.formats.fnf.FNFCodename().fromFile(pathToChart, pathToMeta);
+			saveFromFormat(pathToChart, cneChart);
+		}
+		catch (e:Dynamic)
+		{
+			showError('Failed to convert CNE chart.\n' + Std.string(e));
+		}
+	}
+
+	function convertPsych(paths:Array<String>)
+	{
+		var path = paths[0];
+		if (!readable(path))
+		{
+			showUnreadable(path);
+			return;
+		}
+		try
+		{
+			if (!path.endsWith('.json'))
+				throw 'Did not receive a json!';
+
+			var p1Chart = new FNFPsych().fromFile(path);
+			saveFromFormat(path, p1Chart);
+		}
+		catch (e:Dynamic)
+		{
+			showError('Failed to convert Psych chart.\n' + Std.string(e));
+		}
+	}
+
+	function convertImpostor(paths:Array<String>)
+	{
+		var pathToMain:String = null;
+		var pathToExtra:String = null;
+		for (f in paths)
+		{
+			var fl = f.toLowerCase();
+			if (pathToMain == null && fl.indexOf('other') == -1) pathToMain = f;
+			if (pathToExtra == null && fl.indexOf('other') != -1) pathToExtra = f;
+		}
+
+		if (pathToMain == null || pathToExtra == null)
+		{
+			showError('Impostor merge needs BOTH a main json and an *other* json.\nGot: ' + paths.join(', '));
+			return;
+		}
+		if (!readable(pathToMain) || !readable(pathToExtra))
+		{
+			showUnreadable(pathToMain, pathToExtra);
+			return;
+		}
+
+		try
+		{
+			var mainChart = new FNFPsych().fromFile(pathToMain);
+			var extraChart = new FNFPsych().fromFile(pathToExtra);
+
+			var mainNotes:Array<Dynamic> = mainChart.data.song.notes;
+			var extraNotes:Array<Dynamic> = extraChart.data.song.notes;
+			if (mainNotes == null || extraNotes == null)
+				throw 'One of the charts has no notes array.';
+
+			var extraMustHits:Bool = false;
+			for (s in extraNotes)
+			{
+				if (Reflect.hasField(s, 'mustHitSection') && s.mustHitSection)
+				{
+					extraMustHits = true;
+					break;
+				}
+			}
+
+			Reflect.setField(mainChart.data.song, 'lanes', 4);
+
+			for (i => section in extraNotes)
+			{
+				var mainSection = mainNotes[i];
+				if (mainSection != null)
+				{
+					for (noteDatas in (section.sectionNotes:Array<Dynamic>))
+					{
+						if (extraMustHits && section.mustHitSection)
+							noteDatas[1] = ((noteDatas[1] + 4) % 8);
+						noteDatas[1] += 8;
+						mainSection.sectionNotes.push(noteDatas);
+					}
+				}
+				else if (section.sectionNotes.length > 0)
+				{
+					mainNotes[i] = section;
+				}
+			}
+
+			saveFromFormat(pathToMain, mainChart, null, false);
+		}
+		catch (e:Dynamic)
+		{
+			showError('Failed to merge Impostor charts.\n' + Std.string(e));
+		}
+	}
+
+
+	// ------------------------------------------------------------------
+	// Save & messages
+	// ------------------------------------------------------------------
+
+	function saveFromFormat(path:String, format:OneOfArray<DynamicFormat>, ?diff:FormatDifficulty, convert:Bool = true)
+	{
+		var nmvChart:DynamicFormat;
+		if (convert)
+		{
+			nmvChart = new FNFPsych().fromFormat(format, diff);
+			cast(nmvChart, FNFPsych).beautify = true;
+		}
+		else
+		{
+			nmvChart = format;
+		}
+
+		// Default output: NF saves folder (always writable, one fixed place).
+		// If saves is somehow unavailable, fall back next to the source file.
+		var safeName = newPathBase(path) + '-converted.json';
+		var result = trySave('saves/' + safeName, nmvChart);
+		if (result == null)
+		{
+			var target = path.replace('.json', '-converted.json');
+			result = trySave(target, nmvChart);
+		}
+
+		if (result == null)
+			throw 'failed to save.';
+
+		showSuccess('Converted successfully!\nSaved to:\n$result');
+	}
+
+	function newPathBase(path:String):String
+	{
+		var base = path;
+		var slash = base.lastIndexOf('/');
+		if (slash != -1) base = base.substr(slash + 1);
+		var dot = base.lastIndexOf('.');
+		if (dot != -1) base = base.substr(0, dot);
+		return Paths.formatToSongPath(base);
+	}
+
+	function trySave(target:String, chart:DynamicFormat):String
+	{
+		try
+		{
+			var r = chart.save(target);
+			if (r == null) return null;
+			return target;
+		}
+		catch (e:Dynamic)
+		{
+			return null;
 		}
 	}
 
@@ -369,9 +656,20 @@ class StageConverterState extends MusicBeatState
 		}
 	}
 
-	function showUnreadable(p:String)
+	function showUnreadable(p:String, ?p2:String)
 	{
-		showError('Cannot read file:\n$p\nCheck the path for typos and make sure the file exists.');
+		var msg = 'Cannot read file:\n$p' + (p2 != null ? '\n$p2' : '');
+		if (p != null && p.startsWith('content://'))
+		{
+			msg += '\n\nThat is an Android content URI - the real file path is needed.\n'
+				+ 'Open your file manager, find the file, copy its full path\n'
+				+ '(starts with /storage/...) and paste it here.';
+		}
+		else
+		{
+			msg += '\nCheck the path for typos and make sure the file exists.';
+		}
+		showError(msg);
 	}
 
 	function showError(msg:String)
@@ -387,280 +685,4 @@ class StageConverterState extends MusicBeatState
 		layoutDescription();
 		FlxG.sound.play(Paths.sound('confirmMenu'), 0.7);
 	}
-
-	function newPathBase(path:String):String
-	{
-		var base = path;
-		var slash = base.lastIndexOf('/');
-		if (slash != -1) base = base.substr(slash + 1);
-		var dot = base.lastIndexOf('.');
-		if (dot != -1) base = base.substr(0, dot);
-		return Paths.formatToSongPath(base);
-	}
-
-	function saveJson(target:String, data:Dynamic):String
-	{
-		File.saveContent(target, Json.stringify(data, null, '\t'));
-		return target;
-	}
-
-
-	// ------------------------------------------------------------------
-	// Stage conversions (ported from V-Stuff)
-	// ------------------------------------------------------------------
-
-	function convertCNEToPE(path:String)
-	{
-		if (!readable(path)) { showUnreadable(path); return; }
-		try
-		{
-			var xmlText = File.getContent(path);
-			var root = Xml.parse(xmlText).firstElement();
-			if (root == null || root.nodeName != 'stage')
-				throw 'Not a CNE stage XML (root element is not <stage>).';
-
-			var zoom = Std.parseFloat(root.get('zoom'));
-			if (Math.isNaN(zoom)) zoom = 1;
-			var folder = root.get('folder');
-			if (folder == null) folder = '';
-
-			var props:Array<Dynamic> = parseStageProps(root, folder);
-			var charZ = parseCharZ(root);
-
-			var maxCharZ = Std.int(Math.max(Math.max(charZ.bf > 0 ? charZ.bf : 0, charZ.dad > 0 ? charZ.dad : 0), charZ.gf > 0 ? charZ.gf : 0));
-
-			var stageOut = {
-				directory: 'shared',
-				defaultZoom: zoom,
-				isPixelStage: false,
-				boyfriend: [0, 0],
-				girlfriend: [0, 0],
-				opponent: [0, 0],
-				hide_girlfriend: charZ.gf < 0,
-				camera_boyfriend: [0, 0],
-				camera_opponent: [0, 0],
-				camera_girlfriend: [0, 0],
-				camera_speed: 1
-			};
-
-			var lua = buildLua(props, maxCharZ);
-
-			var base = newPathBase(path);
-			var jsonSaved = saveJson('saves/' + base + '-stage.json', stageOut);
-			var luaSaved = 'saves/' + base + '-stage-props.lua.txt';
-			File.saveContent(luaSaved, lua);
-			showSuccess('Stage CNE→PE done! (' + props.length + ' props)\nSaved:\n' + jsonSaved + '\n' + luaSaved);
-		}
-		catch (e:Dynamic)
-		{
-			showError('Failed to convert stage.\n' + Std.string(e));
-		}
-	}
-
-	function convertCNEToVSlice(path:String)
-	{
-		if (!readable(path)) { showUnreadable(path); return; }
-		try
-		{
-			var xmlText = File.getContent(path);
-			var root = Xml.parse(xmlText).firstElement();
-			if (root == null || root.nodeName != 'stage')
-				throw 'Not a CNE stage XML.';
-
-			var zoom = Std.parseFloat(root.get('zoom'));
-			if (Math.isNaN(zoom)) zoom = 1;
-			var folder = root.get('folder');
-			if (folder == null) folder = '';
-
-			var props:Array<Dynamic> = parseStageProps(root, folder);
-			var charZ = parseCharZ(root);
-
-			var gfEntry:Dynamic = { position: [0, 0], cameraOffsets: [0, 0], zIndex: charZ.gf > 0 ? charZ.gf : 100 };
-			if (charZ.gf < 0) gfEntry.alpha = 0;
-
-			var out = {
-				version: '1.0.2',
-				name: root.get('name') != null ? root.get('name') : 'stage',
-				props: props,
-				characters: {
-					bf: { position: [0, 0], cameraOffsets: [0, 0], zIndex: charZ.bf > 0 ? charZ.bf : 300 },
-					dad: { position: [0, 0], cameraOffsets: [0, 0], zIndex: charZ.dad > 0 ? charZ.dad : 200 },
-					gf: gfEntry
-				},
-				cameraZoom: zoom,
-				directory: 'shared'
-			};
-
-			var saved = saveJson('saves/' + newPathBase(path) + '-vslice.json', out);
-			showSuccess('Stage CNE→VSlice done! (' + props.length + ' props)\nSaved to:\n$saved');
-		}
-		catch (e:Dynamic)
-		{
-			showError('Failed to convert stage.\n' + Std.string(e));
-		}
-	}
-
-	function convertVSliceToPE(path:String)
-	{
-		if (!readable(path)) { showUnreadable(path); return; }
-		try
-		{
-			var vJson:Dynamic = Json.parse(File.getContent(path));
-
-			var chars:Dynamic = Reflect.hasField(vJson, 'characters') ? vJson.characters : {};
-			var maxCharZ:Float = 0;
-			if (Reflect.hasField(chars, 'bf') && chars.bf.zIndex > maxCharZ) maxCharZ = chars.bf.zIndex;
-			if (Reflect.hasField(chars, 'dad') && chars.dad.zIndex > maxCharZ) maxCharZ = chars.dad.zIndex;
-			if (Reflect.hasField(chars, 'gf') && chars.gf.zIndex > maxCharZ) maxCharZ = chars.gf.zIndex;
-
-			var gfHidden = !Reflect.hasField(chars, 'gf') || (Reflect.hasField(chars.gf, 'alpha') && chars.gf.alpha == 0);
-
-
-			var out = {
-				directory: Reflect.hasField(vJson, 'directory') ? Std.string(vJson.directory) : '',
-				defaultZoom: Reflect.hasField(vJson, 'cameraZoom') ? vJson.cameraZoom : 1,
-				isPixelStage: false,
-				boyfriend: charPosOf(chars, 'bf'),
-				girlfriend: charPosOf(chars, 'gf'),
-				opponent: charPosOf(chars, 'dad'),
-				hide_girlfriend: gfHidden,
-				camera_boyfriend: charCamOf(chars, 'bf'),
-				camera_opponent: charCamOf(chars, 'dad'),
-				camera_girlfriend: charCamOf(chars, 'gf'),
-				camera_speed: 1
-			};
-
-			var props:Array<Dynamic> = Reflect.hasField(vJson, 'props') ? vJson.props : [];
-			var lua = buildLua(props, maxCharZ);
-
-			var base = newPathBase(path);
-			var jsonSaved = saveJson('saves/' + base + '-stage.json', out);
-			var luaSaved = 'saves/' + base + '-stage-props.lua.txt';
-			File.saveContent(luaSaved, lua);
-			showSuccess('Stage VSlice→PE done!\nSaved:\n' + jsonSaved + '\n' + luaSaved);
-		}
-		catch (e:Dynamic)
-		{
-			showError('Failed to convert stage.\n' + Std.string(e));
-		}
-	}
-
-	function convertPEToVSlice(path:String)
-	{
-		if (!readable(path)) { showUnreadable(path); return; }
-		try
-		{
-			var peJson:Dynamic = Json.parse(File.getContent(path));
-
-			var characters:Dynamic = {};
-			if (Reflect.hasField(peJson, 'boyfriend'))
-				Reflect.setField(characters, 'bf', { zIndex: 300, position: peJson.boyfriend, cameraOffsets: Reflect.hasField(peJson, 'camera_boyfriend') ? peJson.camera_boyfriend : [0, 0] });
-			if (Reflect.hasField(peJson, 'opponent'))
-				Reflect.setField(characters, 'dad', { zIndex: 200, position: peJson.opponent, cameraOffsets: Reflect.hasField(peJson, 'camera_opponent') ? peJson.camera_opponent : [0, 0] });
-			if (!Reflect.hasField(peJson, 'hide_girlfriend') || !peJson.hide_girlfriend)
-			{
-				if (Reflect.hasField(peJson, 'girlfriend'))
-					Reflect.setField(characters, 'gf', { zIndex: 100, position: peJson.girlfriend, cameraOffsets: Reflect.hasField(peJson, 'camera_girlfriend') ? peJson.camera_girlfriend : [0, 0] });
-			}
-
-			var out = {
-				props: [],
-				cameraZoom: Reflect.hasField(peJson, 'defaultZoom') ? peJson.defaultZoom : 1,
-				version: '1.0.0',
-				characters: characters,
-				name: Reflect.hasField(peJson, 'directory') ? Std.string(peJson.directory) : 'stage',
-				directory: Reflect.hasField(peJson, 'directory') ? Std.string(peJson.directory) : ''
-			};
-
-			var saved = saveJson('saves/' + newPathBase(path) + '-vslice.json', out);
-			showSuccess('Stage PE→VSlice done!\nNote: PE stage props live in Lua — copy them manually if needed.\nSaved to:\n$saved');
-		}
-		catch (e:Dynamic)
-		{
-			showError('Failed to convert stage.\n' + Std.string(e));
-		}
-	}
-
-
-	static function charPosOf(chars:Dynamic, key:String):Array<Dynamic>
-	{
-		if (Reflect.hasField(chars, key) && Reflect.hasField(Reflect.field(chars, key), 'position'))
-			return Reflect.field(Reflect.field(chars, key), 'position');
-		return [0, 0];
-	}
-
-	static function charCamOf(chars:Dynamic, key:String):Array<Dynamic>
-	{
-		if (Reflect.hasField(chars, key) && Reflect.hasField(Reflect.field(chars, key), 'cameraOffsets'))
-			return Reflect.field(Reflect.field(chars, key), 'cameraOffsets');
-		return [0, 0];
-	}
-
-	// ---- shared helpers ----
-
-	function parseStageProps(root:Xml, folder:String):Array<Dynamic>
-	{
-		var props:Array<Dynamic> = [];
-		var z:Int = 10;
-		for (node in root.elements())
-		{
-			var tag = node.nodeName.toLowerCase();
-			if (tag != 'sprite') continue;
-			var name = node.get('name');
-			if (name == null) name = 'prop' + props.length;
-			var spriteName = node.get('sprite');
-			if (spriteName == null) spriteName = name;
-			var x = Std.parseFloat(node.get('x'));
-			if (Math.isNaN(x)) x = 0;
-			var y = Std.parseFloat(node.get('y'));
-			if (Math.isNaN(y)) y = 0;
-			var scroll = Std.parseFloat(node.get('scroll'));
-			if (Math.isNaN(scroll)) scroll = 1;
-
-			var entry:Dynamic = {
-				name: name,
-				assetPath: folder + spriteName,
-				position: [x, y],
-				scroll: [scroll, scroll],
-				zIndex: z
-			};
-			props.push(entry);
-			z += 10;
-		}
-		return props;
-	}
-
-	function parseCharZ(root:Xml):{bf:Int, dad:Int, gf:Int}
-	{
-		var bf:Int = -1, dad:Int = -1, gf:Int = -1;
-		var z:Int = 10;
-		for (node in root.elements())
-		{
-			var tag = node.nodeName.toLowerCase();
-			if (tag == 'sprite') z += 10;
-			else if (tag == 'girlfriend' || tag == 'gf') { gf = z; z += 10; }
-			else if (tag == 'dad' || tag == 'opponent') { dad = z; z += 10; }
-			else if (tag == 'boyfriend' || tag == 'bf') { bf = z; z += 10; }
-		}
-		return { bf: bf, dad: dad, gf: gf };
-	}
-
-	function buildLua(props:Array<Dynamic>, maxCharZ:Float):String
-	{
-		var lua = new StringBuf();
-		lua.add('function onCreate()\n');
-		for (prop in props)
-		{
-			var pos:Array<Dynamic> = prop.position;
-			lua.add('\tmakeLuaSprite(\'' + prop.name + '\', \'' + prop.assetPath + '\', ' + pos[0] + ', ' + pos[1] + ')\n');
-			var sc:Array<Dynamic> = prop.scroll;
-			if (sc[0] != 1 || sc[1] != 1)
-				lua.add('\tsetScrollFactor(\'' + prop.name + '\', ' + sc[0] + ', ' + sc[1] + ')\n');
-			var fg:Bool = prop.zIndex > maxCharZ;
-			lua.add('\taddLuaSprite(\'' + prop.name + '\'' + (fg ? ', true' : '') + ')\n\n');
-		}
-		lua.add('end\n');
-		return lua.toString();
-	}
-
 }
