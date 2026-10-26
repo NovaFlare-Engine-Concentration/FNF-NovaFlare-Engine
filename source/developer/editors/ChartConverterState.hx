@@ -8,6 +8,8 @@ package developer.editors;
 // other json files under common storage folders.
 
 import flixel.FlxG;
+
+import haxe.Json;
 import flixel.FlxSprite;
 import flixel.group.FlxGroup.FlxTypedGroup;
 import flixel.text.FlxText;
@@ -45,7 +47,7 @@ class ChartConverterState extends MusicBeatState
 	var canSelect:Bool = true;
 	var phase:Int = 0; // 0 = mode select, 1 = path input
 
-	static final MODES:Array<String> = ['From VSlice', 'From CNE', 'From Psych 1.0', 'From Vs. Impostor Extra'];
+	static final MODES:Array<String> = ['From VSlice', 'From CNE', 'From Psych 1.0', 'From Vs. Impostor Extra', 'Character: CNE XML', 'Stage: CNE XML', 'Week: PE to Level'];
 
 	override function create()
 	{
@@ -159,6 +161,9 @@ class ChartConverterState extends MusicBeatState
 			case 1: 0xFF4D2454;
 			case 2: 0xFF354465;
 			case 3: 0xFF674242;
+			case 4: 0xFF3D5A40;
+			case 5: 0xFF5A4A3D;
+			case 6: 0xFF2F4858;
 			default: 0xFF674B6C;
 		}
 
@@ -168,6 +173,9 @@ class ChartConverterState extends MusicBeatState
 			case 1: 'CNE: chart.json + meta.json → psych_v1.\nProvide BOTH paths, comma separated.\nOutput: saves folder, named <song>-converted.json.';
 			case 2: 'Psych 1.0: normalize a chart for NovaFlare.\nProvide the chart json path.\nOutput: saves folder, named <song>-converted.json.';
 			case 3: 'Impostor merge: main + other json → one psych_v1 chart (extra notes on lanes 8+).\nProvide BOTH paths, comma separated.\nOutput: saves folder, named after the MAIN chart.';
+			case 4: 'Character: CNE character XML → PE/NF character json.\nAnimations, offsets, icon, flip and healthbar color are converted.';
+			case 5: 'Stage: CNE stage XML → PE stage json + Lua props script.\nSprites, scroll factors and z-order are converted from the XML.';
+			case 6: 'Week: PE week json → V-Slice-style level json.\nSong list and visibility carry over.';
 			default: '';
 		}
 		description.text = desc;
@@ -195,6 +203,9 @@ class ChartConverterState extends MusicBeatState
 			case 1: 'CNE mode: full path of chart json and meta json, comma separated.\nExample: /storage/emulated/0/Download/Example.json,/storage/emulated/0/Download/Example-meta.json';
 			case 2: 'Psych 1.0 mode: full path of the chart json.\nExample: /storage/emulated/0/Download/Example.json';
 			case 3: 'Impostor merge: full path of main json and other json, comma separated.\nExample: /storage/emulated/0/Download/Song.json,/storage/emulated/0/Download/Song-other.json';
+			case 4: 'Character: full path of a CNE character XML.\nExample: /storage/emulated/0/Download/dad.xml';
+			case 5: 'Stage: full path of a CNE stage XML.\nOutputs stage json + a Lua props script.\nExample: /storage/emulated/0/Download/clubhouse.xml';
+			case 6: 'Week: full path of a PE week json.\nExample: /storage/emulated/0/Download/week1.json';
 			default: '';
 		}
 		pathLabel.text = prompt;
@@ -380,6 +391,9 @@ class ChartConverterState extends MusicBeatState
 			case 1: convertCNE(paths);
 			case 2: convertPsych(paths);
 			case 3: convertImpostor(paths);
+			case 4: convertCharacter(paths);
+			case 5: convertStage(paths);
+			case 6: convertWeek(paths);
 		}
 	}
 
@@ -573,6 +587,283 @@ class ChartConverterState extends MusicBeatState
 		catch (e:Dynamic)
 		{
 			showError('Failed to merge Impostor charts.\n' + Std.string(e));
+		}
+	}
+
+
+	// ------------------------------------------------------------------
+	// Character: CNE XML → PE json (ported from V-Stuff convertCodenameToPsychCharacter)
+	// ------------------------------------------------------------------
+
+	function convertCharacter(paths:Array<String>)
+	{
+		var path = paths[0];
+		if (!readable(path))
+		{
+			showUnreadable(path);
+			return;
+		}
+		try
+		{
+			var xmlText = File.getContent(path);
+			var root = Xml.parse(xmlText).firstElement();
+			if (root == null || root.nodeName != 'character')
+				throw 'Not a CNE character XML (root element is not <character>).';
+
+			var offsetX = Std.parseFloat(root.get('x'));
+			if (Math.isNaN(offsetX)) offsetX = 0;
+			var offsetY = Std.parseFloat(root.get('y'));
+			if (Math.isNaN(offsetY)) offsetY = 0;
+			var spriteName = root.get('sprite');
+			if (spriteName == null) spriteName = '';
+			var flipX = root.get('flipX') == 'true';
+			var icon = root.get('icon');
+			if (icon == null) icon = '';
+			var isPlayer = root.get('isPlayer') == 'true';
+			var colorHex = root.get('color');
+			if (colorHex == null) colorHex = '';
+
+			var anims:Array<Dynamic> = [];
+			for (el in root.elements())
+			{
+				if (el.nodeName != 'anim') continue;
+				var ax = Std.parseFloat(el.get('x'));
+				if (Math.isNaN(ax)) ax = 0;
+				var ay = Std.parseFloat(el.get('y'));
+				if (Math.isNaN(ay)) ay = 0;
+				var fps = Std.parseFloat(el.get('fps'));
+				if (Math.isNaN(fps)) fps = 24;
+				var animName = el.get('name');
+				if (animName == null) animName = el.get('anim');
+				if (animName == null) animName = '';
+				var prefix = el.get('anim');
+				if (prefix == null) prefix = animName;
+				anims.push({
+					loop: el.get('loop') == 'true',
+					offsets: [ax, ay],
+					anim: animName,
+					fps: Std.int(fps),
+					name: prefix,
+					indices: []
+				});
+			}
+
+			var hb = hexToRgb(colorHex);
+
+			var out = {
+				animations: anims,
+				vocals_file: '',
+				no_antialiasing: false,
+				image: 'characters/' + spriteName,
+				position: [offsetX, offsetY],
+				healthicon: icon,
+				flip_x: flipX,
+				healthbar_colors: hb,
+				sing_duration: 4,
+				scale: 1,
+				_editor_isPlayer: isPlayer
+			};
+
+			var base = newPathBase(path);
+			var saved = saveJson('saves/' + base + '-character.json', out);
+			showSuccess('Character converted!\nSaved to:\n' + saved);
+		}
+		catch (e:Dynamic)
+		{
+			showError('Failed to convert character.\n' + Std.string(e));
+		}
+	}
+
+	function hexToRgb(hex:String):Array<Int>
+	{
+		if (hex == null || hex == '') return [0, 0, 0];
+		var h = hex;
+		if (h.charAt(0) == '#') h = h.substr(1);
+		if (h.length == 6)
+		{
+			var r = Std.parseInt('0x' + h.substr(0, 2));
+			var g = Std.parseInt('0x' + h.substr(2, 2));
+			var b = Std.parseInt('0x' + h.substr(4, 2));
+			if (r == null || g == null || b == null) return [0, 0, 0];
+			return [r, g, b];
+		}
+		return [0, 0, 0];
+	}
+
+	function saveJson(target:String, data:Dynamic):String
+	{
+		var text = Json.stringify({song: null}, null, null); // warm check
+		text = Json.stringify(data, null, '\t');
+		File.saveContent(target, text);
+		return target;
+	}
+
+	// ------------------------------------------------------------------
+	// Stage: CNE XML → PE stage json + Lua props (ported from V-Stuff)
+	// ------------------------------------------------------------------
+
+	function convertStage(paths:Array<String>)
+	{
+		var path = paths[0];
+		if (!readable(path))
+		{
+			showUnreadable(path);
+			return;
+		}
+		try
+		{
+			var xmlText = File.getContent(path);
+			var root = Xml.parse(xmlText).firstElement();
+			if (root == null || root.nodeName != 'stage')
+				throw 'Not a CNE stage XML (root element is not <stage>).';
+
+			var zoom = Std.parseFloat(root.get('zoom'));
+			if (Math.isNaN(zoom)) zoom = 1;
+			var folder = root.get('folder');
+			if (folder == null) folder = '';
+
+			var props:Array<Dynamic> = [];
+			var gfZ:Int = -1, dadZ:Int = -1, bfZ:Int = -1;
+			var z:Int = 10;
+
+			for (node in root.elements())
+			{
+				var tag = node.nodeName.toLowerCase();
+				if (tag == 'sprite')
+				{
+					var name = node.get('name');
+					if (name == null) name = 'prop' + props.length;
+					var spriteName = node.get('sprite');
+					if (spriteName == null) spriteName = name;
+					var x = Std.parseFloat(node.get('x'));
+					if (Math.isNaN(x)) x = 0;
+					var y = Std.parseFloat(node.get('y'));
+					if (Math.isNaN(y)) y = 0;
+					var scroll = Std.parseFloat(node.get('scroll'));
+					if (Math.isNaN(scroll)) scroll = 1;
+
+					var prop:Dynamic = {
+						name: name,
+						assetPath: folder + spriteName,
+						position: [x, y],
+						scroll: [scroll, scroll],
+						zIndex: z
+					};
+					props.push(prop);
+					z += 10;
+				}
+				else if (tag == 'girlfriend' || tag == 'gf') { gfZ = z; z += 10; }
+				else if (tag == 'dad' || tag == 'opponent') { dadZ = z; z += 10; }
+				else if (tag == 'boyfriend' || tag == 'bf') { bfZ = z; z += 10; }
+			}
+
+			var maxCharZ = Std.int(Math.max(Math.max(bfZ > 0 ? bfZ : 0, dadZ > 0 ? dadZ : 0), gfZ > 0 ? gfZ : 0));
+
+			var stageOut = {
+				directory: 'shared',
+				defaultZoom: zoom,
+				isPixelStage: false,
+				boyfriend: [0, 0],
+				girlfriend: [0, 0],
+				opponent: [0, 0],
+				hide_girlfriend: gfZ < 0,
+				camera_boyfriend: [0, 0],
+				camera_opponent: [0, 0],
+				camera_girlfriend: [0, 0],
+				camera_speed: 1
+			};
+
+			// Lua props script
+			var lua = new StringBuf();
+			lua.add('function onCreate()\n');
+			for (prop in props)
+			{
+				var pos:Array<Float> = prop.position;
+				lua.add('\tmakeLuaSprite(\'' + prop.name + '\', \'' + prop.assetPath + '\', ' + pos[0] + ', ' + pos[1] + ')\n');
+				var sc:Array<Float> = prop.scroll;
+				if (sc[0] != 1 || sc[1] != 1)
+					lua.add('\tsetScrollFactor(\'' + prop.name + '\', ' + sc[0] + ', ' + sc[1] + ')\n');
+				var fg:Bool = prop.zIndex > maxCharZ;
+				lua.add('\taddLuaSprite(\'' + prop.name + '\'' + (fg ? ', true' : '') + ')\n\n');
+			}
+			lua.add('end\n');
+
+			var base = newPathBase(path);
+			var jsonSaved = saveJson('saves/' + base + '-stage.json', stageOut);
+			var luaSaved = 'saves/' + base + '-stage-props.lua.txt';
+			File.saveContent(luaSaved, lua.toString());
+			showSuccess('Stage converted! (' + props.length + ' props)\nSaved:\n' + jsonSaved + '\n' + luaSaved);
+		}
+		catch (e:Dynamic)
+		{
+			showError('Failed to convert stage.\n' + Std.string(e));
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// Week: PE week json → level json (ported from V-Stuff convertPsychWeek)
+	// ------------------------------------------------------------------
+
+	function convertWeek(paths:Array<String>)
+	{
+		var path = paths[0];
+		if (!readable(path))
+		{
+			showUnreadable(path);
+			return;
+		}
+		try
+		{
+			var weekText = File.getContent(path);
+			if (path.indexOf('.json') == -1)
+				throw 'Did not receive a json!';
+
+			var week:Dynamic = Json.parse(weekText);
+
+			var songs:Array<String> = [];
+			var weekSongs:Array<Dynamic> = week.songs;
+			if (weekSongs != null)
+			{
+				for (entry in weekSongs)
+				{
+					var name:String = null;
+					if (Std.isOfType(entry, Array))
+					{
+						var arr:Array<Dynamic> = entry;
+						if (arr.length > 0) name = Std.string(arr[0]);
+					}
+					else
+						name = Std.string(entry);
+					if (name != null && name.length > 0) songs.push(name.toLowerCase());
+				}
+			}
+
+			var visible:Bool = true;
+			if (Reflect.hasField(week, 'hideStoryMode'))
+				visible = !week.hideStoryMode;
+
+			var weekName:String = Reflect.hasField(week, 'weekName') ? Std.string(week.weekName) : 'Week';
+			var slug = weekName.toLowerCase();
+			slug = StringTools.replace(slug, ' ', '-');
+			slug = StringTools.replace(slug, '.', '');
+
+			var level = {
+				version: '1.0.0',
+				name: weekName,
+				titleAsset: 'storymenu/titles/' + slug,
+				visible: visible,
+				props: [],
+				background: '#000000',
+				songs: songs
+			};
+
+			var base = newPathBase(path);
+			var saved = saveJson('saves/' + base + '-level.json', level);
+			showSuccess('Week converted!\nSongs: ' + songs.join(', ') + '\nSaved to:\n' + saved);
+		}
+		catch (e:Dynamic)
+		{
+			showError('Failed to convert week.\n' + Std.string(e));
 		}
 	}
 
