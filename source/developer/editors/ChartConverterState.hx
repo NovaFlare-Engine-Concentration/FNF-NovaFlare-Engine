@@ -587,6 +587,90 @@ class ChartConverterState extends MusicBeatState
 	}
 
 
+
+	// ------------------------------------------------------------------
+	// Chart: PE → VSlice (moonchart bridge)
+	// ------------------------------------------------------------------
+
+	function convertPEToVSlice(paths:Array<String>)
+	{
+		var path = paths[0];
+		if (!readable(path))
+		{
+			showUnreadable(path);
+			return;
+		}
+		try
+		{
+			if (!path.endsWith('.json'))
+				throw 'Did not receive a json!';
+
+			var peChart = new FNFPsych().fromFile(path);
+			var vSlice = new moonchart.formats.fnf.FNFVSlice();
+			vSlice.fromFormat(peChart);
+			cast(vSlice, moonchart.formats.fnf.FNFVSlice).beautify = true;
+
+			var base = newPathBase(path);
+			var dir = 'saves/' + base + '-vslice';
+			var chartPath = dir + '-chart.json';
+			var metaPath = dir + '-metadata.json';
+			var saveResult = vSlice.save(chartPath, metaPath);
+			if (saveResult == null) throw 'failed to save.';
+
+			showSuccess('Converted to VSlice!\nSaved to:\n' + saveResult.dataPath + '\n' + (saveResult.metaPath != null ? saveResult.metaPath : ''));
+		}
+		catch (e:Dynamic)
+		{
+			showError('Failed to convert PE → VSlice.\n' + Std.string(e));
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// Chart: CNE → VSlice (moonchart bridge)
+	// ------------------------------------------------------------------
+
+	function convertCNEToVSlice(paths:Array<String>)
+	{
+		var pathToChart:String = null;
+		var pathToMeta:String = null;
+		for (f in paths)
+		{
+			var fl = f.toLowerCase();
+			if (pathToChart == null && fl.indexOf('meta') == -1) pathToChart = f;
+			if (pathToMeta == null && fl.indexOf('meta') != -1) pathToMeta = f;
+		}
+		if (pathToChart == null || pathToMeta == null)
+		{
+			showError('CNE→VSlice needs BOTH a chart json and a *meta* json.\nGot: ' + paths.join(', '));
+			return;
+		}
+		if (!readable(pathToChart) || !readable(pathToMeta))
+		{
+			showUnreadable(pathToChart, pathToMeta);
+			return;
+		}
+		try
+		{
+			var cneChart = new moonchart.formats.fnf.FNFCodename().fromFile(pathToChart, pathToMeta);
+			var vSlice = new moonchart.formats.fnf.FNFVSlice();
+			vSlice.fromFormat(cneChart);
+			cast(vSlice, moonchart.formats.fnf.FNFVSlice).beautify = true;
+
+			var base = newPathBase(pathToChart);
+			var dir = 'saves/' + base + '-vslice';
+			var chartPath = dir + '-chart.json';
+			var metaPath = dir + '-metadata.json';
+			var saveResult = vSlice.save(chartPath, metaPath);
+			if (saveResult == null) throw 'failed to save.';
+
+			showSuccess('Converted to VSlice!\nSaved to:\n' + saveResult.dataPath + '\n' + (saveResult.metaPath != null ? saveResult.metaPath : ''));
+		}
+		catch (e:Dynamic)
+		{
+			showError('Failed to convert CNE → VSlice.\n' + Std.string(e));
+		}
+	}
+
 	// ------------------------------------------------------------------
 	// Save & messages
 	// ------------------------------------------------------------------
