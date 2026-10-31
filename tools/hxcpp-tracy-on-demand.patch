@@ -1,0 +1,8 @@
+--- a/include/hx/TelemetryTracy.h
++++ b/include/hx/TelemetryTracy.h
+@@ -5,0 +6,5 @@
++#endif
++
++// Match the on-demand client when compiling inline C++ scoped zones.
++#if defined(HXCPP_TRACY_ON_DEMAND) && !defined(TRACY_ON_DEMAND)
++#define TRACY_ON_DEMAND
