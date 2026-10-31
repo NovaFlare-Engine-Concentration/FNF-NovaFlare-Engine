@@ -100,6 +100,8 @@
 	<set name="BUILD_DIR" value="export/32bit" if="32bits" />
         <set name="BUILD_DIR" value="export/rpi" if="rpi" />
 	<classpath name="source" />
+	<!-- Vendored moonchart library (chart converter) -->
+	<classpath name="source/moonchart_vendored" />
 	<classpath name="source-originFunkin" />
 	<classpath name="source-codename" if="CODENAME_ENGINE_COMPAT" />
 	<haxeflag name="--macro" value="codename.funkin.backend.system.macros.Macros.initMacros()" if="CODENAME_ENGINE_COMPAT"/>

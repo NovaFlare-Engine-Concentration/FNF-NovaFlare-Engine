@@ -16,7 +16,10 @@ class MasterEditorMenu extends MusicBeatState
 		'Menu Character Editor',
 		'Dialogue Editor',
 		'Dialogue Portrait Editor',
-		'Note Splash Debug'
+		'Note Splash Debug',
+		'Chart Converter',
+		'Character Converter',
+		'Stage Converter'
 	];
 	private var grpTexts:FlxTypedGroup<Alphabet>;
 	private var directories:Array<String> = [null];
@@ -129,6 +132,12 @@ class MasterEditorMenu extends MusicBeatState
 					MusicBeatState.switchState(new DialogueCharacterEditorState());
 				case 'Note Splash Debug':
 					MusicBeatState.switchState(new NoteSplashDebugState());
+				case 'Chart Converter':
+					MusicBeatState.switchState(new ChartConverterState());
+				case 'Character Converter':
+					MusicBeatState.switchState(new CharacterConverterState());
+				case 'Stage Converter':
+					MusicBeatState.switchState(new StageConverterState());
 			}
 			FlxG.sound.music.volume = 0;
 			FreeplayState.destroyFreeplayVocals();
