@@ -1769,7 +1769,7 @@ class PlayState extends MusicBeatState
 		//仅仅参加逻辑更新但是不参与渲染
 		try
 		{
-			var eventsChart:SwagSong = Song.getChart('events', songName);
+			var eventsChart:SwagSong = Song.getChart('events', songName, true); // 附属文件：不覆盖主谱面的 chartEngineVersion
 			if (eventsChart != null)
 				for (event in eventsChart.events) // Event Notes
 					for (i in 0...event[1].length)

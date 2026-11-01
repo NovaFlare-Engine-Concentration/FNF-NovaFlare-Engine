@@ -472,7 +472,7 @@ class Character extends FlxSprite
 	{
 		try
 		{
-			var songData:SwagSong = Song.getChart('picospeaker', Paths.formatToSongPath(Song.loadedSongName));
+			var songData:SwagSong = Song.getChart('picospeaker', Paths.formatToSongPath(Song.loadedSongName), true); // 附属文件
 			if (songData != null)
 				for (section in songData.notes)
 					for (songNotes in section.sectionNotes)
