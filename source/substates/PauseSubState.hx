@@ -362,7 +362,22 @@ class PauseSubState extends MusicBeatSubstate
 		formatText.antialiasing = ClientPrefs.data.antialiasing;
 		add(formatText);
 
-		menuText = [dataText, songText, ballText, practiceText, botText, cheatingText, engineText, formatText];
+		// 附属文件（events / picospeaker）不写 chartEngineVersion，但会写 detectedFormat，
+		// 所以这两个值分别代表「主谱面的引擎版本」和「最近一次解析到的文件格式」，
+		// 不一致就说明该歌曲的谱面与事件文件版本混搭了（note 会按主谱面的规则解释）。
+		// 注意：两者取值域不同（detectedFormat 是 'Pe-1.0.x'，chartEngineVersion 是 'Pe-1.0.4'），
+		// 不能直接字符串相等比较 —— 必须归一成布尔再比，否则告警永不触发。
+		var fmtIs104:Bool = (Song.detectedFormat == 'Pe-1.0.x');
+		var verIs104:Bool = (Song.chartEngineVersion == 'Pe-1.0.4');
+		var engineMismatch:Bool = (Song.detectedFormat != 'unknown') && (fmtIs104 != verIs104);
+
+		var mismatchText = new FlxText(0, 15, 0, 'Event Format: ' + (engineMismatch ? 'MISMATCH' : 'Match'), 32);
+		mismatchText.setFormat(font, 25, engineMismatch ? FlxColor.RED : FlxColor.WHITE);
+		mismatchText.updateHitbox();
+		mismatchText.antialiasing = ClientPrefs.data.antialiasing;
+		add(mismatchText);
+
+		menuText = [dataText, songText, ballText, practiceText, botText, cheatingText, engineText, formatText, mismatchText];
 
 		var curText = 0;
 		for (i in menuText)
