@@ -744,9 +744,7 @@ class PlayState extends MusicBeatState
 		noteGroup.add(strumLineNotes);
 		noteGroup.add(tapLayer);
 
-		NoteSplash.init();
-		var splash:NoteSplash = new NoteSplash(100, 100);
-		splash.setupNoteSplash(100, 100);
+		var splash:NoteSplash = new NoteSplash();
 		grpNoteSplashes.add(splash);
 		noteGroup.add(grpNoteSplashes);
 		splash.alpha = 0.000001; // cant make it invisible or it won't allow precaching
@@ -4993,17 +4991,18 @@ class PlayState extends MusicBeatState
 		{
 			var strum:StrumNote = ClientPrefs.data.playOpponent ? opponentStrums.members[note.noteData] : playerStrums.members[note.noteData];
 			if (strum != null)
-				spawnNoteSplash(strum.x, strum.y, note.noteData, note);
+				spawnNoteSplash(strum.x, strum.y, note.noteData, note, strum);
 		}
 	}
 
-	public function spawnNoteSplash(x:Float, y:Float, data:Int, ?note:Note = null)
+	public function spawnNoteSplash(x:Float, y:Float, data:Int, ?note:Note = null, ?strum:StrumNote = null)
 	{
 		if (!ClientPrefs.data.showSplash)
 			return;
 		
 		var splash:NoteSplash = grpNoteSplashes.recycle(NoteSplash);
-		splash.setupNoteSplash(x, y, data, note);
+		splash.babyArrow = strum;
+		splash.spawnSplashNote(x, y, data, note);
 		grpNoteSplashes.add(splash);
 	}
 
@@ -5054,6 +5053,8 @@ class PlayState extends MusicBeatState
 		#if FLX_PITCH FlxG.sound.music.pitch = 1; #end
 		Note.globalRgbShaders = [];
 		games.backend.NoteTypesConfig.clearNoteTypesData();
+
+		NoteSplash.configs.clear();
 		instance = null;
 
 		if (Main.getReplayOverlay() != null)
