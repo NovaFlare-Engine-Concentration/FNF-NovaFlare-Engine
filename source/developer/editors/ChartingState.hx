@@ -522,9 +522,11 @@ class ChartingState extends MusicBeatState
 				clearEvents();
 				var savedFmt = Song.detectedFormat;
 				var savedCE = Song.chartEngineVersion;
+				var savedLaneSem = Song.chartLaneSemantics;
 				var events:SwagSong = Song.loadFromJson('events', songName);
 				Song.detectedFormat = savedFmt;
 				Song.chartEngineVersion = savedCE;
+				Song.chartLaneSemantics = savedLaneSem;
 				_song.events = events.events;
 				changeSection(curSec);
 			}
