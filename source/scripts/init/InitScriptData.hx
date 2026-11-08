@@ -134,7 +134,7 @@ class InitScriptData {
         Iris.proxyImports.set("editors.EditorPlayState", developer.editors.EditorPlayState);
         Iris.proxyImports.set("editors.MasterEditorMenu", developer.editors.MasterEditorMenu);
         Iris.proxyImports.set("editors.MenuCharacterEditorState", developer.editors.MenuCharacterEditorState);
-        Iris.proxyImports.set("editors.NoteSplashDebugState", developer.editors.NoteSplashDebugState);
+        Iris.proxyImports.set("editors.NoteSplashEditorState", developer.editors.NoteSplashEditorState);
         Iris.proxyImports.set("editors.WeekEditorState", developer.editors.WeekEditorState);
     
         //states.stages            //呃呃我不知道这个应不应该加上————牢喵233

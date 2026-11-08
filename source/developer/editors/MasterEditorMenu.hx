@@ -16,7 +16,7 @@ class MasterEditorMenu extends MusicBeatState
 		'Menu Character Editor',
 		'Dialogue Editor',
 		'Dialogue Portrait Editor',
-		'Note Splash Debug',
+		'Note Splash Editor',
 		'Chart Converter',
 		'Character Converter',
 		'Stage Converter'
@@ -130,8 +130,8 @@ class MasterEditorMenu extends MusicBeatState
 					MusicBeatState.switchState(new DialogueEditorState());
 				case 'Dialogue Portrait Editor':
 					MusicBeatState.switchState(new DialogueCharacterEditorState());
-				case 'Note Splash Debug':
-					MusicBeatState.switchState(new NoteSplashDebugState());
+				case 'Note Splash Editor':
+					MusicBeatState.switchState(new NoteSplashEditorState());
 				case 'Chart Converter':
 					MusicBeatState.switchState(new ChartConverterState());
 				case 'Character Converter':
