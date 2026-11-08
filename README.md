@@ -27,59 +27,45 @@ I really don't recommend using AI to write interfaces, and don't belittle Haxe j
 
 ## Next Version
 
-Added:
-[NF side] Added back controller support
-[NF side] Added new tea-time music
-[NF side] Added a bunch of chart converters
+Added:  
+[NF side] Added back controller support  
+[NF side] Added new tea-time music  
+[NF side] Added a bunch of chart converters  
 
-[cne side] Synced to 1.1.0-rc4
+[cne side] Synced to 1.1.0-rc4  
 
-[origin side] Synced to 0.9-preview and enabled editor features
-[origin side] Theoretically supports mods from 0.3 to 0.9
+[origin side] Synced to 0.9-preview and enabled editor features  
+[origin side] Theoretically supports mods from 0.3 to 0.9  
 
-Fixed:
-[Global] Fixed an issue where mouse effects might stutter
+Fixed:  
+[Global] Fixed an issue where mouse effects might stutter  
 
-[NF side] Fixed an issue where videos in playstate would autoplay when the app lost focus
-[NF side] Fixed a game crash caused by the freeplay input box
-[NF side] Fixed an issue where freeplay play counts couldn’t be saved
-[NF side] Fixed an issue in the editor where the delete key couldn’t be used on the song name
-[NF side] Fixed a possible offset of arrow splashes in playstate
-[NF side] (Possibly) fixed an issue where misreading chart versions caused charts to be flipped
+[NF side] Fixed an issue where videos in playstate would autoplay when the app lost focus  
+[NF side] Fixed a game crash caused by the freeplay input box  
+[NF side] Fixed an issue where freeplay play counts couldn't be saved  
+[NF side] Fixed an issue in the editor where the delete key couldn't be used on the song name  
+[NF side] Fixed a possible offset of arrow splashes in playstate  
+[NF side] (Possibly) fixed an issue where misreading chart versions caused charts to be flipped  
 
--------
+加入的：  
+[NF侧] 加回手柄支持  
+[NF侧] 加入新的tea-time音乐  
+[NF侧] 加入一大堆铺面转化器  
 
-加入的：
-  [NF侧] 加回手柄支持
+[cne侧] 同步至1.1.0-rc4  
 
-  [NF侧] 加入新的tea-time音乐
+[origin侧] 同步至0.9-preview并启用编辑器功能  
+[origin侧] 理论上支持0.3至0.9的模组  
 
-  [NF侧] 加入一大堆铺面转化器
+修复的：  
+[全局] 修复鼠标特效可能抽搐的问题  
 
-
-  [cne侧] 同步至1.1.0-rc4
-
-
-  [origin侧] 同步至0.9-preview并启用编辑器功能
-
-  [origin侧] 理论上支持0.3至0.9的模组
-
-
-修复的：
-  [全局] 修复鼠标特效可能抽搐的问题
-
-
-  [NF侧] 修复应用程序失焦后playstate的视频自动播放的问题
-
-  [NF侧] 修复freeplay输入框导致游戏崩溃的问题
-
-  [NF侧] 修复freeplay游玩次数无法保存的问题
-
-  [NF侧] 修复编辑器无法song name使用删除按键的问题
-
-  [NF侧] 修复playstate箭头喷溅可能偏移的问题
-
-  [NF侧] （可能）修复铺面版本识别错误导致铺面被反转的问题
+[NF侧] 修复应用程序失焦后playstate的视频自动播放的问题  
+[NF侧] 修复freeplay输入框导致游戏崩溃的问题  
+[NF侧] 修复freeplay游玩次数无法保存的问题  
+[NF侧] 修复编辑器无法song name使用删除按键的问题  
+[NF侧] 修复playstate箭头喷溅可能偏移的问题  
+[NF侧] （可能）修复铺面版本识别错误导致铺面被反转的问题
 
 # Introduction
 The FNF-NovaFlare-Engine was originally created to be compatible with the Camellia mod, and it has continuously evolved into an independent engine, developed by Chinese developers. 
