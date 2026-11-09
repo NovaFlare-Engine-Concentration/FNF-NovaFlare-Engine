@@ -1,0 +1,14 @@
+Skin => Apariencia
+
+Note => Notas
+noteSkin => Cambia la apariencia de las notas.
+noteRGB => Ajusta los colores RGB de las notas.
+noteColorSwap => Usa colores HSV para las notas, como en la versión antigua de Psych.
+NotesSubState => Configura los colores de las notas.
+NotesSubStateLegacy => Configura los colores HSV antiguos de las notas.
+
+Splash => Efecto de acierto
+showSplash => Muestra el efecto al obtener una calificación Sick o Marvelous.
+splashSkin => Cambia la apariencia del efecto de acierto.
+splashRGB => Ajusta los colores RGB del efecto.
+splashAlpha => Cambia la opacidad del efecto.
