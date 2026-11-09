@@ -1,0 +1,20 @@
+General => General
+
+framerate => Límite de frecuencia de actualización (TPS)
+drawFramerate => Límite de fotogramas dibujados (FPS)
+lockRender => Renderizado independiente
+language => Idioma del motor
+gameQuality => Calidad del juego
+lowQuality => Baja calidad
+resolution => Resolución
+renderThread => Hilo de renderizado
+colorblindMode => Filtro para daltonismo
+antialiasing => Suavizado de bordes
+flashing => Luces intermitentes
+shaders => Efectos gráficos
+autoShaderConversion => Conversión automática de efectos gráficos
+mouseTrailEffect => Efectos del ratón
+cacheOnGPU => Caché de texturas en la GPU
+autoPause => Pausa automática
+replayQuality => Repetición de alta calidad
+gcFreeZone => Reducir la limpieza de memoria durante la partida

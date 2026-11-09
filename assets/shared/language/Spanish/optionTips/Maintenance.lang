@@ -1,0 +1,17 @@
+Maintenance => Mantenimiento
+
+developerMode => Activa el modo desarrollador; deshabilita algunos mensajes y registros de errores.
+deepDebug => Registra los scripts, imágenes, audios y otros recursos que usa cada canción.
+moreLuaErrors => Muestra errores ocultos de Lua; puede ayudar a diagnosticar problemas.
+devConScale => Cambia el tamaño de la consola que muestra los mensajes de registro.
+oldHscriptVersion => Usa una versión anterior de Hscript para compatibilidad con runHaxeCode.
+
+APP => Aplicación
+
+discordRPC => Muestra el juego como actividad en Discord.
+checkForUpdates => Comprueba si hay actualizaciones.
+screensaver => El teléfono se suspende tras permanecer inactivo unos segundos.
+filesCheck => Comprueba si faltan archivos del juego.
+filesCheckNew => Comprueba si hay archivos posiblemente incorrectos.
+storageFolder => Elige dónde guardar los datos. El juego se reiniciará al cambiar la carpeta.
+enterOriginFunkin => Cierra NovaFlare y abre Origin Funkin la próxima vez que inicies.

@@ -1,0 +1,16 @@
+Skin => Apariencia
+
+Note => Notas
+
+noteSkin => Apariencia de las notas
+noteRGB => Colores RGB de las notas
+noteColorSwap => Usar colores HSV para las notas
+NotesSubState => Configurar colores de las notas
+NotesSubStateLegacy => Configuración antigua de colores
+
+Splash => Efecto de acierto
+
+showSplash => Mostrar efecto al acertar
+splashSkin => Apariencia del efecto de acierto
+splashRGB => Colores RGB del efecto
+splashAlpha => Opacidad del efecto

@@ -1,0 +1,20 @@
+General => General
+
+framerate => Cambia el límite de TPS.
+drawFramerate => Establece el máximo de FPS de dibujo independientemente de la frecuencia de actualización.
+language => Cambia el idioma del motor.
+lockRender => Actualiza por separado del dibujo; puede aumentar los fotogramas según el rendimiento del dispositivo.
+renderThread => Separa el hilo de renderizado y puede mejorar la velocidad de fotogramas.
+gameQuality => Cambia la calidad gráfica del juego.
+lowQuality => Desactiva algunos objetos de los escenarios.
+resolution => Cambia la resolución de los gráficos del juego.
+colorblindMode => Aplica un filtro para facilitar el juego a personas con daltonismo.
+antialiasing => Suaviza los bordes y mejora los gráficos, con un pequeño costo de rendimiento.
+flashing => Activa o desactiva las luces intermitentes, que pueden causar convulsiones o fatiga.
+shaders => Activa los efectos gráficos usados por algunos elementos visuales.
+autoShaderConversion => Convierte automáticamente los efectos gráficos para que sean compatibles con el dispositivo móvil.
+mouseTrailEffect => Activa el rastro del puntero y los efectos de clic; se ocultan durante la partida.
+cacheOnGPU => Usa la GPU para almacenar texturas en caché y reducir el uso de RAM.
+autoPause => Detiene el juego cuando deja de estar en primer plano.
+replayQuality => Registra los aciertos nota por nota para que las repeticiones sean más precisas; usa más memoria y espacio.
+gcFreeZone => Reduce la limpieza de RAM durante la partida para disminuir los tirones.
