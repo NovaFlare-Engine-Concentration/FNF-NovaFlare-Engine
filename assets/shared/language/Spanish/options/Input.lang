@@ -1,0 +1,17 @@
+Input => Controles
+
+ControlsSubState => Configurar controles
+
+TouchMain => Controles táctiles del menú
+
+needMobileControl => Activar controles móviles
+controlsAlpha => Opacidad de los controles
+
+TouchGame => Controles táctiles de la partida
+
+MobileControlSelectSubState => Tipo de controles
+hitboxLocation => Ubicación de las zonas táctiles
+dynamicColors => Colores dinámicos
+playControlsAlpha => Opacidad de los controles durante la partida
+extraKey => Tecla adicional
+MobileExtraControl => Controles móviles adicionales
