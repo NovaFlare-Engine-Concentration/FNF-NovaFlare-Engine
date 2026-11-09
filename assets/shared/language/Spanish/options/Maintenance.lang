@@ -1,0 +1,18 @@
+Maintenance => Mantenimiento
+
+developerMode => Modo desarrollador
+deepDebug => Depuración avanzada
+moreLuaErrors => Sintaxis estricta de Lua
+devConScale => Tamaño de la consola
+
+oldHscriptVersion => Versión antigua de Hscript
+
+APP => Aplicación
+
+discordRPC => Estado de actividad de Discord
+checkForUpdates => Buscar actualizaciones
+screensaver => Protector de pantalla
+filesCheck => Comprobar archivos
+filesCheckNew => Comprobar archivos nuevos
+storageFolder => Carpeta de almacenamiento
+enterOriginFunkin => Abrir Origin Funkin
