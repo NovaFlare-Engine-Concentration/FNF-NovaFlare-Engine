@@ -6,10 +6,10 @@
   
   <div style="max-width: 500px; margin: 0 auto;">
     <p style="margin: 12px 0;">
-      <a href="https://novaflare.fun" style="font-size: 1.1em; display: block;">🌐 Our Official Website 🌐</a>
+      <a href="https://novaflare-engine-concentration.github.io/NovaFlare-Engine.github.io" style="font-size: 1.1em; display: block;">🌐 Our Official Website 🌐</a>
     </p>
     <p style="margin: 12px 0;">
-      <a href="https://novaflare.fun/docs-choose.html" style="font-size: 1.1em; display: block;">❗Our Docs❗</a>
+      <a href="https://novaflare-engine-concentration.github.io/NovaFlare-Engine.github.io/docs-choose.html" style="font-size: 1.1em; display: block;">❗Our Docs❗</a>
     </p>
   </div>
 </div>
