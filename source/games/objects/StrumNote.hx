@@ -8,12 +8,15 @@ import general.backend.animation.PsychAnimationController;
 import general.shaders.RGBPalette;
 import general.shaders.RGBPalette.RGBShaderReference;
 import general.shaders.ColorSwap;
+import general.shaders.NoteHSV;
+import general.backend.NoteSkinStyle;
 
 class StrumNote extends FlxSprite
 {
 	public var rgbShader:RGBShaderReference;
 
 	public var resetAnim:Float = 0;
+	// 保留字段供旧模组读取；着色已统一走 playAnim() + shaders.NoteHSV，不再每实例建 ColorSwap
 	public var colorSwap:ColorSwap;
 	private var noteData:Int = 0;
 
@@ -38,19 +41,19 @@ class StrumNote extends FlxSprite
 	}
 
 	public var useRGBShader:Bool = true;
+	public var noteStyle:String = NoteSkinStyle.RGB;
+	// legacy 体系的 HSV 只在生成时挂一次（0.6.x 行为），之后 playAnim 不再碰 shader 槽位
+	var hsvAttached:Bool = false;
+	// auto + 谱面 disableNoteRGB：RGB、HSV 都不挂
+	var shaderDisabled:Bool = false;
 
-	public function new(x:Float, y:Float, leData:Int, player:Int)
+	/** forceSkin：直接指定贴图（编辑器预览用，绕过谱面 arrowSkin / 玩家皮肤解析） */
+	public function new(x:Float, y:Float, leData:Int, player:Int, ?forceSkin:String = null)
 	{
 		animation = new PsychAnimationController(this);
 
 		rgbShader = new RGBShaderReference(this, Note.initializeGlobalRGBShader(leData));
 		rgbShader.enabled = false;
-		if (PlayState.SONG != null && (PlayState.SONG.disableNoteRGB || !ClientPrefs.data.noteRGB || ClientPrefs.data.noteColorSwap))
-			useRGBShader = false;
-		if (ClientPrefs.data.noteColorSwap){
-		colorSwap = new ColorSwap();
-		shader = colorSwap.shader;
-		}
 		//先不改mania，要魔改的玩意好像还不少呢，先加上再说		//算了懒了，能跑起来就不改了————卡昔233
 		var mania = 3;
 		if (PlayState.SONG != null)
@@ -78,15 +81,23 @@ class StrumNote extends FlxSprite
 		var skin:String = null;
 		var pixelPath:String = PlayState.isPixelStage ? 'pixelUI/' : '';
 
-		if (Note.loadedNote.get(Note.getLoadDataKey(Note.defaultNoteSkin, '')) == null || Note.loadedNote.get(Note.getLoadDataKey(Note.defaultNoteSkin, '')).skin == null)
-			Note.init();
+		if (forceSkin != null && forceSkin.length > 0)
+		{
+			// 编辑器预览：直接指定贴图，绕过谱面 arrowSkin / 玩家皮肤后缀解析
+			skin = pixelPath + forceSkin;
+		}
+		else
+		{
+			if (Note.loadedNote.get(Note.getLoadDataKey(Note.defaultNoteSkin, '')) == null || Note.loadedNote.get(Note.getLoadDataKey(Note.defaultNoteSkin, '')).skin == null)
+				Note.init();
 
-		skin = pixelPath + Note.loadedNote.get(Note.getLoadDataKey(Note.defaultNoteSkin, '')).skin + Note.loadedNote.get(Note.getLoadDataKey(Note.defaultNoteSkin, '')).skinPostfix;
-			
+			skin = pixelPath + Note.loadedNote.get(Note.getLoadDataKey(Note.defaultNoteSkin, '')).skin + Note.loadedNote.get(Note.getLoadDataKey(Note.defaultNoteSkin, '')).skinPostfix;
+		}
+
 		texture = skin; // Load texture and anims
 		scrollFactor.set();
 
-		shaderInit();
+		playAnim('static');
 	}
 
 	public function reloadNote()
@@ -94,6 +105,19 @@ class StrumNote extends FlxSprite
 		var lastAnim:String = null;
 		if (animation.curAnim != null)
 			lastAnim = animation.curAnim.name;
+
+		// 贴图换了就重新判定着色体系（与 Note 同一套判据）。texture 里带 pixelUI/ 前缀，
+		// getNoteStyle 会自己补前缀，比对前先剥掉，否则会拼成 pixelUI/pixelUI/...
+		var styleBase:String = texture;
+		if (styleBase != null && PlayState.isPixelStage && styleBase.indexOf('pixelUI/') == 0)
+			styleBase = styleBase.substr('pixelUI/'.length);
+		noteStyle = Note.getNoteStyle(styleBase);
+		useRGBShader = (noteStyle != NoteSkinStyle.LEGACY);
+		// auto + 谱面 disableNoteRGB：谱面说啥就是啥，RGB、HSV 都不挂（与 Note.updateNoteShader 同一条规则）
+		shaderDisabled = (NoteSkinStyle.noteMode() == NoteSkinStyle.AUTO
+			&& PlayState.SONG != null && PlayState.SONG.disableNoteRGB);
+		// 换了贴图，HSV 需要重新挂一次
+		hsvAttached = false;
 
 		var mania = 3;
 		if (PlayState.SONG != null) mania = PlayState.SONG.mania;
@@ -240,18 +264,22 @@ class StrumNote extends FlxSprite
 			centerOffsets();
 			centerOrigin();
 		}
+
+		if (shaderDisabled) return;
+
 		if (useRGBShader)
+		{
+			// RGB 体系保持 0.7+ 行为：静态箭头是灰色占位不染色，按下/确认帧才挂 RGB。
+			// 模组中途把 sprite.shader 换成自己的（轨道 glitch 之类）是模组自己的事，
+			// confirm 时 set_enabled 会把槽位要回来 —— 那是 0.7 的固有语义，模组自己兼容。
 			rgbShader.enabled = (animation.curAnim != null && animation.curAnim.name != 'static');
-		else if (ClientPrefs.data.noteColorSwap){
-			if(animation.curAnim == null || animation.curAnim.name == 'static') {
-			colorSwap.hue = 0;
-			colorSwap.saturation = 0;
-			colorSwap.brightness = 0;
-			} else {
-			colorSwap.hue = ClientPrefs.data.arrowHSV[noteData % 4][0] / 360;
-			colorSwap.saturation = ClientPrefs.data.arrowHSV[noteData % 4][1] / 100;
-			colorSwap.brightness = ClientPrefs.data.arrowHSV[noteData % 4][2] / 100;
-			}
+		}
+		else if (!hsvAttached)
+		{
+			// legacy 体系保持 0.6.x 行为：HSV 只在生成时挂这一次（static 也挂），全 0 不挂；
+			// 之后 playAnim 不再碰槽位，模组换 shader 引擎不抢。
+			hsvAttached = true;
+			NoteHSV.apply(this, noteData);
 		}
 	}
 	
@@ -261,16 +289,6 @@ class StrumNote extends FlxSprite
 
 	public function getAnimSet(index:Int) {
 		return ExtraKeysHandler.instance.data.animations[index];
-	}
-
-	private function shaderInit() {
-		if (this.useRGBShader)
-			rgbShader.enabled = false;
-		else if (ClientPrefs.data.noteColorSwap){
-			colorSwap.hue = 0;
-			colorSwap.saturation = 0;
-			colorSwap.brightness = 0;
-		}
 	}
 }
 

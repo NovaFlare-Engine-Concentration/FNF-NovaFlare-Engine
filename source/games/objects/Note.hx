@@ -7,6 +7,8 @@ import general.backend.animation.PsychAnimationController;
 import general.shaders.RGBPalette;
 import general.shaders.ColorSwap;
 import general.shaders.RGBPalette.RGBShaderReference;
+import general.shaders.NoteHSV;
+import general.backend.NoteSkinStyle;
 
 import developer.editors.EditorPlayState;
 
@@ -93,7 +95,15 @@ class Note extends FlxSprite
 
 	public static var globalRgbShaders:Array<RGBPalette> = [];
 
+	// 保留字段供旧模组读取；着色已统一走 updateNoteShader() + shaders.NoteHSV，不再每实例建 ColorSwap
 	public var colorSwap:ColorSwap;
+
+	// 本音符的着色体系与当前贴图：noteStyle 决定走 RGBPalette 还是 HSV(ColorSwap)，见 updateNoteShader()
+	public var noteStyle:String = NoteSkinStyle.RGB;
+	public var skinPath:String = '';
+	public var useRGBShader:Bool = true;
+	// shader 槽位一生只拍板一次（构造时的第一次判定），之后引擎不再碰；见 updateNoteShader()
+	var shaderDecided:Bool = false;
 
 	public var inEditor:Bool = false;
 
@@ -201,13 +211,10 @@ class Note extends FlxSprite
 
 	private function set_noteType(value:String):String
 	{
-		noteSplashData.texture = PlayState.SONG != null ? PlayState.SONG.splashSkin : 'noteSplashes/noteSplashes';
+		// new 体系要忽略谱面自带的 splashSkin，所以这一级不写进 noteSplashData（见 NoteSplash.resolveSplashTexture）
+		if (NoteSkinStyle.splashMode() != NoteSkinStyle.NEW)
+			noteSplashData.texture = PlayState.SONG != null ? PlayState.SONG.splashSkin : 'noteSplashes/noteSplashes';
 		defaultRGB();
-		if (ClientPrefs.data.noteColorSwap){
-		colorSwap.hue = ClientPrefs.data.arrowHSV[noteData % 4][0] / 360;
-		colorSwap.saturation = ClientPrefs.data.arrowHSV[noteData % 4][1] / 100;
-		colorSwap.brightness = ClientPrefs.data.arrowHSV[noteData % 4][2] / 100;
-		}
 		if (noteData > -1 && noteType != value)
 		{
 			switch (value)
@@ -247,11 +254,7 @@ class Note extends FlxSprite
 				Paths.sound(hitsound); // precache new sound for being idiot-proof
 			noteType = value;
 		}
-		if (ClientPrefs.data.noteColorSwap){
-		noteSplashHue = colorSwap.hue;
-		noteSplashSat = colorSwap.saturation;
-		noteSplashBrt = colorSwap.brightness;
-		}
+		// 溅射的 HSV 取值统一由 NoteSplash 侧按轨道从 NoteHSV 取，这里不再预写一份
 		return value;
 	}
 
@@ -315,13 +318,9 @@ class Note extends FlxSprite
 			}
 
 			rgbShader = new RGBShaderReference(this, initializeGlobalRGBShader(noteData));
-			if (PlayState.SONG != null && (PlayState.SONG.disableNoteRGB || !ClientPrefs.data.noteRGB || ClientPrefs.data.noteColorSwap))
-				rgbShader.enabled = false;
-			if (ClientPrefs.data.noteColorSwap){
-			colorSwap = new ColorSwap();
-			shader = colorSwap.shader;
-
-			}
+			// shader 槽位在这里拍板：贴图已经由 set_texture 载好、noteStyle 已判定（见 reloadNote）。
+			// 一生只决定一次，之后的换贴图 / playAnim 都不再抢槽位，见 updateNoteShader()。
+			updateNoteShader();
 			x += swagWidth * (noteData);
 			if (!isSustainNote /* && noteData < colArray.length*/)
 			{ // Doing this 'if' check to fix the warnings on Senpai songs
@@ -423,6 +422,12 @@ class Note extends FlxSprite
 	{
 		reloadPath(texture, postfix);
 
+		// 玩家皮肤后缀叠加前的基础贴图：体系判定 / 三级回退的层级都按它认，别用叠过后缀的路径去比对
+		var styleBase:String = skin;
+		// 贴图定下来了：记下实际用的皮肤、判定着色体系（RGB 掩码贴图 / 烤色 legacy 贴图）
+		skinPath = (PlayState.isPixelStage ? 'pixelUI/' : '') + skin + skinPostfix;
+		noteStyle = getNoteStyle(styleBase);
+
 		var lastScaleY:Float = scale.y;
 
 		var animName:String = null;
@@ -490,6 +495,79 @@ class Note extends FlxSprite
 
 		if (animName != null)
 			animation.play(animName, true);
+
+		updateNoteShader();
+	}
+
+	/**
+	 * 拍板这张音符挂什么 shader —— **一生只决定一次**（构造时的第一次调用）。
+	 * 一个 sprite 只有一个 shader 槽位，0.6.x / 0.7+ 的共同点是「生成时挂好，之后引擎不再动」，
+	 * 所以这里拍板后就收手：模组中途换 shader（Lua/HScript 直接赋 sprite.shader）引擎不抢回来，
+	 * 换贴图触发的后续 reloadNote 也只换贴图换动画。
+	 *
+	 *   RGB 体系   → RGBPalette 一直挂着（0.7+ 行为）；
+	 *   legacy 体系 → HSV 只挂这一次（0.6.x 行为），全 0 不挂；
+	 *   auto + 谱面 disableNoteRGB → RGB、HSV 都不挂，贴图原样（谱面说啥就是啥）。
+	 */
+	public function updateNoteShader():Void
+	{
+		if (noteData < 0 || rgbShader == null) return;
+		if (shaderDecided) return;
+		shaderDecided = true;
+
+		if (NoteSkinStyle.noteMode() == NoteSkinStyle.AUTO && PlayState.SONG != null && PlayState.SONG.disableNoteRGB)
+		{
+			useRGBShader = false;
+			rgbShader.enabled = false;
+			return;
+		}
+
+		useRGBShader = (noteStyle != NoteSkinStyle.LEGACY);
+		if (useRGBShader)
+		{
+			rgbShader.enabled = true;
+			return;
+		}
+
+		rgbShader.enabled = false;
+		NoteHSV.apply(this, noteData);
+	}
+
+	/**
+	 * 这张贴图该用哪种着色体系。贴图是通道掩码还是烤色图，只有贴图自己知道，所以皮肤优先；
+	 * 谱面的 disableNoteRGB 作为皮肤未声明 / 甄别不出时的兜底（只影响体系判定，
+	 * shader 槽位挂什么由 updateNoteShader 按三态开关拍板）。
+	 */
+	public static function getNoteStyle(skin:String):String
+	{
+		var mode:String = NoteSkinStyle.noteMode();
+		if (mode == NoteSkinStyle.NEW) return NoteSkinStyle.RGB;
+		if (mode == NoteSkinStyle.LEGACY)
+		{
+			// 三级回退落到第 3 级（默认 RGB 皮肤）时不能再套 HSV —— 那等于拿通道掩码当烤色图偏移。
+			return (skin != null && skin.indexOf(defaultNoteSkin) == 0) ? NoteSkinStyle.RGB : NoteSkinStyle.LEGACY;
+		}
+		if (skin == null) skin = '';
+
+		// 像素皮肤在磁盘上是 images/pixelUI/noteSkins/...，json 声明 / 自动甄别都要按这个前缀去找
+		var key:String = (PlayState.isPixelStage ? 'pixelUI/' : '') + skin;
+
+		var style:String = NoteSkinStyle.declared(key);
+		if (style != null) return style;
+
+		if (PlayState.SONG != null && PlayState.SONG.disableNoteRGB) return NoteSkinStyle.LEGACY;
+
+		style = NoteSkinStyle.resolve(key);
+		return style != null ? style : NoteSkinStyle.RGB;
+	}
+
+	/**
+	 * legacy 体系第二级回退用的旧版图集是否真的可用（文件缺失时这一级视为不存在）。
+	 * 旧版图集在 images 根目录，不带 pixelUI/ 前缀。
+	 */
+	public static function legacyNoteSkinAvailable():Bool
+	{
+		return NoteSkinStyle.exists(NoteSkinStyle.LEGACY_NOTE_SKIN, false);
 	}
 
 	public static var loadedNote:Map<String, {texture:String, postfix:String, skin:String, skinPostfix:String}> = new Map<String, {texture:String, postfix:String, skin:String, skinPostfix:String}>();
@@ -518,14 +596,23 @@ class Note extends FlxSprite
 		skin = texture + postfix;
 		if (skin == defaultNoteSkin) //如果是默认箭头路径
 		{
-			skin = PlayState.SONG != null ? PlayState.SONG.arrowSkin : null; //兼容了铺面json设置的箭头
-			if (skin != null && skin.length > 0) {//当发现铺面json的箭头读取没问题时
-				if (Paths.fileExists('images/' + skin + '.png', IMAGE)) {
-					skinPostfix = ''; //返回为默认贴图
-					loadedNote.set(currentKey, {texture: texture, postfix: postfix, skin: skin, skinPostfix: skinPostfix});
-					return; //直接跳过后续读取,获取为铺面json的路径
-				} 
+			// 1 级：谱面指定的 arrowSkin（文件存在才算数）。new 体系跳过这一级 ——
+			// 它存在的意义就是把谱面自带的旧贴图换成玩家皮肤。
+			skin = (NoteSkinStyle.noteMode() == NoteSkinStyle.NEW) ? null
+				: (PlayState.SONG != null ? PlayState.SONG.arrowSkin : null); //兼容了铺面json设置的箭头
+			if (skin != null && skin.length > 0 && NoteSkinStyle.exists(skin, false)) {//当发现铺面json的箭头读取没问题时
+				skinPostfix = ''; //返回为默认贴图
+				loadedNote.set(currentKey, {texture: texture, postfix: postfix, skin: skin, skinPostfix: skinPostfix});
+				return; //直接跳过后续读取,获取为铺面json的路径
 			}
+			// 2 级：引擎自带的旧版图集 images/NOTE_assets.png（仅在 legacy 体系，且文件真的在）
+			if (NoteSkinStyle.noteMode() == NoteSkinStyle.LEGACY && legacyNoteSkinAvailable()) {
+				skin = NoteSkinStyle.LEGACY_NOTE_SKIN;
+				skinPostfix = '';
+				loadedNote.set(currentKey, {texture: texture, postfix: postfix, skin: skin, skinPostfix: skinPostfix});
+				return;
+			}
+			// 3 级：默认（RGB）皮肤 + 玩家后缀
 			skin = defaultNoteSkin;
 		}
 
@@ -549,7 +636,8 @@ class Note extends FlxSprite
 
 	public static function getLoadDataKey(texture:String, postfix:String):String
 	{
-		return '${texture}::${postfix}';
+		// 解析结果随 noteSystem 三态变化，缓存 key 必须带上模式，否则切完设置会读到旧皮肤的缓存
+		return '${texture}::${postfix}::${NoteSkinStyle.noteMode()}';
 	}
 
 	function loadNoteAnims()

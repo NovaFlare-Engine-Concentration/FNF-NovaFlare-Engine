@@ -453,9 +453,9 @@ class OptionsState extends MusicBeatState
 			case 6: // CopyStates
 				MusicBeatState.switchState(new CopyState(true));
 			#end
-			case 7: // NotesSubStateLegacy
+			case 7: // NotesHSVSubState（旧版烤色贴图的 HSV 调色板，取代 NotesSubStateLegacy）
 				persistentUpdate = false;
-				openSubState(new NotesSubStateLegacy());
+				openSubState(new NotesHSVSubState());
 			case 8:
 				persistentUpdate = false;
 				openSubState(new SelectGameSubState());

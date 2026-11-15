@@ -22,31 +22,20 @@ class SkinGroup extends OptionCata
 			addOption(option);
 		}
 
-		var option:Option = new Option(this, 'noteRGB', BOOL);
-		if (noteSkins.length > 0)
-		{
-			addOption(option);
-		} else {
-			addOption(option);
-		}
-
+		// 着色体系三态：auto = 谱面皮肤优先 + 自动甄别 / legacy = 沿用谱面皮肤 + 强制 HSV /
+		// new = 忽略谱面皮肤（换玩家皮肤）+ 强制 RGB。取代旧的 noteRGB + noteColorSwap 两个开关。
+		var option:Option = new Option(this, 'noteSystem', STRING, [NOTE_SYSTEM_VALUES, noteSystemNames()]);
+		addOption(option);
 
 		var option:Option = new Option(this, 'NotesSubState', STATE);
 		option.onChange = function() { changeState(2); };
 		addOption(option);
-		
-		var option:Option = new Option(this, 'noteColorSwap', BOOL);
-		if (noteSkins.length > 0)
-		{
-			addOption(option);
-		} else {
-			addOption(option);
-		}
 
+		// 只对 legacy（烤色）贴图生效的 HSV 调色板
 		var option:Option = new Option(this, 'NotesSubStateLegacy', STATE);
 		option.onChange = function() { changeState(7); };
 		addOption(option);
-		
+
 		/////--Splash--\\\\\
 
 		var option:Option = new Option(this, 'Splash', TEXT);
@@ -64,18 +53,25 @@ class SkinGroup extends OptionCata
 			addOption(option);
 		}
 
-		var option:Option = new Option(this, 'splashRGB', BOOL);
-		if (noteSplashes.length > 0)
-		{
-			addOption(option);
-		} else {
-			addOption(option);
-		}
+		var option:Option = new Option(this, 'splashSystem', STRING, [NOTE_SYSTEM_VALUES, noteSystemNames()]);
+		addOption(option);
 
 		var option:Option = new Option(this, 'splashAlpha', FLOAT, [0, 1, 1]);
 		addOption(option);
 
 		changeHeight(0); //初始化真正的height
+	}
+
+	// 三态的取值顺序；显示名走 lang，顺序必须一一对应
+	static var NOTE_SYSTEM_VALUES:Array<String> = ['auto', 'legacy', 'new'];
+
+	static function noteSystemNames():Array<String>
+	{
+		return [
+			Language.get('noteSystem-auto', 'options'),
+			Language.get('noteSystem-legacy', 'options'),
+			Language.get('noteSystem-new', 'options')
+		];
 	}
 
 	function addNoteSkins():Array<String> {

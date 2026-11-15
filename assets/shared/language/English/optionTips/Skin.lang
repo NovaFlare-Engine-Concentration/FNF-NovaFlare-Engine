@@ -4,8 +4,7 @@ Skin => Skin
 Note => Note
 
 noteSkin => Change your current noteSkin
-noteRGB => RGB for Note
-noteColorSwap => Use HSV Coloring like old psych for Note
+noteSystem => Auto detects whether the skin needs RGB or legacy HSV; Legacy forces HSV for pre-0.7 baked skins; New forces RGB for 0.7+ channel-mask skins
 NotesSubState => Note color setup
 NotesSubStateLegacy => Note HSV setup
 
@@ -13,5 +12,5 @@ Splash => Splash
 
 showSplash => Show on sick/marvelous judge
 splashSkin => Change your current splashSkin
-splashRGB => RGB for Splash
+splashSystem => Shading system for splashes, same meaning as Note Shading
 splashAlpha => Alpha

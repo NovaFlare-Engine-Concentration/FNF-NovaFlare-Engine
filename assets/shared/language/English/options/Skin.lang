@@ -4,14 +4,23 @@ Skin => Skin
 Note => Note
 
 noteSkin => Note Skin
-noteRGB => Note RGB
-noteColorSwap => Note HSV
+noteSystem => Note Shading
+noteSystem-auto => Auto
+noteSystem-legacy => Legacy (HSV)
+noteSystem-new => New (RGB)
 NotesSubState => Note Color Setup
 NotesSubStateLegacy => Legacy Color Setup
+
+note_hsv_title => Legacy Note HSV Colors
+note_hsv_desc => Only affects legacy (pre-colored) note skins. RGB note skins use the RGB palette instead.
+note_hsv_hue => HUE
+note_hsv_sat => SATURATION
+note_hsv_brt => BRIGHTNESS
+note_hsv_tip => CLICK: select (again: adjust)    WHEEL: adjust    UP/DOWN: lane    LEFT/RIGHT: channel    ACCEPT: adjust    RESET: reset    type 0-9 / -
 
 Splash => Splash
 
 showSplash => Show Splash
 splashSkin => Splash Skin
-splashRGB => Splash RGB
+splashSystem => Splash Shading
 splashAlpha => Splash Alpha
