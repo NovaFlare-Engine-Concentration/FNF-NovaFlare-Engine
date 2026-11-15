@@ -1,7 +1,0 @@
-Audio => Audio
-
-mainMusic => Música del menú principal
-optionMusic => Música del menú de opciones
-pauseMusic => Música del menú de pausa
-hitsoundType => Tipo de sonido al acertar
-hitsoundVolume => Volumen del sonido al acertar
