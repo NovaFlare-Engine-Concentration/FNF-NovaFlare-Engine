@@ -1,5 +1,6 @@
 package funkin.ui.mainmenu;
 
+import funkin.assets.FunkinAssetCache;
 import flixel.addons.transition.FlxTransitionableState;
 #if FEATURE_DEBUG_MENU
 import funkin.ui.debug.DebugMenuSubState;
@@ -35,6 +36,7 @@ import funkin.util.TouchUtil;
 import funkin.api.newgrounds.Referral;
 import funkin.ui.mainmenu.UpgradeSparkle;
 import flixel.group.FlxSpriteGroup.FlxTypedSpriteGroup;
+import funkin.ui.quickpanel.QuickPanelState;
 #if FEATURE_DISCORD_RPC
 import funkin.api.discord.DiscordClient;
 #end
@@ -45,6 +47,8 @@ import funkin.api.newgrounds.NewgroundsClient;
 import funkin.mobile.input.ControlsHandler;
 import funkin.mobile.util.InAppPurchasesUtil;
 #end
+import funkin.assets.Paths as Paths;
+import funkin.assets.Assets as Assets;
 
 @:nullSafety
 class MainMenuState extends MusicBeatState
@@ -80,7 +84,7 @@ class MainMenuState extends MusicBeatState
     uiStateMachine.transition(EnteringMainMenu);
 
     upgradeSparkles = new FlxTypedSpriteGroup<UpgradeSparkle>();
-    magenta = new FlxSprite(Paths.image('menuBGMagenta'));
+    magenta = new FlxSprite(Paths.image('ui/main-menu/menu-bg-magenta').toFlxGraphicAsset());
     camFollow = new FlxObject(0, 0, 1, 1);
 
     // TODO: enabling and disabling keys is a lil quirky,
@@ -91,7 +95,10 @@ class MainMenuState extends MusicBeatState
   override function create():Void
   {
     #if FEATURE_DISCORD_RPC
-    DiscordClient.instance.setPresence({state: "In the Menus", details: null});
+    DiscordClient.instance.setPresence({
+      state: "In the Menus",
+      details: null
+    });
     #end
 
     FlxG.cameras.reset(new FunkinCamera('mainMenu'));
@@ -115,7 +122,7 @@ class MainMenuState extends MusicBeatState
     persistentUpdate = true;
     persistentDraw = true;
 
-    bg = new FlxSprite(Paths.image('menuBG'));
+    bg = new FlxSprite(Paths.image('ui/main-menu/menu-bg').toFlxGraphicAsset());
     bg.scrollFactor.x = #if !mobile 0 #else 0.17 #end; // we want a lil x scroll on mobile
     bg.scrollFactor.y = 0.17;
     bg.setGraphicSize(Std.int(FlxG.width * 1.2));
@@ -144,19 +151,23 @@ class MainMenuState extends MusicBeatState
       uiStateMachine.transition(Interacting);
     });
 
-    menuItems.enabled = true;
-
-    createMenuItem('storymode', 'mainmenu/storymode', () ->
+    menuItems.enabled = true; // can move on intro
+    createMenuItem('storymode', 'ui/main-menu/items/story-mode', () ->
     {
       FlxG.signals.preStateSwitch.addOnce(() ->
       {
-        funkin.FunkinMemory.clearFreeplay();
-        funkin.FunkinMemory.purgeCache();
+        FunkinAssetCache.instance.preparePurgeCache();
+      });
+
+      FlxG.signals.postStateSwitch.addOnce(() ->
+      {
+        funkin.memory.FunkinMemory.clearFreeplay();
+        // TODO: In loading screens, you should be caching BETWEEN these.
+        FunkinAssetCache.instance.purgeCache(true);
       });
       startExitState(() -> new StoryMenuState());
     });
-
-    createMenuItem('freeplay', 'mainmenu/freeplay', function()
+    createMenuItem('freeplay', 'ui/main-menu/items/freeplay', () ->
     {
       persistentDraw = true;
       persistentUpdate = false;
@@ -194,15 +205,15 @@ class MainMenuState extends MusicBeatState
       // In order to prevent popup blockers from triggering,
       // we need to open the link as an immediate result of a keypress event,
       // so we can't wait for the flicker animation to complete.
-      var hasPopupBlocker:Bool = #if web true #else false #end;
-      createMenuItem('merch', 'mainmenu/merch', selectMerch, hasPopupBlocker);
+      var hasPopupBlocker = #if web true #else false #end;
+      createMenuItem('merch', 'ui/main-menu/items/merch', selectMerch, hasPopupBlocker);
       #end
     }
     else
     {
       add(upgradeSparkles);
 
-      createMenuItem('upgrade', 'mainmenu/upgrade', function()
+      createMenuItem('upgrade', 'ui/main-menu/items/upgrade', function()
       {
         #if FEATURE_MOBILE_IAP
         InAppPurchasesUtil.purchase(InAppPurchasesUtil.UPGRADE_PRODUCT_ID, FlxG.resetState);
@@ -213,13 +224,13 @@ class MainMenuState extends MusicBeatState
 
     if (#if mobile ControlsHandler.usingExternalInputDevice #else true #end)
     {
-      createMenuItem('options', 'mainmenu/options', function()
+      createMenuItem('options', 'ui/main-menu/items/options', function()
       {
         startExitState(() -> new funkin.ui.options.OptionsState());
       });
     }
 
-    createMenuItem('credits', 'mainmenu/credits', function()
+    createMenuItem('credits', 'ui/main-menu/items/credits', function()
     {
       startExitState(() -> new funkin.ui.credits.CreditsState());
     });
@@ -247,8 +258,13 @@ class MainMenuState extends MusicBeatState
       var targetItem = menuItems.members[2];
       for (_ in 0...8)
       {
-        var sparkle:UpgradeSparkle = new UpgradeSparkle(targetItem.x - (targetItem.width / 2), targetItem.y - (targetItem.height / 2), targetItem.width,
-          targetItem.height, FlxG.random.bool(80));
+        var sparkle:UpgradeSparkle = new UpgradeSparkle(
+          targetItem.x - (targetItem.width / 2),
+          targetItem.y - (targetItem.height / 2),
+          targetItem.width,
+          targetItem.height,
+          FlxG.random.bool(80)
+        );
         upgradeSparkles.add(sparkle);
 
         sparkle.scrollFactor.x = 0.0;
@@ -318,7 +334,7 @@ class MainMenuState extends MusicBeatState
   {
     if (leftWatermarkText == null) return;
 
-    leftWatermarkText.text = Constants.VERSION;
+    leftWatermarkText.text = '${Constants.VERSION} Preview #3';
 
     #if FEATURE_NEWGROUNDS
     if (NewgroundsClient.instance.isLoggedIn())
@@ -326,11 +342,15 @@ class MainMenuState extends MusicBeatState
       leftWatermarkText.text += ' | Newgrounds: Logged in as ${NewgroundsClient.instance.user?.name}';
     }
     #end
+
+    if (rightWatermarkText == null) return;
+
+    rightWatermarkText.text += 'Mod Menu Playtest Build (v0.9 Feature Preview #3)';
   }
 
   function playMenuMusic():Void
   {
-    FunkinSound.playMusic('freakyMenu', {
+    FunkinSound.playMusic('ui/main-menu/freaky-menu/freaky-menu', {
       overrideExisting: true,
       restartTrack: false,
       // Continue playing this music between states, until a different music track gets played.
@@ -349,7 +369,7 @@ class MainMenuState extends MusicBeatState
   {
     if (menuItems == null) return;
 
-    var item:AtlasMenuItem = new AtlasMenuItem(name, Paths.getSparrowAtlas(atlas), callback);
+    var item:AtlasMenuItem = new AtlasMenuItem(name, Assets.getSparrowAtlas(Paths.image(atlas)), callback);
     item.fireInstantly = fireInstantly;
     item.ID = menuItems.length;
     item.scrollFactor.set();
@@ -397,8 +417,10 @@ class MainMenuState extends MusicBeatState
 
   function onMenuItemChange(selected:MenuListItem)
   {
-    if (#if mobile ControlsHandler.usingExternalInputDevice #else true #end) camFollow.setPosition(selected.getGraphicMidpoint().x,
-      selected.getGraphicMidpoint().y);
+    if (#if mobile ControlsHandler.usingExternalInputDevice #else true #end) camFollow.setPosition(
+      selected.getGraphicMidpoint().x,
+      selected.getGraphicMidpoint().y
+    );
   }
 
   #if FEATURE_OPEN_URL
@@ -439,14 +461,26 @@ class MainMenuState extends MusicBeatState
     var fadeOutDuration:Float = 0.4;
     menuItems.forEach(item ->
     {
-      if (rememberedSelectedIndex != item.ID) FlxTween.tween(item, {alpha: 0}, fadeOutDuration, {ease: FlxEase.quadOut});
+      if (rememberedSelectedIndex != item.ID) FlxTween.tween(item, {
+        alpha: 0
+      }, fadeOutDuration, {
+        ease: FlxEase.quadOut
+      });
       else
         item.visible = false;
     });
 
     #if mobile
-    if (optionsButton != null) FlxTween.tween(optionsButton, {alpha: 0}, fadeOutDuration, {ease: FlxEase.quadOut});
-    if (backButton != null) FlxTween.tween(backButton, {alpha: 0}, fadeOutDuration, {ease: FlxEase.quadOut});
+    if (optionsButton != null) FlxTween.tween(optionsButton, {
+      alpha: 0
+    }, fadeOutDuration, {
+      ease: FlxEase.quadOut
+    });
+    if (backButton != null) FlxTween.tween(backButton, {
+      alpha: 0
+    }, fadeOutDuration, {
+      ease: FlxEase.quadOut
+    });
     #end
 
     FlxTimer.wait(fadeOutDuration, () ->
@@ -534,7 +568,7 @@ class MainMenuState extends MusicBeatState
 
     if (InputUtil.allPressedWithDebounce([CONTROL, ALT, SHIFT, W]))
     {
-      FunkinSound.playOnce(Paths.sound('confirmMenu'));
+      FunkinSound.playOnce(Paths.sound('ui/main-menu/confirm-menu').toFlxSoundAsset());
       // Give the user a score of 1 point on Weekend 1 story mode (Easy difficulty).
       // This makes the level count as cleared and displays the songs in Freeplay.
       funkin.save.Save.instance.setLevelScore('weekend1', 'easy', {
@@ -555,7 +589,7 @@ class MainMenuState extends MusicBeatState
 
     if (InputUtil.allPressedWithDebounce([CONTROL, ALT, SHIFT, M]))
     {
-      FunkinSound.playOnce(Paths.sound('confirmMenu'));
+      FunkinSound.playOnce(Paths.sound('ui/main-menu/confirm-menu').toFlxSoundAsset());
       // Give the user a score of 0 points on Weekend 1 story mode (all difficulties).
       // This makes the level count as uncleared and no longer displays the songs in Freeplay.
       for (diff in ['easy', 'normal', 'hard'])
@@ -625,7 +659,7 @@ class MainMenuState extends MusicBeatState
   {
     uiStateMachine.transition(Exiting);
     rememberedSelectedIndex = menuItems?.selectedIndex ?? 0;
-    FunkinSound.playOnce(Paths.sound('cancelMenu'));
+    FunkinSound.playOnce(Paths.sound('ui/main-menu/cancel-menu').toString());
 
     FlxG.switchState(() -> new TitleState());
   }

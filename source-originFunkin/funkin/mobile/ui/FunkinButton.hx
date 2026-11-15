@@ -28,7 +28,8 @@ enum abstract FunkinButtonStatus(Int) from Int to Int
 #if !display
 @:generic
 #end
-@:allow(funkin.mobile.ui.FunkinHitbox) @:allow(funkin.mobile.ui.FunkinButton)
+@:allow(funkin.mobile.ui.FunkinHitbox)
+@:allow(funkin.mobile.ui.FunkinButton)
 class FunkinButton extends FunkinSprite implements IFlxInput
 {
   /**
@@ -153,7 +154,7 @@ class FunkinButton extends FunkinSprite implements IFlxInput
    */
   override public function destroy():Void
   {
-    deadZones = FlxDestroyUtil.destroyArray(deadZones);
+    deadZones = [];
     currentInput = null;
     input = null;
 
@@ -170,7 +171,7 @@ class FunkinButton extends FunkinSprite implements IFlxInput
   {
     super.update(elapsed);
 
-    #if FLX_POINTER_INPUT
+    #if FEATURE_TOUCH_CONTROLS
     // Update the button, but only if touches are enabled
     if (visible)
     {
@@ -351,7 +352,8 @@ class FunkinButton extends FunkinSprite implements IFlxInput
 
   static inline function checkRayIntersection(vertex1:FlxPoint, vertex2:FlxPoint, point:FlxPoint):Bool
   {
-    final result:Bool = (vertex1.y > point.y) != (vertex2.y > point.y)
+    final result:Bool = (vertex1.y > point.y
+    ) != (vertex2.y > point.y)
       && point.x < (vertex1.x + ((point.y - vertex1.y) / (vertex2.y - vertex1.y)) * (vertex2.x - vertex1.x));
 
     vertex1.putWeak();

@@ -1,5 +1,6 @@
 package funkin;
 
+import funkin.ui.debug.cameraeditor.CameraEditorState;
 import flixel.addons.transition.FlxTransitionableState;
 import flixel.addons.transition.FlxTransitionSprite.GraphicTransTileDiamond;
 import flixel.addons.transition.TransitionData;
@@ -19,12 +20,13 @@ import funkin.data.freeplay.style.FreeplayStyleRegistry;
 import funkin.data.notestyle.NoteStyleRegistry;
 import funkin.data.song.SongRegistry;
 import funkin.data.stickers.StickerRegistry;
+import funkin.util.plugins.SidePanelPlugin;
 import funkin.play.event.SongEventHelper;
 import funkin.data.event.SongEventRegistry;
 import funkin.data.stage.StageRegistry;
 import funkin.data.story.level.LevelRegistry;
 import funkin.modding.module.ModuleHandler;
-import funkin.data.character.CharacterData.CharacterDataParser;
+import funkin.data.character.CharacterRegistry;
 import funkin.play.notes.notekind.NoteKindManager;
 import funkin.play.PlayStatePlaylist;
 import funkin.ui.debug.charting.ChartEditorState;
@@ -50,6 +52,8 @@ class InitState extends FlxState
 {
   @:noCompletion
   static var _coreInitialized:Bool = false;
+
+  public static var customTitleState:Null<FlxState> = null;
 
   /**
    * Perform a bunch of game setup, then immediately transition to the title screen.
@@ -114,7 +118,7 @@ class InitState extends FlxState
       #end
 
       #if mobile
-      funkin.mobile.util.FNFCProvider.init();
+      funkin.mobile.util.FNFLoaderProvider.init();
       #end
 
       SongEventHelper.generateEaseGraphsBitmaps();
@@ -141,19 +145,48 @@ class InitState extends FlxState
       diamond.persist = true;
       diamond.destroyOnNoUse = false;
 
-      var tileData:TransitionTileData = {asset: diamond, width: 32, height: 32};
+      // NOTE: tileData is ignored if TransitionData.type is FADE instead of TILES.
+      var tileData:TransitionTileData = {
+        asset: diamond,
+        width: 32,
+        height: 32
+      };
 
-      FlxTransitionableState.defaultTransIn = new TransitionData(FADE, FlxColor.BLACK, 1, new FlxPoint(0, -1), tileData,
-        new FlxRect(-200, -200, FlxG.width * 1.4, FlxG.height * 1.4));
-      FlxTransitionableState.defaultTransOut = new TransitionData(FADE, FlxColor.BLACK, 0.7, new FlxPoint(0, 1), tileData,
-        new FlxRect(-200, -200, FlxG.width * 1.4, FlxG.height * 1.4));
+      FlxTransitionableState.defaultTransIn = new TransitionData(
+        FADE,
+        FlxColor.BLACK,
+        1,
+        FlxPoint.weak(0, -1),
+        tileData,
+        FlxRect.weak(-200, -200, FlxG.width * 1.4, FlxG.height * 1.4)
+      );
+      FlxTransitionableState.defaultTransOut = new TransitionData(
+        FADE,
+        FlxColor.BLACK,
+        0.7,
+        FlxPoint.weak(0, 1),
+        tileData,
+        FlxRect.weak(-200, -200, FlxG.width * 1.4, FlxG.height * 1.4)
+      );
 
       FlxG.signals.gameResized.add(function(width:Int, height:Int)
       {
-        FlxTransitionableState.defaultTransIn = new TransitionData(FADE, FlxColor.BLACK, 1, new FlxPoint(0, -1), tileData,
-          new FlxRect(-200, -200, FlxG.width * 1.4, FlxG.height * 1.4));
-        FlxTransitionableState.defaultTransOut = new TransitionData(FADE, FlxColor.BLACK, 0.7, new FlxPoint(0, 1), tileData,
-          new FlxRect(-200, -200, FlxG.width * 1.4, FlxG.height * 1.4));
+        FlxTransitionableState.defaultTransIn = new TransitionData(
+          FADE,
+          FlxColor.BLACK,
+          1,
+          FlxPoint.weak(0, -1),
+          tileData,
+          FlxRect.weak(-200, -200, FlxG.width * 1.4, FlxG.height * 1.4)
+        );
+        FlxTransitionableState.defaultTransOut = new TransitionData(
+          FADE,
+          FlxColor.BLACK,
+          0.7,
+          FlxPoint.weak(0, 1),
+          tileData,
+          FlxRect.weak(-200, -200, FlxG.width * 1.4, FlxG.height * 1.4)
+        );
       });
 
       // SDL for some reason enables VSync on focus lost/gained in Android
@@ -200,9 +233,7 @@ class InitState extends FlxState
       // ANDROID SETUP
       //
       #if android
-      FlxG.android.preventDefaultKeys = [
-        flixel.input.android.FlxAndroidKey.BACK
-      ];
+      FlxG.android.preventDefaultKeys = [flixel.input.android.FlxAndroidKey.BACK];
       #end
 
       //
@@ -226,11 +257,14 @@ class InitState extends FlxState
       #if !mobile
       funkin.util.plugins.VolumePlugin.initialize();
       #end
+      #if FLX_DEBUG
       funkin.util.plugins.WatchPlugin.initialize();
-      #if mobile
+      #end
+      #if FEATURE_TOUCH_CONTROLS
       funkin.util.plugins.TouchPointerPlugin.initialize();
       funkin.mobile.input.ControlsHandler.initInputTrackers();
       #end
+      funkin.util.plugins.SidePanelPlugin.initialize();
 
       _coreInitialized = true;
     }
@@ -239,38 +273,13 @@ class InitState extends FlxState
     // GAME DATA PARSING
     //
 
-    // NOTE: Registries must be imported and not referenced with fully qualified names,
-    // to ensure build macros work properly.
-    trace('Parsing game data...');
-    SongEventRegistry.loadEventCache(); // SongEventRegistry is structured differently so it's not a BaseRegistry.
-    SongRegistry.instance.loadEntries();
-    LevelRegistry.instance.loadEntries();
-    NoteStyleRegistry.instance.loadEntries();
-    PlayerRegistry.instance.loadEntries();
-    ConversationRegistry.instance.loadEntries();
-    DialogueBoxRegistry.instance.loadEntries();
-    SpeakerRegistry.instance.loadEntries();
-    FreeplayStyleRegistry.instance.loadEntries();
-    AlbumRegistry.instance.loadEntries();
-    StageRegistry.instance.loadEntries();
-    StickerRegistry.instance.loadEntries();
-
-    // TODO: CharacterDataParser doesn't use json2object, so it's way slower than the other parsers and more prone to syntax errors.
-    // Move it to use a BaseRegistry.
-    CharacterDataParser.loadCharacterCache();
-
-    NoteKindManager.initialize();
+    // If you're looking for registry initialization, it moved to the preloader :)
 
     ModuleHandler.buildModuleCallbacks();
     ModuleHandler.loadModuleCache();
     ModuleHandler.callOnCreate();
 
     funkin.input.Cursor.hide();
-
-    #if !html5
-    // This fucking breaks on HTML5 builds because the "shared" library isn't loaded yet.
-    funkin.FunkinMemory.initialCache();
-    #end
   }
 
   #if FEATURE_LOST_FOCUS_VOLUME
@@ -318,6 +327,10 @@ class InitState extends FlxState
     // Don't play transition in when entering the title state.
     FlxTransitionableState.skipNextTransIn = true;
 
+    #if (sys && FEATURE_DEBUG_FUNCTIONS)
+    if (startDebugTarget()) return;
+    #end
+
     #if SONG
     // -DSONG=bopeebo
     startSong(defineSong(), defineDifficulty());
@@ -345,6 +358,9 @@ class InitState extends FlxState
     #elseif STAGEBUILD
     // -DSTAGEBUILD
     FlxG.switchState(() -> new funkin.ui.debug.stage.StageBuilderState());
+    #elseif EYESOFGOD
+    // -DEYESOFGOD
+    FlxG.switchState(() -> new funkin.ui.debug.cameraeditor.CameraEditorState());
     #elseif RESULTS
     // -DRESULTS
     FlxG.switchState(() -> new funkin.play.ResultState({
@@ -386,6 +402,243 @@ class InitState extends FlxState
     #end
   }
 
+  public static function resetTitleState():Void
+  {
+    if (customTitleState != null) customTitleState.destroy();
+    customTitleState = null;
+  }
+
+  #if (sys && FEATURE_DEBUG_FUNCTIONS)
+  /** Launch a local test without changing saves or requiring another build. */
+  function startDebugTarget():Bool
+  {
+    var argument = Sys.args().find(arg -> arg.startsWith("--origin-test="));
+    if (argument == null) return false;
+    var target = argument.substr("--origin-test=".length);
+    if (target == "input" || Sys.args().contains("--origin-log-input")) installInputDiagnostics();
+    if (target.startsWith("play:"))
+    {
+      var songArgs = target.substr("play:".length).split(":");
+      startSong(songArgs[0], songArgs.length > 1 ? songArgs[1] : "normal", true);
+      return true;
+    }
+    switch (target)
+    {
+      case "compat":
+        originfunkin.compat.CompatibilityChecks.run();
+      #if CODENAME_ENGINE_COMPAT
+      case "cne-legacy-syntax":
+        FlxG.switchState(() -> new codename.funkin.tests.LegacySyntaxChecks());
+      case "cne-bop-zoom":
+        FlxG.switchState(() -> new codename.funkin.tests.BopZoomChecks());
+      case "cne-pause":
+        FlxG.switchState(() -> new codename.funkin.tests.PauseGameChecks());
+      #end
+      #if cpp
+      case "native-allocation":
+        originfunkin.compat.NativeAllocationChecks.run();
+      #end
+      case "legacy-render":
+        FlxG.switchState(() -> new originfunkin.compat.LegacyRenderChecks());
+      case "classic-characters":
+        FlxG.switchState(() -> new originfunkin.compat.ClassicCharacterChecks());
+      case "serializer-import":
+        FlxG.switchState(() -> new originfunkin.compat.SongSerializerImportChecks());
+      #if hxvlc
+      case "legacy-video":
+        FlxG.switchState(() -> new originfunkin.compat.LegacyVideoChecks());
+      case "native-video":
+        FlxG.switchState(() -> new originfunkin.compat.NativeVideoChecks());
+      #if cpp
+      case "attract-lifecycle":
+        FlxG.switchState(() -> new originfunkin.compat.AttractLifecycleChecks());
+      #end
+      case "attract":
+        FlxG.switchState(() -> new funkin.ui.title.AttractState());
+      #end
+      case "reload":
+        FlxG.switchState(() -> new funkin.ui.transition.preload.hotreload.HotReloadState({
+          targetState: () -> new funkin.ui.modmenu.ModMenuState(),
+          onComplete: () -> trace('[Origin hot reload check] Reached completion; default note style=${funkin.data.notestyle.NoteStyleRegistry.instance.fetchDefault()?.id}')
+        }));
+      case "sync-reload-image-check":
+        // Test-only fixture overrides this exact key, then reload restores saved mods.
+        var probePath = funkin.assets.Paths.image('ui/freeplay/albums/volume1');
+        var originalImage = funkin.assets.Assets.getBitmapData(probePath);
+        var beforePixel = originalImage.getPixel32(0, 11);
+        var originalGraphic = FlxG.bitmap.add(probePath.toString());
+        var beforeGraphicPixel = originalGraphic.bitmap.getPixel32(0, 11);
+        funkin.modding.PolymodHandler.forceReloadAssets();
+        var afterImage = funkin.assets.Assets.getBitmapData(probePath);
+        var afterPixel = afterImage.getPixel32(0, 11);
+        var afterGraphic = FlxG.bitmap.add(probePath.toString());
+        var afterGraphicPixel = afterGraphic.bitmap.getPixel32(0, 11);
+        var oldImageAlive = originalImage.getPixel32(0, 11) == beforePixel;
+        var oldGraphicAlive = originalGraphic.bitmap.getPixel32(0, 11) == beforeGraphicPixel;
+        // Releasing the old graphic must not remove or dispose its replacement.
+        FlxG.bitmap.remove(originalGraphic);
+        var currentGraphic = FlxG.bitmap.get(probePath.toString());
+        var newGraphicAlive = currentGraphic == afterGraphic && afterGraphic.bitmap != null
+          && afterGraphic.bitmap.getPixel32(0, 11) == afterGraphicPixel && afterImage.getPixel32(0, 11) == afterPixel;
+        trace('[Origin reload image check] before=$beforePixel after=$afterPixel graphicBefore=$beforeGraphicPixel graphicAfter=$afterGraphicPixel oldImageAlive=$oldImageAlive oldGraphicAlive=$oldGraphicAlive newGraphicAlive=$newGraphicAlive');
+        if (beforePixel == afterPixel || beforeGraphicPixel == afterGraphicPixel || !oldImageAlive || !oldGraphicAlive || !newGraphicAlive)
+        {
+          trace('[Origin reload image check] FAIL');
+          Sys.stdout().flush();
+          Sys.exit(1);
+        }
+        trace('[Origin reload image check] CHECKS PASSED');
+        Sys.stdout().flush();
+        Sys.exit(0);
+      case "sync-reload-audio-check":
+        // A silent channel remains live while a test-only mod sound is replaced.
+        var probePath = funkin.assets.Paths.sound('ui/character-select/sounds/locked');
+        var originalSound = funkin.assets.Assets.getSound(probePath);
+        var beforeLength = originalSound.length;
+        var channel = originalSound.play(0, 0, new openfl.media.SoundTransform(0));
+        if (channel == null) throw 'Could not start silent audio probe';
+        funkin.modding.PolymodHandler.forceReloadAssets();
+        var afterSound = funkin.assets.Assets.getSound(probePath);
+        var afterLength = afterSound.length;
+        haxe.Timer.delay(() ->
+        {
+          var position = channel.position;
+          var originalLength = originalSound.length;
+          trace('[Origin reload audio check] before=$beforeLength after=$afterLength oldLength=$originalLength position=$position');
+          channel.stop();
+          if (beforeLength < 5000 || afterLength <= 0 || afterLength > 2000 || originalLength != beforeLength || position <= 0)
+          {
+            trace('[Origin reload audio check] FAIL');
+            Sys.stdout().flush();
+            Sys.exit(1);
+          }
+          trace('[Origin reload audio check] CHECKS PASSED');
+          Sys.stdout().flush();
+          Sys.exit(0);
+        }, 700);
+      case "sync-reload-atlas-check":
+        // Fixture provides a real atlas image while the saved mods provide the base atlas.
+        var atlasKey = 'ui/freeplay/interface/freeplay-album';
+        var originalAtlas = funkin.Paths.getAnimateAtlas(atlasKey, null, {});
+        var originalFrameCount = originalAtlas.frames.length;
+        funkin.modding.PolymodHandler.forceReloadAssets();
+        var reloadedAtlas = funkin.Paths.getAnimateAtlas(atlasKey, null, {});
+        var oldAtlasAlive = originalAtlas.frames.length == originalFrameCount && originalFrameCount > 0;
+        var rebuilt = originalAtlas != reloadedAtlas;
+        trace('[Origin reload atlas check] rebuilt=$rebuilt oldAtlasAlive=$oldAtlasAlive frames=$originalFrameCount');
+        if (!rebuilt || !oldAtlasAlive)
+        {
+          trace('[Origin reload atlas check] FAIL');
+          Sys.stdout().flush();
+          Sys.exit(1);
+        }
+        trace('[Origin reload atlas check] CHECKS PASSED');
+        Sys.stdout().flush();
+        Sys.exit(0);
+      case "sync-reload":
+        funkin.modding.PolymodHandler.forceReloadAssets();
+        var scriptsInitialized = @:privateAccess polymod.hscript._internal.PolymodScriptClass.scriptsInitialized;
+        if (!scriptsInitialized)
+          throw 'Synchronous legacy reload returned before script registration.';
+        trace('[Origin synchronous reload check] Scripts initialized; default note style=${funkin.data.notestyle.NoteStyleRegistry.instance.fetchDefault()?.id}');
+        FlxG.switchState(() -> new funkin.ui.freeplay.FreeplayState());
+      #if FEATURE_CHART_EDITOR
+      case "chart": FlxG.switchState(() -> new ChartEditorState());
+      #end
+      #if FEATURE_CAMERA_EDITOR
+      case "camera": FlxG.switchState(() -> new CameraEditorState());
+      #end
+      #if FEATURE_STAGE_EDITOR
+      case "stage": FlxG.switchState(() -> new StageEditorState());
+      #end
+      #if FEATURE_ANIMATION_EDITOR
+      case "animation": FlxG.switchState(() -> new funkin.ui.debug.anim.DebugBoundingState());
+      #end
+      #if FEATURE_RESULTS_DEBUG
+      case "results": FlxG.switchState(() -> new funkin.ui.debug.results.ResultsDebugSubState());
+      case "result-screen": FlxG.switchState(() -> new funkin.play.ResultState(funkin.ui.debug.results.ResultsDebugSubState.createTestParams()));
+      case "result-flow": FlxG.switchState(() -> new originfunkin.compat.ResultFlowChecks());
+      #end
+      case "main": FlxG.switchState(() -> new funkin.ui.mainmenu.MainMenuState());
+      case "options": FlxG.switchState(() -> new funkin.ui.options.OptionsState());
+      #if FEATURE_DEBUG_MENU
+      case "menu":
+        FlxG.switchState(() ->
+        {
+          var state = new funkin.ui.mainmenu.MainMenuState();
+          // Register during the target factory: InitState is still inside its
+          // own create() when startDebugTarget runs, before its switch signal.
+          FlxG.signals.postStateSwitch.addOnce(() ->
+          {
+            state.persistentUpdate = false;
+            state.openSubState(new funkin.ui.debug.DebugMenuSubState());
+          });
+          return state;
+        });
+      #end
+      #if FEATURE_POLYMOD_MODS
+      case "mods": FlxG.switchState(() -> new funkin.ui.modmenu.ModMenuState());
+      #if sys
+      case "mods-check": FlxG.switchState(() -> new originfunkin.compat.ModMenuLogicChecks());
+      #end
+      #end
+      case "play": startSong("bopeebo", "normal", true);
+      case "input":
+        FlxG.switchState(() -> new funkin.ui.mainmenu.MainMenuState());
+      default:
+        trace('Unknown Origin test target "$target". Use menu, main, mods, chart, camera, stage, animation, results, result-screen, play or input.');
+        return false;
+    }
+    return true;
+  }
+
+  static var inputDiagnosticsInstalled:Bool = false;
+
+  /** Observe delivered input and menu changes; never dispatch input or mutate controls. */
+  static function installInputDiagnostics():Void
+  {
+    if (inputDiagnosticsInstalled) return;
+    inputDiagnosticsInstalled = true;
+    for (eventType in [openfl.events.KeyboardEvent.KEY_DOWN, openfl.events.KeyboardEvent.KEY_UP])
+      FlxG.stage.addEventListener(eventType, (event:openfl.events.KeyboardEvent) ->
+        trace('[Origin input test] ${event.type}: key=${event.keyCode}, char=${event.charCode}, ctrl=${event.ctrlKey}, shift=${event.shiftKey}, alt=${event.altKey}, enabled=${FlxG.keys.enabled}, state=${inputDiagnosticState()}'),
+        false, 10000);
+    var previousMenuSnapshot:String = '';
+    FlxG.signals.postUpdate.add(() ->
+    {
+      if (FlxG.keys.justPressed.ANY || FlxG.keys.justReleased.ANY)
+        trace('[Origin input test] pressed=${FlxG.keys.justPressed.ANY}, released=${FlxG.keys.justReleased.ANY}, controlHeld=${FlxG.keys.pressed.CONTROL}');
+      #if FEATURE_POLYMOD_MODS
+      if (Std.isOfType(FlxG.state, funkin.ui.modmenu.ModMenuState))
+      {
+        var menu:funkin.ui.modmenu.ModMenuState = cast FlxG.state;
+        var snapshot = haxe.Json.stringify({
+          selection: Std.string(@:privateAccess menu.selection),
+          enabled: [for (item in @:privateAccess menu.enabledModItems.modItems) item.getModId()],
+          allowInput: @:privateAccess menu.allowInput,
+          exiting: @:privateAccess menu.exitingMenu
+        });
+        if (snapshot != previousMenuSnapshot)
+        {
+          trace('[Origin input test] menu=$snapshot');
+          previousMenuSnapshot = snapshot;
+        }
+      }
+      else previousMenuSnapshot = '';
+      #end
+    });
+    FlxG.signals.postStateSwitch.add(() ->
+      trace('[Origin input test] entered=${inputDiagnosticState()}, savedMods=${haxe.Json.stringify(funkin.save.Save.instance.enabledModIds.value)}'));
+    trace('[Origin input test] diagnostics enabled; observing delivered events only');
+  }
+
+  static function inputDiagnosticState():String
+  {
+    var cls = Type.getClass(FlxG.state);
+    return cls == null ? 'none' : (Type.getClassName(cls) ?? 'unknown');
+  }
+  #end
+
   /**
    * Start the game by moving to the title state and play the game as normal.
    */
@@ -393,11 +646,41 @@ class InitState extends FlxState
   {
     var params:CLIParams = CLIUtil.processArgs();
 
+    #if FEATURE_ONE_CLICK_INSTALL
+    // Claims the handoff lock, so any later launch forwards its link here instead of booting.
+    funkin.modding.install.OneClickInstallHandler.initialize();
+
+    #if mobile
+    final fnfModUrl:Null<String> = funkin.mobile.util.FNFLoaderProvider.queryFNFMOD();
+
+    if (fnfModUrl != null && fnfModUrl.length > 0)
+    {
+      funkin.modding.install.OneClickInstallHandler.handleLink(fnfModUrl);
+    }
+    #end
+
+    if (funkin.modding.install.OneClickInstallHandler.stashLaunchLink(params.oneClickUrl) || funkin.modding.install.OneClickInstallHandler.hasPendingLink())
+    {
+      FlxG.switchState(() -> new funkin.ui.modmenu.ModMenuState());
+      return;
+    }
+    #end
+
     if (params.chart.shouldLoadChart)
     {
       #if FEATURE_CHART_EDITOR
       FlxG.switchState(() -> new ChartEditorState({
-        fnfcTargetPath: params.chart.chartPath,
+        loadFromPath: params.chart.chartPath,
+      }));
+      #else
+      FlxG.switchState(() -> new TitleState());
+      #end
+    }
+    else if (params.camera.shouldLoadChart)
+    {
+      #if FEATURE_CAMERA_EDITOR
+      FlxG.switchState(() -> new CameraEditorState({
+        loadFromPath: params.camera.chartPath,
       }));
       #else
       FlxG.switchState(() -> new TitleState());
@@ -424,7 +707,7 @@ class InitState extends FlxState
     else
     {
       #if mobile
-      funkin.mobile.util.FNFCProvider.onFNFCOpen.add(function(fnfcFile:String)
+      funkin.mobile.util.FNFLoaderProvider.onFNFCOpen.add(function(fnfcFile:String)
       {
         flixel.tweens.FlxTween.globalManager.clear();
         flixel.util.FlxTimer.globalManager.clear();
@@ -438,17 +721,29 @@ class InitState extends FlxState
         FlxG.switchState(() -> new ChartPlaytestMenu(fnfcFile));
       });
 
-      final fnfcFile = funkin.mobile.util.FNFCProvider.queryFNFC();
+      final fnfcFile = funkin.mobile.util.FNFLoaderProvider.queryFNFC();
+
       if (fnfcFile != null)
       {
         trace('launching FNFC from $fnfcFile');
+
         FlxG.switchState(() -> new ChartPlaytestMenu(fnfcFile));
+      }
+      else if (customTitleState != null)
+      {
+        FlxG.switchState(() -> customTitleState);
       }
       else
       {
         FlxG.switchState(() -> new TitleState());
       }
       #else
+      if (customTitleState != null)
+      {
+        FlxG.switchState(() -> customTitleState);
+        return;
+      }
+
       FlxG.switchState(() -> new TitleState());
       #end
     }
@@ -459,9 +754,11 @@ class InitState extends FlxState
    * @param songId
    * @param difficultyId
    */
-  function startSong(songId:String, difficultyId:String = 'normal'):Void
+  function startSong(songId:String, difficultyId:String = 'normal', testMode:Bool = false):Void
   {
-    var songData:Null<funkin.play.song.Song> = funkin.data.song.SongRegistry.instance.fetchEntry(songId, {variation: Constants.DEFAULT_VARIATION});
+    var songData:Null<funkin.play.song.Song> = funkin.data.song.SongRegistry.instance.fetchEntry(songId, {
+      variation: Constants.DEFAULT_VARIATION
+    });
 
     if (songData == null)
     {
@@ -469,32 +766,45 @@ class InitState extends FlxState
       return;
     }
 
+    #if (sys && FEATURE_DEBUG_FUNCTIONS)
+    if (testMode)
+    {
+      var styleArg = Sys.args().find(arg -> arg.startsWith('--origin-test-style='));
+      if (styleArg != null)
+      {
+        var styleId = styleArg.substr('--origin-test-style='.length);
+        if (funkin.data.notestyle.NoteStyleRegistry.instance.fetchEntry(styleId) == null)
+          throw 'Unknown test note style: $styleId';
+        // Chart caching reads these per-process metadata objects again below.
+        for (metadata in songData.getRawMetadata())
+        {
+          metadata.playData.noteStyle = styleId;
+          var difficulty = songData.getDifficulty(difficultyId, metadata.variation);
+          if (difficulty != null) difficulty.noteStyle = styleId;
+        }
+        trace('[Origin play test] Using note style $styleId without changing song files.');
+      }
+    }
+    #end
+
     // TODO: Rework loading behavior so we don't have to do this.
     switch (songId)
     {
       case 'tutorial' | 'bopeebo' | 'fresh' | 'dadbattle':
-        Paths.setCurrentLevel('week1');
         PlayStatePlaylist.campaignId = 'week1';
       case 'spookeez' | 'south' | 'monster':
-        Paths.setCurrentLevel('week2');
         PlayStatePlaylist.campaignId = 'week2';
       case 'pico' | 'philly-nice' | 'blammed':
-        Paths.setCurrentLevel('week3');
         PlayStatePlaylist.campaignId = 'week3';
       case 'high' | 'satin-panties' | 'milf':
-        Paths.setCurrentLevel('week4');
         PlayStatePlaylist.campaignId = 'week4';
       case 'cocoa' | 'eggnog' | 'winter-horrorland':
-        Paths.setCurrentLevel('week5');
         PlayStatePlaylist.campaignId = 'week5';
       case 'senpai' | 'roses' | 'thorns':
-        Paths.setCurrentLevel('week6');
         PlayStatePlaylist.campaignId = 'week6';
       case 'ugh' | 'guns' | 'stress':
-        Paths.setCurrentLevel('week7');
         PlayStatePlaylist.campaignId = 'week7';
       case 'darnell' | 'lit-up' | '2hot' | 'blazin':
-        Paths.setCurrentLevel('weekend1');
         PlayStatePlaylist.campaignId = 'weekend1';
     }
 
@@ -502,6 +812,8 @@ class InitState extends FlxState
     LoadingState.loadPlayState({
       targetSong: songData,
       targetDifficulty: difficultyId,
+      practiceMode: testMode,
+      botPlayMode: testMode,
     });
   }
 
@@ -520,8 +832,6 @@ class InitState extends FlxState
       return;
     }
 
-    // TODO: Rework loading behavior so we don't have to do this.
-    Paths.setCurrentLevel(levelId);
     PlayStatePlaylist.campaignId = levelId;
 
     PlayStatePlaylist.playlistSongIds = currentLevel.getSongs();
@@ -532,7 +842,9 @@ class InitState extends FlxState
 
     var targetSong:Null<funkin.play.song.Song> = null;
 
-    if (targetSongId != null) targetSong = SongRegistry.instance.fetchEntry(targetSongId, {variation: Constants.DEFAULT_VARIATION});
+    if (targetSongId != null) targetSong = SongRegistry.instance.fetchEntry(targetSongId, {
+      variation: Constants.DEFAULT_VARIATION
+    });
 
     if (targetSongId == null)
     {

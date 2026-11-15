@@ -36,11 +36,11 @@ class FunkinCache extends AssetCache {
 		openfl.utils.Assets.cache = new FunkinCache();
 
 		FlxG.signals.preStateSwitch.add(function() {
-			instance.moveToSecondLayer();
+			instance.clearSecondLayer();
 		});
 
 		FlxG.signals.postStateSwitch.add(function() {
-			instance.clearSecondLayer();
+			instance.moveToSecondLayer();
 		});
 	}
 

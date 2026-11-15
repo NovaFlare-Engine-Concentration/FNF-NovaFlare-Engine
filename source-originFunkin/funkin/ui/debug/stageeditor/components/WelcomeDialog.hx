@@ -12,7 +12,7 @@ import funkin.data.stage.StageData;
 import funkin.data.stage.StageRegistry;
 import funkin.ui.debug.stageeditor.StageEditorState.StageEditorDialogType;
 
-@:build(haxe.ui.macros.ComponentMacros.build("assets/exclude/data/ui/stage-editor/dialogs/welcome.xml"))
+@:build(originfunkin.macro.OriginEditorMacro.build("assets/exclude/ui/editors/stage-editor/dialogs/welcome.xml"))
 class WelcomeDialog extends Dialog
 {
   var stageEditorState:StageEditorState;
@@ -45,7 +45,8 @@ class WelcomeDialog extends Dialog
       fileText.onClick = function(_)
       {
         fileText.hide();
-        loadFromFilePath(file, null, 0, 0);
+        @:privateAccess
+        loadFromFilePath(new lime.utils.DroppedFile(file), null, 0, 0);
       };
 
       #if sys
@@ -58,8 +59,11 @@ class WelcomeDialog extends Dialog
       contentRecent.addComponent(fileText);
     }
 
-    boxDrag.onClick = function(_) FileUtil.browseForFile("Open Stage Data", [FileUtil.FILE_FILTER_FNFS],
-      (fileInfo) -> loadFromFilePath(fileInfo.fullPath, null, 0, 0));
+    boxDrag.onClick = function(_) FileUtil.browseForFile("Open Stage Data", [FileUtil.FILE_FILTER_FNFS], function(fileInfo):Void
+    {
+      @:privateAccess
+      loadFromFilePath(new lime.utils.DroppedFile(fileInfo.fullPath), null, 0, 0);
+    });
 
     var defaultStages:Array<String> = StageRegistry.instance.listEntryIds();
     defaultStages.sort(funkin.util.SortUtil.alphabetically);
@@ -87,7 +91,11 @@ class WelcomeDialog extends Dialog
 
     if (!stageEditorState.saved)
     {
-      Dialogs.messageBox("You will lose all of your unsaved work.\n\nAre you sure? This cannot be undone.", "Load Stage", MessageBoxType.TYPE_YESNO, true,
+      Dialogs.messageBox(
+        "You will lose all of your unsaved work.\n\nAre you sure? This cannot be undone.",
+        "Load Stage",
+        MessageBoxType.TYPE_YESNO,
+        true,
         function(btn:DialogButton)
         {
           if (btn == DialogButton.YES)
@@ -95,7 +103,8 @@ class WelcomeDialog extends Dialog
             stageEditorState.saved = true;
             loadFromPreset(data);
           }
-        });
+        }
+      );
 
       return;
     }
@@ -106,11 +115,15 @@ class WelcomeDialog extends Dialog
     killDaDialog();
   }
 
-  public function loadFromFilePath(file:String, state:String, x:Float, y:Float)
+  public function loadFromFilePath(file:lime.utils.DroppedFile, state:String, x:Float, y:Float)
   {
     if (!stageEditorState.saved)
     {
-      Dialogs.messageBox("You will lose all of your unsaved work.\n\nAre you sure? This cannot be undone.", "Load Stage", MessageBoxType.TYPE_YESNO, true,
+      Dialogs.messageBox(
+        "You will lose all of your unsaved work.\n\nAre you sure? This cannot be undone.",
+        "Load Stage",
+        MessageBoxType.TYPE_YESNO,
+        true,
         function(btn:DialogButton)
         {
           if (btn == DialogButton.YES)
@@ -118,12 +131,13 @@ class WelcomeDialog extends Dialog
             stageEditorState.saved = true;
             loadFromFilePath(file, state, x, y);
           }
-        });
+        }
+      );
 
       return;
     }
 
-    var bytes = FileUtil.readBytesFromPath(file);
+    var bytes = FileUtil.readBytesFromPath(file.path);
 
     if (bytes == null)
     {
@@ -132,7 +146,7 @@ class WelcomeDialog extends Dialog
     }
 
     stageEditorState.clearAssets();
-    stageEditorState.currentFile = file;
+    stageEditorState.currentFile = file.path;
     stageEditorState.unpackShitFromZip(bytes);
     killDaDialog();
   }

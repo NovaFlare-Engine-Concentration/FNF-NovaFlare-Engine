@@ -87,6 +87,63 @@ class Constants
   public static final URL_KICKSTARTER:String = 'https://www.kickstarter.com/projects/funkin/friday-night-funkin-the-full-ass-game/';
 
   /**
+   * ONE-CLICK MOD INSTALL DATA
+   */
+  // ==============================
+
+  /**
+   * The custom URL scheme the game registers itself against for one-click mod installs.
+   * A link looks like `funkin:https://gamebanana.com/mmdl/1234567,Mod,567890`.
+   */
+  public static final ONE_CLICK_SCHEME:String = 'funkin';
+
+  /**
+   * The domains we are willing to download mod archives from.
+   */
+  public static final ONE_CLICK_ALLOWED_DOMAINS:Array<String> = ['gamebanana.com'];
+
+  /**
+   * The largest file size we will download for a one-click install, in bytes.
+   */
+  public static final ONE_CLICK_MAX_FILESIZE:Int = 2000 * 1024 * 1024;
+
+  /**
+   * The largest hash size we will accept for a one-click install, in bytes.
+   */
+  public static final ONE_CLICK_MAX_HASH_SIZE:Int = 256 * 1024 * 1024;
+
+  /**
+   * The User-Agent sent when resolving a one-click download.
+   */
+  public static final ONE_CLICK_USER_AGENT:String = 'FridayNightFunkin';
+
+  /**
+   * The GameBanana API endpoint used to resolve metadata for a submission.
+   * Append the model name, the item ID, and the trailing path segment.
+   */
+  public static final ONE_CLICK_API_URL:String = 'https://gamebanana.com/apiv11/';
+
+  /**
+   * Maps the plural path segment in a GameBanana profile URL onto the API's model name.
+   */
+  public static final ONE_CLICK_MODELS:Map<String, String> = [
+    'mods' => 'Mod',
+    'tools' => 'Tool',
+    'sounds' => 'Sound',
+    'wips' => 'Wip'
+  ];
+
+  /**
+   * The GameBanana category that holds mod folders for the base game.
+   */
+  public static final ONE_CLICK_CATEGORY_ROOT:Int = 29202;
+
+  /**
+   * The GameBanana API endpoint listing the child categories of a category.
+   */
+  public static final ONE_CLICK_CATEGORIES_URL:String = 'https://gamebanana.com/apiv11/Mod/Categories?_sSort=a_to_z&_bShowEmpty=true&_idCategoryRow=';
+
+  /**
    * REPOSITORY DATA
    */
   // ==============================
@@ -117,7 +174,7 @@ class Constants
   // ==============================
 
   /**
-   * The color used by the enemy health bar.
+   * The color used by the opponent health bar.
    */
   public static final COLOR_HEALTH_BAR_RED:FlxColor = 0xFFFF0000;
 
@@ -165,6 +222,11 @@ class Constants
    * Color for the preloader site lock link
    */
   public static final COLOR_PRELOADER_LOCK_LINK:FlxColor = 0xEEB211;
+
+  /**
+   * The default color for story levels.
+   */
+  public static final DEFAULT_COLOR_STORY_LEVEL:FlxColor = 0xFFF9CF51;
 
   /**
    * GAME DEFAULTS
@@ -218,6 +280,11 @@ class Constants
    * Default song for if the PlayState messes up.
    */
   public static final DEFAULT_SONG:String = 'tutorial';
+
+  /**
+   * Default level for Story Mode.
+   */
+  public static final DEFAULT_LEVEL:String = 'tutorial';
 
   /**
    * Default variation for charts.
@@ -434,7 +501,7 @@ class Constants
    *
    * 0 = The preloader immediately moves to the next step when it's ready.
    * 1 = The preloader waits for 1 second before moving to the next step.
-   *     The progress bare is automatically rescaled to match.
+   *     The progress bar is automatically rescaled to match.
    */
   public static final PRELOADER_MIN_STAGE_TIME:Float = 0.1;
 
@@ -615,7 +682,7 @@ class Constants
   /**
    * The file extension used when loading audio files.
    */
-  public static final EXT_SOUND:String = #if web 'mp3' #else 'ogg' #end;
+  public static final EXT_SOUND = "ogg";
 
   /**
    * The file extension used when loading video files.

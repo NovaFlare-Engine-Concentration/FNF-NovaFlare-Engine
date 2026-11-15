@@ -1,0 +1,38 @@
+--- a/polymod/hscript/_internal/PolymodCppiaClassReference.hx
++++ b/polymod/hscript/_internal/PolymodCppiaClassReference.hx
+@@ -528,6 +528,21 @@
+       return previous.names.copy();
+     }
+ 
++    if (previous != null && hasLoadedDependents(path, previous))
++    {
++      // The dependent module still holds references to this generation of the
++      // provider. Unloading it here would invalidate those references.
++      Polymod.warning(SCRIPT_PARSE_FAILED,
++        'Compiled script "$path" has loaded dependents, so its update is deferred until they are unloaded.', SCRIPT_RUNTIME);
++      for (i in 0...previous.names.length)
++      {
++        registry.set(previous.names[i], previous.refs[i]);
++        Interp.registryStamp++;
++        everProvided.set(previous.names[i], true);
++      }
++      return previous.names.copy();
++    }
++
+     if (previous != null)
+     {
+       Polymod.info(SCRIPT_PARSE_START, 'Compiled script "$path" changed since it was loaded, it will be replaced.', SCRIPT_RUNTIME);
+@@ -747,6 +762,13 @@
+   }
+ 
+   #if (hxcpp && POLYMOD_CPPIA)
++  static function hasLoadedDependents(path:String, provider:LoadedCppiaModule):Bool
++  {
++    for (otherPath => other in loadedModules)
++      if (otherPath != path && other.dependencies.get(path) == provider.serial) return true;
++    return false;
++  }
++
+   static function discardRejectedModule(module:Dynamic, path:String):Void
+   {
+     try

@@ -11,7 +11,6 @@ import flixel.util.FlxTimer;
 import funkin.util.WindowUtil;
 import funkin.util.logging.CrashHandler;
 import flixel.addons.util.FlxAsyncLoop;
-import funkin.input.Cursor;
 import funkin.audio.FunkinSound;
 import openfl.display.Bitmap;
 import openfl.display.Sprite;
@@ -80,6 +79,7 @@ class ScreenshotPlugin extends FlxBasic
   var previewSprite:Sprite;
   var shotPreviewBitmap:Bitmap;
   var outlineBitmap:Bitmap;
+  // Screenshots only borrow visibility; cursor graphics and ownership stay with the active state.
   var wasMouseHidden:Bool = false; // Used for hiding and then showing the mouse
   var wasMouseShown:Bool = false; // Used for showing and then hiding the mouse
   var screenshotTakenFrame:Int = 0;
@@ -184,7 +184,7 @@ class ScreenshotPlugin extends FlxBasic
       if (Preferences.shouldHideMouse && !wasMouseHidden && FlxG.mouse.visible)
       {
         wasMouseHidden = true;
-        Cursor.hide();
+        FlxG.mouse.visible = false;
       }
       for (sprite in [flashSprite, previewSprite])
       {
@@ -202,7 +202,7 @@ class ScreenshotPlugin extends FlxBasic
           if (!Preferences.fancyPreview && wasMouseHidden && !FlxG.mouse.visible)
           {
             wasMouseHidden = false;
-            Cursor.show();
+            FlxG.mouse.visible = true;
           }
         });
       }
@@ -259,6 +259,10 @@ class ScreenshotPlugin extends FlxBasic
    */
   public function capture():Void
   {
+    #if FEATURE_HAXEUI
+    if (haxe.ui.focus.FocusManager.instance.focus != null) return;
+    #end
+
     onPreScreenshot.dispatch();
 
     var shot:Bitmap = new Bitmap(BitmapData.fromImage(FlxG.stage.window.readPixels()));
@@ -282,7 +286,7 @@ class ScreenshotPlugin extends FlxBasic
       if (wasMouseHidden && !FlxG.mouse.visible && Preferences.flashingLights) // Just in case
       {
         wasMouseHidden = false;
-        Cursor.show();
+        FlxG.mouse.visible = true;
       }
       if (!Preferences.previewOnSave) showFancyPreview(shot);
     }
@@ -295,7 +299,7 @@ class ScreenshotPlugin extends FlxBasic
       if (wasMouseHidden && !FlxG.mouse.visible)
       {
         wasMouseHidden = false;
-        Cursor.show();
+        FlxG.mouse.visible = true;
       }
       if (!Preferences.previewOnSave) showFancyPreview(shot);
     }
@@ -311,9 +315,11 @@ class ScreenshotPlugin extends FlxBasic
   {
     if (stateChanging) return; // Flash off!
     flashSprite.alpha = 1;
-    FlxTween.tween(flashSprite, {alpha: 0}, 0.15);
+    FlxTween.tween(flashSprite, {
+      alpha: 0
+    }, 0.15);
 
-    FunkinSound.playOnce(Paths.sound('screenshot'), 1.0);
+    FunkinSound.playOnce(Paths.sound('ui/main-menu/screenshot'), 1.0);
   }
 
   static final PREVIEW_INITIAL_DELAY:Float = 0.25; // How long before the preview starts fading in.
@@ -342,7 +348,7 @@ class ScreenshotPlugin extends FlxBasic
     if (!wasMouseShown && !wasMouseHidden && !FlxG.mouse.visible)
     {
       wasMouseShown = true;
-      Cursor.show();
+      FlxG.mouse.visible = true;
     }
 
     // so that it doesnt change the alpha when tweening in/out
@@ -380,7 +386,10 @@ class ScreenshotPlugin extends FlxBasic
     {
       // Fade in.
       changingAlpha = true;
-      FlxTween.tween(previewSprite, {alpha: targetAlpha, y: 0}, PREVIEW_FADE_IN_DURATION, {
+      FlxTween.tween(previewSprite, {
+        alpha: targetAlpha,
+        y: 0
+      }, PREVIEW_FADE_IN_DURATION, {
         ease: FlxEase.quartOut,
         onComplete: function(_)
         {
@@ -390,19 +399,22 @@ class ScreenshotPlugin extends FlxBasic
           {
             changingAlpha = true;
             // Fade out.
-            FlxTween.tween(previewSprite, {alpha: 0.0, y: 10}, PREVIEW_FADE_OUT_DURATION, {
+            FlxTween.tween(previewSprite, {
+              alpha: 0.0,
+              y: 10
+            }, PREVIEW_FADE_OUT_DURATION, {
               ease: FlxEase.quartInOut,
               onComplete: function(_)
               {
                 if (wasMouseShown && FlxG.mouse.visible)
                 {
                   wasMouseShown = false;
-                  Cursor.hide();
+                  FlxG.mouse.visible = false;
                 }
                 else if (wasMouseHidden && !FlxG.mouse.visible)
                 {
                   wasMouseHidden = false;
-                  Cursor.show();
+                  FlxG.mouse.visible = true;
                 }
 
                 previewSprite.removeEventListener(MouseEvent.MOUSE_DOWN, previewSpriteOpenScreenshotsFolder);
@@ -635,12 +647,12 @@ class ScreenshotPlugin extends FlxBasic
     if (wasMouseShown && FlxG.mouse.visible)
     {
       wasMouseShown = false;
-      Cursor.hide();
+      FlxG.mouse.visible = false;
     }
     else if (wasMouseHidden && !FlxG.mouse.visible)
     {
       wasMouseHidden = false;
-      Cursor.show();
+      FlxG.mouse.visible = true;
     }
 
     if (screenshotSpammedTimer != null && !screenshotSpammedTimer.finished) screenshotSpammedTimer.cancel();

@@ -1,0 +1,204 @@
+--- a/polymod/Polymod.hx
++++ b/polymod/Polymod.hx
+@@ -927,6 +927,24 @@
+       var cppiaPaths:Array<String> = allBytes.filter(path -> PolymodConfig.cppiaClassExt.exists(ext -> path.endsWith(ext)));
+ 
+       cppiaPaths = polymod.hscript._internal.PolymodCPPIATarget.select(cppiaPaths);
++
++      // Inspect sequentially; reread for registration to bound memory usage.
++      if (cppiaPaths.length > 1)
++      {
++        var summaries = [];
++        for (binaryPath in cppiaPaths)
++        {
++          var path = binaryPath;
++          if (!Polymod.assetLibrary.exists(path))
++            for (libraryId in libraryIds)
++              if (Polymod.assetLibrary.exists('$libraryId:$binaryPath')) { path = '$libraryId:$binaryPath'; break; }
++          var summary = null;
++          try summary = polymod.hscript._internal.DependencyOrder.analyze(Polymod.assetLibrary.getBytes(path)) catch (_:Dynamic) {}
++          summaries.push(summary);
++        }
++        var original = cppiaPaths;
++        cppiaPaths = [for (index in polymod.hscript._internal.DependencyOrder.plan(summaries)) original[index]];
++      }
+ 
+       for (binaryPath in cppiaPaths)
+       {
+@@ -1058,7 +1076,53 @@
+         }
+         pumping = false;
+       };
+-      pump();
++      if (items.length <= 1)
++      {
++        pump();
++      }
++      else
++      {
++        // Preflight sequentially and retain summaries, not all module bytes.
++        var summaries:Array<Null<polymod.hscript._internal.DependencyOrder.ModuleSummary>> = [for (_ in items) null];
++        var scanNext:Int = 0;
++        var scanWaiting:Bool = false;
++        var scanning:Bool = false;
++        var preflight:Void->Void = null;
++        preflight = () ->
++        {
++          if (scanning) return;
++          scanning = true;
++          while (!scanWaiting && scanNext < items.length)
++          {
++            var index = scanNext++;
++            scanWaiting = true;
++            try
++            {
++              Polymod.assetLibrary.loadBytes(items[index].path).onComplete((bytes:Bytes) ->
++              {
++                summaries[index] = polymod.hscript._internal.DependencyOrder.analyze(bytes);
++                scanWaiting = false;
++                preflight();
++              }).onError((_err) ->
++              {
++                scanWaiting = false;
++                preflight();
++              });
++            }
++            catch (_:Dynamic) { scanWaiting = false; }
++          }
++          if (!scanWaiting && scanNext >= items.length)
++          {
++            var original = items;
++            items = [for (index in polymod.hscript._internal.DependencyOrder.plan(summaries)) original[index]];
++            scanning = false;
++            pump();
++            return;
++          }
++          scanning = false;
++        };
++        preflight();
++      }
+       return futures;
+     }
+   }
+--- /dev/null
++++ b/polymod/hscript/_internal/ManifestExports.hx
+@@ -0,0 +1,68 @@
++package polymod.hscript._internal;
++
++import haxe.io.Bytes;
++using StringTools;
++
++/** Conservative CPPIA manifest reader for dependency planning only. */
++class ManifestExports {
++  public static function read(data:Bytes):Null<Array<String>> {
++    try { return readChecked(data); } catch (_:Dynamic) { return null; }
++  }
++  static function number(value:String):Int {
++    if (value == null || !~/^[0-9]+$/.match(value) || value.length > 8) throw 'invalid number';
++    var n=Std.parseInt(value); if (n == null) throw 'invalid number'; return n;
++  }
++  static function parts(line:String):Array<String> return ~/\s+/g.split(line.trim());
++  static function readChecked(data:Bytes):Null<Array<String>> {
++    var r=new ByteReader(data);
++    if(r.token()!='CPPIA') return null;
++    var stringCount=number(r.token()); if(stringCount>200000) return null;
++    var strings=[for(_ in 0...stringCount) r.string()];
++    var typeCount=number(r.token()); if(typeCount>200000) return null;
++    var types=[for(_ in 0...typeCount) r.string()];
++    var manifest=types.indexOf('PolymodCppiaManifest'); if(manifest<0 || types.lastIndexOf('PolymodCppiaManifest')!=manifest) return null;
++    // Avoid splitting the entire code body into thousands of temporary lines.
++    // Unsupported spacing or duplicate manifest classes safely fall back.
++    var body=data.getString(r.pos,data.length-r.pos);
++    var marker='\nCLASS '+manifest+' ';
++    var offset=body.indexOf(marker);
++    if(offset<0 || body.indexOf(marker,offset+marker.length)>=0) return null;
++    var end=body.length;
++    for(boundary in ['CLASS ','INTERFACE ','ENUM ','MAIN ','NOMAIN ','RESOURCES ']) {
++      var next=body.indexOf('\n'+boundary,offset+marker.length);
++      if(next>=0 && next<end) end=next;
++    }
++    var lines=body.substring(offset+1,end).split('\n');
++    var start=1; var finish=lines.length;
++    var fields:Map<String,Array<String>>=[]; var i=start;
++    while(i<finish) {
++      var line=lines[i]; i++;
++      if(!line.startsWith('VAR ')) continue;
++      var p=parts(line); if(p.length!=8 || p[1]!='1' || p[7]!='1') continue;
++      var id=number(p[5]); if(id>=strings.length) return null;
++      var field=strings[id]; if(field!='classes' && field!='classRefs') continue;
++      if(fields.exists(field) || i>=finish) return null;
++      var a=parts(lines[i++]); if(a.length!=5 || a[2]!='ADEF') return null;
++      var count=number(a[4]); if(count>200000 || i+count>finish) return null;
++      var names:Array<String>=[];
++      for(_ in 0...count) {
++        var item=parts(lines[i++]); if(item.length!=4) return null;
++        if(item[2]!=(field=='classes'?'s':'CLASSOF')) return null;
++        var index=number(item[3]); var pool=field=='classes'?strings:types;
++        if(index>=pool.length) return null; names.push(pool[index]);
++      }
++      fields.set(field,names);
++    }
++    var names=fields.get('classes'); var refs=fields.get('classRefs');
++    if(names==null || refs==null || names.length!=refs.length || names.length==0) return null;
++    var seen:Map<String,Bool>=[];
++    for(i in 0...names.length) { if(names[i]=='' || names[i]!=refs[i] || seen.exists(names[i])) return null; seen.set(names[i],true); }
++    return names;
++  }
++}
++private class ByteReader {
++ public var pos:Int=0; var b:Bytes;
++ public function new(b:Bytes) {if(b==null) throw 'null';this.b=b;}
++ public function token():String {while(pos<b.length && b.get(pos)<=32)pos++;var start=pos;while(pos<b.length && b.get(pos)>32)pos++;if(start==pos)throw 'eof';return b.getString(start,pos-start);}
++ public function string():String {var raw=token();if(!~/^[0-9]+$/.match(raw)||raw.length>8)throw 'length';var n=Std.parseInt(raw);if(n==null || pos>=b.length || b.get(pos)>32)throw 'separator';pos++;if(n<0 || n>b.length-pos)throw 'truncated';var s=b.getString(pos,n);pos+=n;return s;}
++}
+--- /dev/null
++++ b/polymod/hscript/_internal/DependencyOrder.hx
+@@ -0,0 +1,48 @@
++package polymod.hscript._internal;
++
++import haxe.io.Bytes;
++import polymod.hscript._internal.PolymodCppiaScanner;
++using StringTools;
++typedef ModuleSummary = {var exports:Array<String>; var references:Array<String>; var declared:Array<String>;}
++class DependencyOrder {
++ static function normalize(s:String):String {if(s==null)return '';s=StringTools.replace(s,'::','.');while(s.startsWith('.'))s=s.substr(1);if(s.startsWith('Array.'))return 'Array';return s;}
++ public static function analyze(data:Bytes):Null<ModuleSummary> {
++  try {
++   var exports=ManifestExports.read(data);if(exports==null)return null;
++   var scan=PolymodCppiaScanner.scan(data,['gameVersion'=>true],false);
++   if(!scan.walked || scan.binary || scan.suspect || scan.unknownTokens.length>0)return null;
++   var declared:Array<String>=[];
++   for(id in scan.ancestry.keys()) {if(id<0 || id>=scan.types.length)return null;declared.push(normalize(scan.types[id]));}
++   return {exports:[for(x in exports) normalize(x)], references:[for(x in scan.types) normalize(x)], declared:declared};
++  } catch (_:Dynamic) {return null;}
++ }
++ /** Return original order when metadata is unknown, names collide, or dependencies cycle. */
++ public static function plan(modules:Array<Null<ModuleSummary>>):Array<Int> {
++  var original=[for(i in 0...modules.length) i];
++  var owners:Map<String,Int>=[];
++  for(i in 0...modules.length) {
++   var m=modules[i]; if(m==null)return original;
++   for(name in m.exports) {if(name=='' || owners.exists(name))return original;owners.set(name,i);}
++  }
++  var deps:Array<Array<Int>>=[for(_ in modules) []];
++  for(i in 0...modules.length) {
++   var m=modules[i];
++   for(name in m.references) {
++    if(name=='' || m.declared.contains(name) || !owners.exists(name))continue;
++    var provider=owners.get(name); if(provider!=i && !deps[i].contains(provider))deps[i].push(provider);
++   }
++  }
++  var result:Array<Int>=[];var done:Map<Int,Bool>=[];
++  while(result.length<modules.length) {
++   var chosen=-1;
++   for(i in 0...modules.length) {
++    if(done.exists(i))continue;
++    var ready=true;for(dep in deps[i])if(!done.exists(dep)){ready=false;break;}
++    if(ready){chosen=i;break;}
++   }
++   if(chosen<0)return original;
++   done.set(chosen,true);result.push(chosen);
++  }
++  return result;
++ }
++}

@@ -1,0 +1,59 @@
+/** Bodies are extracted from production PlayState.hx by the runner. */
+class ProbePlayState extends FocusBase {
+    public var guitarHeroSustains = true;
+    public var startedCountdown = true;
+    public var generatedMusic = true;
+    public var inCutscene = false;
+    public var endingSong = false;
+    public var paused = false;
+    public var cpuControlled = false;
+    public var cpuControlled_opponent = false;
+    public var replayMode = false;
+    public var notes = {members: new Array<Note>(), length: 0};
+    public var boyfriend = new Character();
+    public var dad = new Character();
+    public var gf:Character = null;
+    public var keyboardViewer = {pressed: function(key:Int) {}};
+    public var replayExam = {time: 0.0, recordJudgment: function(time:Float, lane:Int, diff:Float, rating:String, sustain:Bool) {}};
+    public var strumsBlocked = [false];
+    public var playerStrums = {members: new Array<StrumNote>()};
+    public var opponentStrums = {members: new Array<StrumNote>()};
+    public var keysPressed:Array<Int> = [];
+    public var keysArray = ['note_left'];
+    public var _hold:Array<Bool> = [];
+    public var _press:Array<Bool> = [];
+    public var _release:Array<Bool> = [];
+    public var instakillOnMiss = false;
+    public var NoteMs:Array<Float> = [];
+    public var NoteTime:Array<Float> = [];
+    public var vocals = {volume: 1.0};
+    public var opponentVocals = {volume: 1.0};
+    public var combo = 0;
+    public var health = 1.0;
+    public var healthLoss = 1.0;
+    public var songScore = 0;
+    public var songMisses = 0;
+    public var totalPlayed = 0;
+    public var curSection = 0;
+    public var SONG:Dynamic = {notes: []};
+    public var hits = 0;
+    public var timing = {playing: false, onFocus: function() {}};
+    public function new() { super(); }
+    public function resetRPC(value:Bool):Void {}
+    public function callOnScripts(name:String, args:Array<Dynamic> = null, ignore:Bool = false):Dynamic return LuaUtils.Function_Continue;
+    public function callOnLuas(name:String, args:Array<Dynamic>):Dynamic return LuaUtils.Function_Continue;
+    public function callOnHScript(name:String, args:Array<Dynamic>):Void {}
+    public function RecalculateRating(bad:Bool):Void {}
+    public function singAnimation(lane:Int):String return 'left';
+    public function doDeathCheck(force:Bool):Bool return false;
+    public function invalidateNote(note:Note):Void { note.exists = false; }
+    public function goodNoteHit(note:Note):Void { hits++; note.wasGoodHit = true; }
+    public function opponentNoteHitForOpponent(note:Note):Void { hits++; note.wasGoodHit = true; }
+    public function noteMiss(note:Note, index:Int):Void { noteMissCommon(note.noteData, note, index); }
+    public function noteMissPress(lane:Int):Void {}
+    public function keyReleased(lane:Int):Void {}
+    public function opponentDance():Void {}
+    public function playerDance():Void {}
+    /* METHODS */
+}
+class FocusBase { public function new() {} public function onFocus():Void {} }

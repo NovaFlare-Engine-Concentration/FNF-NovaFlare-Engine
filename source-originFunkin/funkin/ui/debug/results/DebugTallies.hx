@@ -20,7 +20,7 @@ class DebugTallies
     combo: 69,
     maxCombo: 69,
     totalNotesHit: 170,
-    totalNotes: 2400
+    totalNotes: 2400,
   };
 
   /**
@@ -35,7 +35,7 @@ class DebugTallies
     combo: 69,
     maxCombo: 69,
     totalNotesHit: 190,
-    totalNotes: 275
+    totalNotes: 275,
   };
 
   /**
@@ -50,7 +50,7 @@ class DebugTallies
     combo: 69,
     maxCombo: 69,
     totalNotesHit: 190,
-    totalNotes: 240
+    totalNotes: 240,
   };
 
   /**
@@ -65,7 +65,7 @@ class DebugTallies
     combo: 69,
     maxCombo: 69,
     totalNotesHit: 190,
-    totalNotes: 230
+    totalNotes: 230,
   };
 
   /**
@@ -80,7 +80,7 @@ class DebugTallies
     combo: 69,
     maxCombo: 69,
     totalNotesHit: 190,
-    totalNotes: 210
+    totalNotes: 210,
   };
 
   /**
@@ -95,7 +95,7 @@ class DebugTallies
     combo: 69,
     maxCombo: 69,
     totalNotesHit: 190,
-    totalNotes: 190
+    totalNotes: 190,
   };
 
   /**
@@ -110,7 +110,7 @@ class DebugTallies
     combo: 69,
     maxCombo: 69,
     totalNotesHit: 190,
-    totalNotes: 190
+    totalNotes: 190,
   };
 
   /**

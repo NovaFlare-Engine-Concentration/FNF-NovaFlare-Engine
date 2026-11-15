@@ -21,6 +21,14 @@ class FreeplayStyle implements IRegistryEntry<FreeplayStyleData>
    * The full data for a freeplay style.
    */
   // public final _data:FreeplayStyleData;
+  /** Query the resources used by a freeplay entry. */
+  public static function queryAssets(type:funkin.assets.Assets.AssetType, entryId:String,
+    ?params:Dynamic):Array<funkin.assets.Paths.AssetPath>
+  {
+    var entry = funkin.data.freeplay.style.FreeplayStyleRegistry.instance.fetchEntry(entryId, params);
+    return funkin.data.freeplay.style.FreeplayStyleRegistry.queryEntryAssets(type, entry);
+  }
+
   public function new(id:String, ?params:Dynamic)
   {
     this.id = id;
@@ -47,16 +55,20 @@ class FreeplayStyle implements IRegistryEntry<FreeplayStyleData>
    */
   public function getBgAssetKey():String
   {
-    return _data?.bgAsset ?? "freeplay/freeplayBGweek1-bf";
+    return funkin.assets.Paths.formatRelative(_data?.bgAsset ?? "ui/freeplay/backgrounds/bf/week1", 'ui/freeplay/styles/$id', Constants.EXT_IMAGE);
   }
 
   /**
-   * Get the asset key for the background.
+   * Get the asset key for the difficulty selector.
    * @return The asset key
    */
   public function getSelectorAssetKey():String
   {
-    return _data?.selectorAsset ?? "freeplay/freeplaySelector/freeplaySelector";
+    return funkin.assets.Paths.formatRelative(
+      _data?.selectorAsset ?? "ui/freeplay/interface/difficulty-selector",
+      'ui/freeplay/styles/$id',
+      Constants.EXT_IMAGE
+    );
   }
 
   /**
@@ -65,7 +77,11 @@ class FreeplayStyle implements IRegistryEntry<FreeplayStyleData>
    */
   public function getCapsuleAssetKey():String
   {
-    return _data?.capsuleAsset ?? "freeplay/freeplayCapsule/capsule/freeplayCapsule";
+    return funkin.assets.Paths.formatRelative(
+      _data?.capsuleAsset ?? "ui/freeplay/interface/freeplay-capsule/capsule/capsule-bf",
+      'ui/freeplay/styles/$id',
+      Constants.EXT_IMAGE
+    );
   }
 
   /**
@@ -74,7 +90,7 @@ class FreeplayStyle implements IRegistryEntry<FreeplayStyleData>
    */
   public function getNumbersAssetKey():String
   {
-    return _data?.numbersAsset ?? "digital_numbers";
+    return funkin.assets.Paths.formatRelative(_data?.numbersAsset ?? "ui/freeplay/styles/bf/digital-numbers", 'ui/freeplay/styles/$id', Constants.EXT_IMAGE);
   }
 
   /**

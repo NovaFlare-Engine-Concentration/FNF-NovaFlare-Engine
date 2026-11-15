@@ -1,0 +1,78 @@
+--- a/polymod/hscript/_internal/PolymodCppiaClassReference.hx
++++ b/polymod/hscript/_internal/PolymodCppiaClassReference.hx
+@@ -628,10 +628,12 @@
+     catch (e:Dynamic)
+     {
+       Polymod.error(SCRIPT_PARSE_FAILED, 'Failed to boot compiled script "$path": $e', SCRIPT_RUNTIME);
++      discardRejectedModule(module, path);
+       return [];
+     }
+ 
+     var moduleClasses:Array<String> = [];
++    var moduleClassRefs:Array<Class<Dynamic>> = [];
+ 
+     for (type in types)
+     {
+@@ -645,8 +647,8 @@
+ 
+       if (cls == null) continue;
+ 
+-      declared.set(type, cls);
+       moduleClasses.push(type);
++      moduleClassRefs.push(cls);
+     }
+ 
+     var manifest:Class<Dynamic> = null;
+@@ -662,6 +664,7 @@
+     if (manifest == null)
+     {
+       Polymod.error(SCRIPT_PARSE_FAILED, 'Compiled script "$path" has no $MANIFEST_CLASS, rebuild it with the current build command.', SCRIPT_RUNTIME);
++      discardRejectedModule(module, path);
+       return [];
+     }
+ 
+@@ -675,6 +678,7 @@
+           'Compiled script "$path" was built for game version "$stamp" but this game is "$expectedVersion". It will not be loaded, so the mod needs rebuilding.',
+           SCRIPT_RUNTIME);
+       }
++      discardRejectedModule(module, path);
+       return [];
+     }
+ 
+@@ -682,8 +686,12 @@
+     if (declared == null)
+     {
+       Polymod.error(SCRIPT_PARSE_FAILED, 'Compiled script "$path" has no classRefs, rebuild it with the current build command.', SCRIPT_RUNTIME);
+-      return [];
+-    }
++      discardRejectedModule(module, path);
++      return [];
++    }
++
++    for (i in 0...moduleClasses.length)
++      PolymodCppiaClassReference.declared.set(moduleClasses[i], moduleClassRefs[i]);
+ 
+     var expectedNames:Array<String> = cast Reflect.field(manifest, 'classes');
+ 
+@@ -737,6 +745,21 @@
+     return [];
+     #end
+   }
++
++  #if (hxcpp && POLYMOD_CPPIA)
++  static function discardRejectedModule(module:Dynamic, path:String):Void
++  {
++    try
++    {
++      var nativeModule:cpp.cppia.Module = cast module;
++      untyped __cpp__("{0}->unload()", nativeModule);
++    }
++    catch (e:Dynamic)
++    {
++      Polymod.error(SCRIPT_RUNTIME_EXCEPTION, 'Failed to unload rejected compiled script "$path": $e.', SCRIPT_RUNTIME);
++    }
++  }
++  #end
+ 
+   final clsName:String;
+   final cppiaClass:Class<Dynamic>;

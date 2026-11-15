@@ -7,6 +7,16 @@ import flixel.util.FlxTimer;
 @:nullSafety
 class FreeplayFlames extends FlxSpriteGroup
 {
+  public static function queryAssets(type:funkin.assets.Assets.AssetType):Array<funkin.assets.Paths.AssetPath>
+  {
+    return switch (type)
+    {
+      case IMAGE: [funkin.assets.Paths.image('ui/freeplay/difficulty/freeplay-flame')];
+      case XML: [funkin.assets.Paths.xml('ui/freeplay/difficulty/freeplay-flame')];
+      default: [];
+    }
+  }
+
   var flameX(default, set):Float = (FlxG.width - 367) - funkin.ui.FullScreenScaleMode.gameNotchSize.x;
   var flameY(default, set):Float = 91;
   var flameSpreadX(default, set):Float = 29;
@@ -23,7 +33,7 @@ class FreeplayFlames extends FlxSpriteGroup
     for (i in 0...5)
     {
       var flame:FlxSprite = new FlxSprite(flameX + (flameSpreadX * i), flameY + (flameSpreadY * i));
-      flame.frames = Paths.getSparrowAtlas("freeplay/freeplayFlame");
+      flame.frames = Paths.getSparrowAtlas("ui/freeplay/difficulty/freeplay-flame");
       flame.animation.addByPrefix("flame", "fire loop full instance 1", FlxG.random.int(23, 25), false);
       flame.animation.play("flame");
       flame.visible = false;
@@ -65,7 +75,6 @@ class FreeplayFlames extends FlxSpriteGroup
       timers.remove(timer);
     }
 
-    this.properPositions = false;
     this.flameCount = value;
     var visibleCount:Int = 0;
     for (i in 0...5)

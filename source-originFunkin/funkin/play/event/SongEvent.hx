@@ -1,6 +1,7 @@
 package funkin.play.event;
 
 import funkin.data.song.SongData.SongEventData;
+import funkin.data.song.SongData.SongChartData;
 import funkin.data.event.SongEventSchema;
 import funkin.modding.IScriptedClass.IPlayStateScriptedClass;
 import funkin.modding.events.ScriptEvent;
@@ -16,7 +17,15 @@ typedef SongEventParams =
    * If `true`, the song event will be handled and executed, even if it is old.
    * @default `false`
    */
-  ?processOldEvents:Bool
+  ?processOldEvents:Bool,
+  /**
+   * An offset to apply to each event's timestamp when activating, in milliseconds.
+   */
+  ?activationOffsetMs:Float,
+  /**
+   * An offset to apply to each event's timestamp when activating, in steps.
+   */
+  ?activationOffsetSteps:Float,
 }
 
 /**
@@ -24,6 +33,7 @@ typedef SongEventParams =
  * It is used by the ScriptedSongEvent class to handle user-defined events,
  * and also used by other classes in this package to provide default behavior for built-in events.
  */
+@:nullSafety
 class SongEvent implements IPlayStateScriptedClass
 {
   /**
@@ -52,11 +62,31 @@ class SongEvent implements IPlayStateScriptedClass
    */
   public var processOldEvents:Bool = false;
 
+  /**
+   * If not `0`, the offset to apply to each timestamp, in milliseconds.
+   * For example, `-1000` will activate `handleEvent()` 1 second earlier than it appears in the chart.
+   */
+  public var activationOffsetMs:Float = 0.0;
+
+  /**
+   * If not `0`, the offset to apply to each timestamp, in BPM-dependant steps.
+   * For example, `-16` will activate `handleEvent()` 1 measure earlier than it appears in the chart (at 4/4 signature).
+   */
+  public var activationOffsetSteps:Float = 0.0;
+
   public function new(id:String, ?params:SongEventParams)
   {
     this.id = id;
 
     this.processOldEvents = params?.processOldEvents ?? false;
+    this.activationOffsetMs = params?.activationOffsetMs ?? 0.0;
+    this.activationOffsetSteps = params?.activationOffsetSteps ?? 0.0;
+  }
+
+  /** Return assets needed by this event before gameplay begins. */
+  public function queryAssets(type:funkin.assets.Assets.AssetType, data:SongEventData):Array<funkin.assets.Paths.AssetPath>
+  {
+    return [];
   }
 
   /**
@@ -69,10 +99,32 @@ class SongEvent implements IPlayStateScriptedClass
   }
 
   /**
-   * Retrieves the chart editor schema for this song event type.
-   * @return The schema, or null if this event type does not have a schema.
+   * Determine the timestamp at which `handleEvent()` should be called for the given event data.
+   *
+   * @param data The event data to calculate the timestamp for.
+   * @param conductor The conductor to use for BPM calculations.
+   * @return The calculated timestamp, in milliseconds.
    */
-  public function getEventSchema():SongEventSchema
+  public function calculateActivationTime(data:SongEventData, conductor:Conductor):Float
+  {
+    // Add offset in steps
+    var tsSteps:Float = data.getStepTime(conductor);
+    var tsOffsetSteps:Float = tsSteps + this.activationOffsetSteps;
+
+    // Add offset in milliseconds
+    var tsOffsetMs:Float = conductor.getStepTimeInMs(tsOffsetSteps);
+    var result:Float = tsOffsetMs + this.activationOffsetMs;
+
+    return result;
+  }
+
+  /**
+   * Retrieves the Chart Editor schema for this song event type.
+   * Used to build the form on the event properties panel.
+   *
+   * @return The schema, or `null` if this event type does not have a schema.
+   */
+  public function getEventSchema():Null<SongEventSchema>
   {
     return null;
   }
@@ -84,7 +136,7 @@ class SongEvent implements IPlayStateScriptedClass
    */
   public function getIconPath():String
   {
-    return 'ui/chart-editor/events/default';
+    return 'ui/editors/chart-editor/events/Default';
   }
 
   /**
@@ -102,6 +154,12 @@ class SongEvent implements IPlayStateScriptedClass
     return 'SongEvent(${this.id})';
   }
 
+  /** Validate this event in the context of a chart; an empty list means valid. */
+  public function validate(event:SongEventData, chart:SongChartData, ?difficulty:String):Array<String>
+  {
+    return [];
+  }
+
   public function onScriptEvent(event:ScriptEvent)
   {
   }
@@ -114,8 +172,14 @@ class SongEvent implements IPlayStateScriptedClass
   {
   }
 
+  /** Compatibility hook for mods that model song events as updateable objects. */
+  public function update(elapsed:Float):Void
+  {
+  }
+
   public function onUpdate(event:UpdateScriptEvent)
   {
+    update(event.elapsed);
   }
 
   public function onStepHit(event:SongTimeScriptEvent)
@@ -158,11 +222,19 @@ class SongEvent implements IPlayStateScriptedClass
   {
   }
 
+  public function onNoteHoldHit(event:HoldNoteScriptEvent)
+  {
+  }
+
   public function onNoteHoldDrop(event:HoldNoteScriptEvent)
   {
   }
 
   public function onSongEvent(event:SongEventScriptEvent)
+  {
+  }
+
+  public function onCustomEvent(event:CustomEventScriptEvent)
   {
   }
 

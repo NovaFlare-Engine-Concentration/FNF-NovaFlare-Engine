@@ -38,6 +38,14 @@ typedef NoteStyleData =
    * Data for each of the assets in the note style.
    */
   var assets:NoteStyleAssetsData;
+
+  /** Runtime rendering contract of the source data; never read from user JSON. */
+  @:jignored @:optional
+  var legacyNoteSizing:Null<Int>;
+
+  /** Origin before 0.5.2 left static receptors on their first animation frame. */
+  @:jignored @:optional
+  var legacyStaticReceptor:Null<Bool>;
 }
 
 typedef NoteStyleAssetsData =

@@ -2,6 +2,7 @@ package funkin.util;
 
 import haxe.Json;
 import haxe.io.Bytes;
+import funkin.util.tools.ISerializable;
 
 /**
  * Functions dedicated to serializing and deserializing data.
@@ -13,16 +14,22 @@ class SerializerUtil
   static final INDENT_CHAR:String = '\t';
 
   /**
-   * Convert a Haxe object to a JSON string.
-   * NOTE: Use `json2object.JsonWriter<T>` WHEREVER POSSIBLE. Do not use this one unless you ABSOLUTELY HAVE TO it's SLOW!
-   * And don't even THINK about using `haxe.Json.stringify` without the replacer!
+   * Serialize a Haxe object into a JSON string.
    *
    * @param input The object to serialize to JSON.
    * @param pretty Whether to format the output with indentation.
+   * @param params If the input uses `json2object` for serialization, provide additional params.
    * @return The JSON string representation of the input object.
    */
-  public static function toJSON(input:Dynamic, pretty:Bool = true):String
+  public static function toJSON(input:Dynamic, pretty:Bool = true, ?params:json2object.JsonWriterParams):String
   {
+    // Check for a custom serializer
+    if (Std.isOfType(input, ISerializable))
+    {
+      var serializableInput:ISerializable = cast(input, ISerializable);
+      return serializableInput.serialize(pretty, params);
+    }
+
     return Json.stringify(input, replacer, pretty ? INDENT_CHAR : null);
   }
 
@@ -58,7 +65,7 @@ class SerializerUtil
   {
     try
     {
-      return Json.parse(input.toString());
+      return fromJSON(input.toString());
     }
     catch (e:Dynamic)
     {
@@ -69,7 +76,7 @@ class SerializerUtil
   }
 
   /**
-   * Customize how certain types are serialized when converting to JSON.
+   * Customize how certain types are serialized when converting to JSON dynamically.
    */
   static function replacer(key:Dynamic, value:Dynamic):Dynamic
   {
@@ -86,6 +93,11 @@ class SerializerUtil
     return value;
   }
 
+  /**
+   * Customize how thx.semver.Version objects are serialized.
+   * @param value The semantic version.
+   * @return The resulting string.
+   */
   static inline function serializeVersion(value:thx.semver.Version):String
   {
     var result = '${value.major}.${value.minor}.${value.patch}';
@@ -98,7 +110,7 @@ class SerializerUtil
   /**
    * Trims garbage data that may accompany JSON strings converted from bytes.
    */
-  static function sanitizeJSON(data:String):String
+  public static function sanitizeJSON(data:String):String
   {
     var startIndex:Int = -1;
     var closeChar:String = '';

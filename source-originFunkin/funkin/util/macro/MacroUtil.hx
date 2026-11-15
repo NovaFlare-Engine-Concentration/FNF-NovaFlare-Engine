@@ -4,6 +4,8 @@ import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
 
+using haxe.macro.ExprTools;
+
 /**
  * A collection of utility functions for Haxe macros.
  */
@@ -116,6 +118,30 @@ class MacroUtil
   }
 
   /**
+   * Determine whether the macro expression is `Null`.
+   * @param e The expression to check.
+   * @return Whether the expression is `Null`.
+   */
+  public static function isNullExpr(?input:Expr):Bool
+  {
+    if (input == null) return true;
+
+    switch (input.expr)
+    {
+      case EConst(const):
+        switch (const)
+        {
+          case CIdent(s):
+            return s == 'null';
+          default:
+            return false;
+        }
+      default:
+        return false;
+    }
+  }
+
+  /**
    * Converts a value to an equivalent macro expression.
    */
   public static function toExpr(value:Any):ExprOf<Any>
@@ -153,9 +179,10 @@ class MacroUtil
   /**
    * If we are in a build macro, return whether a field already exists on the current class.
    * @param name The name of the field to check for.
+   * @param checkSuper Whether to check the superclass as well.
    * @return Whether the field already exists.
    */
-  public static function fieldAlreadyExists(name:String):Bool
+  public static function fieldAlreadyExists(name:String, checkSuper:Bool = true):Bool
   {
     for (field in Context.getBuildFields())
     {
@@ -164,6 +191,8 @@ class MacroUtil
         return true;
       }
     }
+
+    if (!checkSuper) return false;
 
     function fieldAlreadyExistsSuper(name:String, superClass:Null<ClassType>)
     {

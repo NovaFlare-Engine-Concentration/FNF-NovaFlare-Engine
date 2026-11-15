@@ -32,11 +32,13 @@ class SparrowCharacter extends BaseCharacter
     super.onCreate(event);
   }
 
-  function loadSpritesheet()
+  function loadSpritesheet():Void
   {
-    trace('Loading assets for Sparrow character "${characterId}"', flixel.util.FlxColor.fromString("#89CFF0"));
+    trace('Loading assets for Sparrow character "${characterId}"');
 
-    var tex:FlxFramesCollection = Paths.getSparrowAtlas(_data.assetPath);
+    var assetPath:String = funkin.assets.Paths.formatRelative(_data.assetPath, 'gameplay/characters/$characterId', Constants.EXT_IMAGE);
+
+    var tex:FlxFramesCollection = Paths.getSparrowAtlas(assetPath);
     if (tex == null)
     {
       trace('Could not load Sparrow sprite: ${_data.assetPath}');
@@ -59,7 +61,7 @@ class SparrowCharacter extends BaseCharacter
     this.setScale(_data.scale);
   }
 
-  function loadAnimations()
+  function loadAnimations():Void
   {
     trace('[SPARROWCHAR] Loading ${_data.animations.length} animations for ${characterId}');
 
@@ -79,5 +81,10 @@ class SparrowCharacter extends BaseCharacter
 
     var animNames = this.animation.getNameList();
     trace('[SPARROWCHAR] Successfully loaded ${animNames.length} animations for ${characterId}');
+  }
+
+  public override function toString():String
+  {
+    return 'SparrowCharacter($characterName ($characterId), pos=[$x, $y])';
   }
 }

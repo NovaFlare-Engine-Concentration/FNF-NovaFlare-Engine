@@ -2,7 +2,7 @@ package funkin.ui.debug.charting.util;
 
 #if FEATURE_CHART_EDITOR
 import funkin.data.character.CharacterData;
-import funkin.data.character.CharacterData.CharacterDataParser;
+import funkin.data.character.CharacterRegistry;
 import funkin.data.event.SongEventRegistry;
 import funkin.data.freeplay.album.AlbumRegistry;
 import funkin.data.notestyle.NoteStyleRegistry;
@@ -23,9 +23,59 @@ import funkin.ui.transition.stickers.StickerPack;
  * Functions for populating dropdowns based on game data.
  * These get used by both dialogs and toolboxes so they're in their own class to prevent "reaching over."
  */
-@:nullSafety @:access(funkin.ui.debug.charting.ChartEditorState)
+@:nullSafety
+@:access(funkin.ui.debug.charting.ChartEditorState)
 class ChartEditorDropdowns
 {
+  /** Defaults from the pre-registry chart editor. */
+  static final DEFAULT_LEGACY_NOTE_KINDS:Map<String, String> = [
+    // Base
+    "" => "Default",
+    "~CUSTOM~" => "Custom",
+    // Weeks 1-7
+    "mom" => "Mom Sings (Week 5)",
+    "ugh" => "Ugh (Week 7)",
+    "hehPrettyGood" => "Heh, Pretty Good (Week 7)",
+    // Weekend 1
+    "weekend-1-punchhigh" => "Punch High (Blazin')",
+    "weekend-1-punchhighdodged" => "Punch High (Dodge) (Blazin')",
+    "weekend-1-punchhighblocked" => "Punch High (Block) (Blazin')",
+    "weekend-1-punchhighspin" => "Punch High (Spin) (Blazin')",
+    "weekend-1-punchlow" => "Punch Low (Blazin')",
+    "weekend-1-punchlowdodged" => "Punch Low (Dodge) (Blazin')",
+    "weekend-1-punchlowblocked" => "Punch Low (Block) (Blazin')",
+    "weekend-1-punchlowspin" => "Punch High (Spin) (Blazin')",
+    "weekend-1-picouppercutprep" => "Pico Uppercut (Prep) (Blazin')",
+    "weekend-1-picouppercut" => "Pico Uppercut (Blazin')",
+    "weekend-1-blockhigh" => "Block High (Blazin')",
+    "weekend-1-blocklow" => "Block Low (Blazin')",
+    "weekend-1-blockspin" => "Block High (Spin) (Blazin')",
+    "weekend-1-dodgehigh" => "Dodge High (Blazin')",
+    "weekend-1-dodgelow" => "Dodge Low (Blazin')",
+    "weekend-1-dodgespin" => "Dodge High (Spin) (Blazin')",
+    "weekend-1-hithigh" => "Hit High (Blazin')",
+    "weekend-1-hitlow" => "Hit Low (Blazin')",
+    "weekend-1-hitspin" => "Hit High (Spin) (Blazin')",
+    "weekend-1-darnelluppercutprep" => "Darnell Uppercut (Prep) (Blazin')",
+    "weekend-1-darnelluppercut" => "Darnell Uppercut (Blazin')",
+    "weekend-1-idle" => "Idle (Blazin')",
+    "weekend-1-fakeout" => "Fakeout (Blazin')",
+    "weekend-1-taunt" => "Taunt (If Fakeout) (Blazin')",
+    "weekend-1-tauntforce" => "Taunt (Forced) (Blazin')",
+    "weekend-1-reversefakeout" => "Fakeout (Reverse) (Blazin')",
+  ];
+
+  /** Legacy editor registry; scripts may add or rename note kinds at runtime. */
+  @:keep
+  public static final NOTE_KINDS:Map<String, String> = DEFAULT_LEGACY_NOTE_KINDS.copy();
+
+  /** Discard registrations from scripts that are being unloaded. */
+  public static function resetLegacyNoteKinds():Void
+  {
+    NOTE_KINDS.clear();
+    for (id => label in DEFAULT_LEGACY_NOTE_KINDS) NOTE_KINDS.set(id, label);
+  }
+
   /**
    * Populate a dropdown with a list of characters.
    */
@@ -34,27 +84,42 @@ class ChartEditorDropdowns
     dropDown.dataSource.clear();
 
     // TODO: Filter based on charType.
-    var charIds:Array<String> = CharacterDataParser.listCharacterIds();
+    var charIds:Array<String> = CharacterRegistry.instance.listEntryIds();
 
     var returnValue:DropDownEntry = switch (charType)
     {
       case BF:
-        {id: "bf", text: "Boyfriend"};
+        {
+          id: "bf",
+          text: "Boyfriend"
+        };
       case DAD:
-        {id: "dad", text: "Daddy Dearest"};
+        {
+          id: "dad",
+          text: "Daddy Dearest"
+        };
       default:
         {
-          dropDown.dataSource.add({id: "none", text: ""});
-          {id: "none", text: "None"};
+          dropDown.dataSource.add({
+            id: "none",
+            text: ""
+          });
+          {
+            id: "none",
+            text: "None"
+          };
         }
     }
 
     for (charId in charIds)
     {
-      var character:Null<CharacterData> = CharacterDataParser.fetchCharacterData(charId);
+      var character:Null<CharacterData> = CharacterRegistry.instance.fetchCharacterData(charId);
       if (character == null) continue;
 
-      var value = {id: charId, text: character.name};
+      var value = {
+        id: charId,
+        text: character.name
+      };
       if (startingCharId == charId) returnValue = value;
 
       dropDown.dataSource.add(value);
@@ -74,14 +139,20 @@ class ChartEditorDropdowns
 
     var stageIds:Array<String> = StageRegistry.instance.listEntryIds();
 
-    var returnValue:DropDownEntry = {id: "mainStage", text: "Main Stage"};
+    var returnValue:DropDownEntry = {
+      id: "mainStage",
+      text: "Main Stage"
+    };
 
     for (stageId in stageIds)
     {
       var stage:Null<Stage> = StageRegistry.instance.fetchEntry(stageId);
       if (stage == null) continue;
 
-      var value = {id: stage.id, text: stage.stageName};
+      var value = {
+        id: stage.id,
+        text: stage.stageName
+      };
       if (startingStageId == stageId) returnValue = value;
 
       dropDown.dataSource.add(value);
@@ -127,13 +198,19 @@ class ChartEditorDropdowns
   {
     dropDown.dataSource.clear();
 
-    var returnValue:DropDownEntry = {id: "FocusCamera", text: "Focus Camera"};
+    var returnValue:DropDownEntry = {
+      id: "FocusCamera",
+      text: "Focus Camera"
+    };
 
     var songEvents:Array<SongEvent> = SongEventRegistry.listEvents();
 
     for (event in songEvents)
     {
-      var value = {id: event.id, text: event.getTitle()};
+      var value = {
+        id: event.id,
+        text: event.getTitle()
+      };
       if (startingEventId == event.id) returnValue = value;
       dropDown.dataSource.add(value);
     }
@@ -168,7 +245,10 @@ class ChartEditorDropdowns
 
     var noteStyleIds:Array<String> = NoteStyleRegistry.instance.listEntryIds();
 
-    var returnValue:DropDownEntry = {id: "funkin", text: "Funkin'"};
+    var returnValue:DropDownEntry = {
+      id: "funkin",
+      text: "Funkin'"
+    };
 
     for (noteStyleId in noteStyleIds)
     {
@@ -176,14 +256,15 @@ class ChartEditorDropdowns
       if (noteStyle == null) continue;
 
       // check if the note style has all necessary assets (strums, notes, holdNotes)
-      if (noteStyle._data?.assets?.noteStrumline == null
-        || noteStyle._data?.assets?.note == null
-        || noteStyle._data?.assets?.holdNote == null)
+      if (noteStyle._data?.assets?.noteStrumline == null || noteStyle._data?.assets?.note == null || noteStyle._data?.assets?.holdNote == null)
       {
         continue;
       }
 
-      var value = {id: noteStyleId, text: noteStyle.getName()};
+      var value = {
+        id: noteStyleId,
+        text: noteStyle.getName()
+      };
       if (startingStyleId == noteStyleId) returnValue = value;
 
       dropDown.dataSource.add(value);
@@ -204,7 +285,10 @@ class ChartEditorDropdowns
 
     var albumIds:Array<String> = AlbumRegistry.instance.listEntryIds();
 
-    var returnValue:DropDownEntry = {id: "volume1", text: "Volume 1"};
+    var returnValue:DropDownEntry = {
+      id: "volume1",
+      text: "Volume 1"
+    };
 
     for (albumId in albumIds)
     {
@@ -214,7 +298,10 @@ class ChartEditorDropdowns
       // Check if the album has all necessary assets (art and title)
       if (album._data?.albumArtAsset == null || album._data?.albumTitleAsset == null) continue;
 
-      var value = {id: albumId, text: album.getAlbumName()};
+      var value = {
+        id: albumId,
+        text: album.getAlbumName()
+      };
       if (startingAlbumId == albumId) returnValue = value;
 
       dropDown.dataSource.add(value);
@@ -235,7 +322,10 @@ class ChartEditorDropdowns
 
     var stickerPackIds:Array<String> = StickerRegistry.instance.listEntryIds();
 
-    var returnValue:DropDownEntry = {id: "default", text: "Default"};
+    var returnValue:DropDownEntry = {
+      id: "default",
+      text: "Default"
+    };
 
     for (stickerPackId in stickerPackIds)
     {
@@ -245,7 +335,10 @@ class ChartEditorDropdowns
       // Check if the sticker has all necessary assets (stickers)
       if (stickerPack._data?.stickers == null) continue;
 
-      var value = {id: stickerPackId, text: stickerPack.getStickerPackName()};
+      var value = {
+        id: stickerPackId,
+        text: stickerPack.getStickerPackName()
+      };
       if (startingStickerPackId == stickerPackId) returnValue = value;
 
       dropDown.dataSource.add(value);
@@ -266,13 +359,26 @@ class ChartEditorDropdowns
   {
     dropDown.dataSource.clear();
 
-    dropDown.dataSource.add({id: '', text: 'Default'});
-    dropDown.dataSource.add({id: '~CUSTOM~', text: 'Custom'});
+    dropDown.dataSource.add({
+      id: '',
+      text: 'Default'
+    });
+    dropDown.dataSource.add({
+      id: '~CUSTOM~',
+      text: 'Custom'
+    });
 
     var customNoteKinds:Array<String> = NoteKindManager.listNoteKinds();
 
     for (noteKindId in customNoteKinds)
     {
+      dropDown.dataSource.add(lookupNoteKind(noteKindId));
+    }
+
+    // Merge the legacy mutable registry without duplicating modern kinds.
+    for (noteKindId in NOTE_KINDS.keys())
+    {
+      if (noteKindId == '' || noteKindId == '~CUSTOM~' || customNoteKinds.contains(noteKindId)) continue;
       dropDown.dataSource.add(lookupNoteKind(noteKindId));
     }
 
@@ -289,13 +395,26 @@ class ChartEditorDropdowns
   public static function lookupNoteKind(noteKindId:Null<String>):DropDownEntry
   {
     if (noteKindId == null) return lookupNoteKind('');
-    if (noteKindId == '') return {id: '', text: 'Default'};
+    if (NOTE_KINDS.exists(noteKindId)) return {
+      id: noteKindId ?? '',
+      text: NOTE_KINDS.get(noteKindId) ?? 'Unknown'
+    };
+    if (noteKindId == '') return {
+      id: '',
+      text: 'Default'
+    };
 
     var noteKind:Null<NoteKind> = NoteKindManager.getNoteKind(noteKindId);
     var noteKindDesc:Null<String> = noteKind?.description ?? noteKindId;
-    if (noteKind != null) return {id: noteKindId ?? 'unknown', text: noteKindDesc ?? 'unknown'};
+    if (noteKind != null) return {
+      id: noteKindId ?? 'unknown',
+      text: noteKindDesc ?? 'unknown'
+    };
 
-    return {id: '~CUSTOM~', text: 'Custom'};
+    return {
+      id: '~CUSTOM~',
+      text: 'Custom'
+    };
   }
 
   /**
@@ -309,14 +428,26 @@ class ChartEditorDropdowns
 
     if (includeNone)
     {
-      dropDown.dataSource.add({id: "none", text: ""});
+      dropDown.dataSource.add({
+        id: "none",
+        text: ""
+      });
     }
 
-    var returnValue:DropDownEntry = includeNone ? ({id: "none", text: ""}) : ({id: "default", text: "Default"});
+    var returnValue:DropDownEntry = includeNone ? ({
+      id: "none",
+      text: ""
+    }) : ({
+      id: "default",
+      text: "Default"
+    });
 
     for (variationId in variationIds)
     {
-      dropDown.dataSource.add({id: variationId, text: variationId.toTitleCase()});
+      dropDown.dataSource.add({
+        id: variationId,
+        text: variationId.toTitleCase()
+      });
     }
 
     dropDown.dataSource.sort('text', ASCENDING);

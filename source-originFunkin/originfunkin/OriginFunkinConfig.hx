@@ -71,13 +71,23 @@ class OriginFunkinConfig
 	public static function shouldStartOrigin():Bool
 	{
 		load();
-		return preferredMode == MODE_ORIGIN || preferredMode == MODE_AUTO;
+		return isDebugLaunch() || preferredMode == MODE_ORIGIN || preferredMode == MODE_AUTO;
 	}
 
 	public static function shouldStartCodeName():Bool
 	{
 		load();
-		return preferredMode == MODE_CODENAME;
+		return !isDebugLaunch() && preferredMode == MODE_CODENAME;
+	}
+
+	/** Explicit test launches select Origin for this process without saving a mode. */
+	static function isDebugLaunch():Bool
+	{
+		#if (sys && FEATURE_DEBUG_FUNCTIONS)
+		for (argument in Sys.args())
+			if (StringTools.startsWith(argument, "--origin-test=")) return true;
+		#end
+		return false;
 	}
 
 	public static function requestOrigin():Bool

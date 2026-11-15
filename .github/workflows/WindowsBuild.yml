@@ -33,6 +33,16 @@ jobs:
           haxelib git hmm https://github.com/NovaFlare-Engine-haxelib/hmm-3.1.0 70aca779a9d374a6e6b83c18715a3991a147ca37 --skip-dependencies --quiet
           haxelib run hmm install
 
+      - name: Repair native callback allocator handoff
+        shell: pwsh
+        run: |
+          ./tools/setup-hxcpp-callback-handoff.ps1
+          ./tools/setup-hxcpp-callback-handoff.ps1 -VerifyOnly
+
+      - name: Fetch Origin editor source layouts
+        shell: pwsh
+        run: ./tools/setup-origin-editor-layouts.ps1 -AssetsRoot "$env:GITHUB_WORKSPACE/_build/origin-editor-build-assets"
+
       - name: Extract current version
         id: get_version
         shell: pwsh
@@ -62,9 +72,9 @@ jobs:
           
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
             $NEW_VERSION = $CURRENT_VERSION -replace "-dev", "-$COMMIT_SHA"
-            haxelib run lime build windows -Dcommit_sha=$COMMIT_SHA -Dbuild_number=$NEW_VERSION
+            haxelib run lime build windows -Dcommit_sha=$COMMIT_SHA -Dbuild_number=$NEW_VERSION "-DORIGIN_ASSETS_PATH=$env:GITHUB_WORKSPACE/_build/origin-editor-build-assets"
           } else {
-            haxelib run lime build windows -Dcommit_sha=$COMMIT_SHA -Dbuild_number=$CURRENT_VERSION
+            haxelib run lime build windows -Dcommit_sha=$COMMIT_SHA -Dbuild_number=$CURRENT_VERSION "-DORIGIN_ASSETS_PATH=$env:GITHUB_WORKSPACE/_build/origin-editor-build-assets"
           }
           
       - name: Create Windows zip package

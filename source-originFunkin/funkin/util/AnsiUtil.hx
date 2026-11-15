@@ -4,7 +4,7 @@ package funkin.util;
  * Enum abstract representing ANSI codes for text colors, background colors, and text styles.
  * TODO: Add more colors?
  */
-@SuppressWarnings(["checkstyle:FieldDocComment", "checkstyle:MemberName", "checkstyle:TypeDocComment"])
+@SuppressWarnings(['checkstyle:FieldDocComment', 'checkstyle:MemberName', 'checkstyle:TypeDocComment'])
 enum abstract AnsiCode(String) from String to String
 {
   public var RESET = '\x1b[0m';
@@ -330,6 +330,13 @@ class AnsiUtil
   public static inline function bg_bright_lilac(str:String):String return apply(str, AnsiCode.BG_BRIGHT_LILAC);
 
   /**
+   * Sets the background color to lime (256-color mode).
+   * @param str The input string to format.
+   * @return The formatted string.
+   */
+  public static inline function bg_lime(str:String):String return apply(str, AnsiCode.BG_LIME);
+
+  /**
    * Sets the background color to the color of a Left note.
    * @param str The input string to format.
    * @return The formatted string.
@@ -485,7 +492,7 @@ class AnsiUtil
    */
   public static function apply(str:String, code:AnsiCode):String
   {
-    if (str.indexOf(AnsiCode.RESET) != -1) str = StringTools.replace(str, AnsiCode.RESET, "");
+    if (str.indexOf(AnsiCode.RESET) != -1) str = StringTools.replace(str, AnsiCode.RESET, '');
     return stripCodes(code + str + AnsiCode.RESET);
   }
 
@@ -494,9 +501,7 @@ class AnsiUtil
    *
    * @return `true` if ANSI codes are supported, `false` otherwise.
    */
-  @SuppressWarnings([
-    "checkstyle:SimplifyBooleanExpression"
-  ])
+  @SuppressWarnings(['checkstyle:SimplifyBooleanExpression'])
   public static function isColorCodesSupported():Bool
   {
     if (codesSupported == null)
@@ -527,8 +532,8 @@ class AnsiUtil
           if (getEnvSafe('CI') != null)
           {
             final ciEnvNames:Array<String> = [
-              "GITHUB_ACTIONS", "GITEA_ACTIONS",    "TRAVIS", "CIRCLECI",
-                    "APPVEYOR",     "GITLAB_CI", "BUILDKITE",    "DRONE"
+              'GITHUB_ACTIONS', 'GITEA_ACTIONS',    'TRAVIS', 'CIRCLECI',
+                    'APPVEYOR',     'GITLAB_CI', 'BUILDKITE',    'DRONE'
             ];
 
             for (ci in ciEnvNames)
@@ -540,13 +545,13 @@ class AnsiUtil
               }
             }
 
-            if (codesSupported != true && getEnvSafe("CI_NAME") == "codeship")
+            if (codesSupported != true && getEnvSafe('CI_NAME') == 'codeship')
             {
               codesSupported = true;
             }
           }
 
-          final teamCity:Null<String> = getEnvSafe("TEAMCITY_VERSION");
+          final teamCity:Null<String> = getEnvSafe('TEAMCITY_VERSION');
 
           if (codesSupported != true && teamCity != null)
           {
@@ -555,7 +560,8 @@ class AnsiUtil
 
           if (codesSupported != true)
           {
-            codesSupported = getEnvSafe('TERM_PROGRAM') == 'iTerm.app'
+            codesSupported =
+              getEnvSafe('TERM_PROGRAM') == 'iTerm.app'
               || getEnvSafe('TERM_PROGRAM') == 'Apple_Terminal'
               || getEnvSafe('COLORTERM') != null
               || getEnvSafe('ANSICON') != null
@@ -575,6 +581,11 @@ class AnsiUtil
   @:noCompletion
   static function stripCodes(output:String):String
   {
-    return isColorCodesSupported() ? output : REGEX_ANSI_CODES.replace(output, '');
+    // Regex.replace() isn't thread safe and this function is commonly accessed in a multi-threaded environment.
+    // We use an RLock here to prevent crashes and race conditions.
+    static final SYNC = new hx.concurrent.lock.RLock();
+
+    // The body of SYNC.execute() can only be called by one thread at a time.
+    return SYNC.execute(() -> isColorCodesSupported() ? output : REGEX_ANSI_CODES.replace(output, ''));
   }
 }

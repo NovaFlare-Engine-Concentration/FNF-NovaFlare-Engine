@@ -1,0 +1,14 @@
+diff --git a/src/hx/gc/Immix.cpp b/src/hx/gc/Immix.cpp
+index b464603..d977776 100644
+--- a/src/hx/gc/Immix.cpp
++++ b/src/hx/gc/Immix.cpp
+@@ -7065,6 +7065,9 @@ void NewMarkedObject(hx::Object *inPtr)
+ 
+ void RegisterCurrentThread(void *inTopOfStack)
+ {
++   // Keep the pooled allocator visible to GC throughout callback-thread handoff.
++   // GetPooledAllocator and AttachThread use the same recursive mutex.
++   AutoLock callbackHandoffLock(*gThreadStateChangeLock);
+    // Create a local-alloc
+    LocalAllocator *local = sGlobalAlloc->GetPooledAllocator();
+    if (!local)

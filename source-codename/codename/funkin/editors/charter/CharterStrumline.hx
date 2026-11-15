@@ -142,7 +142,10 @@ class CharterStrumline extends UISprite {
 
 		var asset = strumLine.vocalsSuffix.length > 0 ? Assets.getSound(Paths.voices(PlayState.SONG.meta.name, PlayState.difficulty, strumLine.vocalsSuffix)) : null;
 
-		if (vocals == null) FlxG.sound.list.add(vocals = new FlxSound());
+		if (vocals == null) {
+			vocals = FlxG.sound.list.recycle(FlxSound);
+			vocals.alive = vocals.exists = true;
+		}
 		if (asset != null) {
 			vocals.reset();
 			vocals.loadEmbedded(asset);

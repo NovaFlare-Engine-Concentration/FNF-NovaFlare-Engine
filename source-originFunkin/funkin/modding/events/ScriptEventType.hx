@@ -98,6 +98,15 @@ enum abstract ScriptEventType(String) from String to String
   public var NOTE_MISS = 'NOTE_MISS';
 
   /**
+   * Called when a character holds a hold note.
+   * Important information such as note data, player/opponent, etc. are all provided.
+   *
+   * This event IS cancelable! Canceling this event prevents the hold note from being held,
+   *   and will likely result in a miss later.
+   */
+  var NOTE_HOLD_HIT = 'NOTE_HOLD_HIT';
+
+  /**
    * Called when a character lets go of a hold note.
    * Important information such as note data, player/opponent, etc. are all provided.
    *
@@ -122,6 +131,8 @@ enum abstract ScriptEventType(String) from String to String
    *   thus blocking its normal functionality.
    */
   public var SONG_EVENT = 'SONG_EVENT';
+
+  public var CUSTOM_EVENT = 'CUSTOM_EVENT';
 
   /**
    * Called when the song starts. This occurs as the countdown ends and the instrumental begin.
@@ -298,6 +309,27 @@ enum abstract ScriptEventType(String) from String to String
    * This event is not cancelable.
    */
   public var FREEPLAY_CLOSE = 'FREEPLAY_CLOSE';
+
+  /**
+   * Called when the player gets a new rank on a capsule.
+   *
+   * This event is not cancelable.
+   */
+  public var FREEPLAY_NEW_RANK = 'FREEPLAY_NEW_RANK';
+
+  /**
+   * Called when the new rank slams down on a capsule.
+   *
+   * This event is not cancelable.
+   */
+  public var FREEPLAY_RANK_SLAM = 'FREEPLAY_RANK_SLAM';
+
+  /**
+   * Called when the entire freeplay capsule slams down.
+   *
+   * This event is not cancelable.
+   */
+  public var FREEPLAY_CAPSULE_SLAM = 'FREEPLAY_CAPSULE_SLAM';
 
   /**
    * Called when a character is selected, but not confirmed, in Character Select.

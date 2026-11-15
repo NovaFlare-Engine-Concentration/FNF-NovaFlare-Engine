@@ -47,7 +47,9 @@ class ZoomCameraSongEvent extends SongEvent
     var widescreenScaleX:Float = data.getFloat('widescreenScaleX') ?? DEFAULT_WIDESCREEN_SCALE;
     var widescreenScaleY:Float = data.getFloat('widescreenScaleY') ?? DEFAULT_WIDESCREEN_SCALE;
 
-    var scaledZoom:Float = zoom + (zoom * calculateScale(FullScreenScaleMode.wideScale, FlxPoint.get(widescreenScaleX, widescreenScaleY)));
+    var scale:FlxPoint = FlxPoint.get(widescreenScaleX, widescreenScaleY);
+    var scaledZoom:Float = zoom + (zoom * calculateScale(FullScreenScaleMode.wideScale, scale));
+    scale.put();
 
     var duration:Float = data.getFloat('duration') ?? DEFAULT_DURATION;
 
@@ -147,7 +149,11 @@ class ZoomCameraSongEvent extends SongEvent
         title: 'Easing Direction',
         defaultValue: SongEvent.DEFAULT_EASE_DIR,
         type: SongEventFieldType.ENUM,
-        keys: ['In' => 'In', 'Out' => 'Out', 'In/Out' => 'InOut']
+        keys: [
+          'In' => 'In',
+          'Out' => 'Out',
+          'In/Out' => 'InOut'
+        ]
       },
       {
         name: 'advanced',

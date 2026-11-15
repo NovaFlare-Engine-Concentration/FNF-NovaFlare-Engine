@@ -496,6 +496,7 @@ class FreeplayState extends MusicBeatState
 		}
 
 		changeDiff(0, true);
+		changeCoopMode(0, true);
 
 		#if PRELOAD_ALL
 		autoplayRequestId++;

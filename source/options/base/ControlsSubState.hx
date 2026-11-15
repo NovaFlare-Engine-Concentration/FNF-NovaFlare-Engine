@@ -2,6 +2,8 @@ package options.base;
 
 import flixel.addons.display.FlxBackdrop;
 import flixel.addons.display.FlxGridOverlay;
+import flixel.input.gamepad.FlxGamepad;
+import flixel.input.gamepad.FlxGamepadInputID as GamepadID;
 import flixel.input.keyboard.FlxKey;
 
 import general.backend.InputFormatter;
@@ -12,6 +14,7 @@ class ControlsSubState extends MusicBeatSubstate
 {
 	var curSelected:Int = 0;
 	var curAlt:Bool = false;
+	var lastControllerMode:Bool = false;
 
 	// Show on gamepad - Display name - Save file key - Rebind display name
 	var options:Array<Dynamic> = [
@@ -176,11 +179,28 @@ class ControlsSubState extends MusicBeatSubstate
 		grpBinds.clear();
 
 		var myID:Int = 0;
+		var hideSeparator:Bool = false;
 		for (i in 0...options.length)
 		{
 			var option:Array<Dynamic> = options[i];
 			if (option[0])
 			{
+				if (controls.controllerMode && option.length > 2 && !ClientPrefs.gamepadBinds.exists(option[2]))
+				{
+					hideSeparator = true;
+					continue;
+				}
+				if (option.length <= 1)
+				{
+					if (hideSeparator)
+					{
+						hideSeparator = false;
+						continue;
+					}
+				}
+				else
+					hideSeparator = false;
+
 				if (option.length > 1)
 				{
 					var isCentered:Bool = (option.length < 3);
@@ -214,6 +234,7 @@ class ControlsSubState extends MusicBeatSubstate
 				myID++;
 			}
 		}
+		lastControllerMode = controls.controllerMode;
 		updateText();
 	}
 
@@ -231,8 +252,17 @@ class ControlsSubState extends MusicBeatSubstate
 			var textX:Float = 350 + n * 300;
 
 			var key:String = null;
-			var savKey:Array<Null<FlxKey>> = ClientPrefs.keyBinds.get(option[2]);
-			key = InputFormatter.getKeyName((savKey[n] != null) ? savKey[n] : NONE);
+			if (controls.controllerMode)
+			{
+				var savButton:Array<GamepadID> = ClientPrefs.gamepadBinds.get(option[2]);
+				var button:GamepadID = (n < savButton.length) ? savButton[n] : GamepadID.NONE;
+				key = InputFormatter.getGamepadName(button);
+			}
+			else
+			{
+				var savKey:Array<Null<FlxKey>> = ClientPrefs.keyBinds.get(option[2]);
+				key = InputFormatter.getKeyName((savKey[n] != null) ? savKey[n] : NONE);
+			}
 
 			var attach:Alphabet = new Alphabet(textX + 210, 248, key, false);
 			attach.isMenuItem = true;
@@ -288,7 +318,7 @@ class ControlsSubState extends MusicBeatSubstate
 
 	override function update(elapsed:Float)
 	{
-		if (timeForMoving > 0) // Fix controller bug
+		if (timeForMoving > 0)
 		{
 			timeForMoving = Math.max(0, timeForMoving - elapsed);
 			super.update(elapsed);
@@ -297,6 +327,17 @@ class ControlsSubState extends MusicBeatSubstate
 
 		if (!binding)
 		{
+			if (FlxG.gamepads.anyJustPressed(GamepadID.ANY))
+				controls.controllerMode = true;
+			else if (FlxG.keys.justPressed.ANY)
+				controls.controllerMode = false;
+
+			if (controls.controllerMode != lastControllerMode)
+			{
+				curSelected = 0;
+				createTexts();
+			}
+
 			if (controls.BACK)
 			{
 				ClientPrefs.saveSettings();
@@ -315,10 +356,10 @@ class ControlsSubState extends MusicBeatSubstate
 			else if (controls.UI_DOWN_P)
 				updateText(1);
 
-			var resetPressed:Bool = FlxG.keys.justPressed.R || virtualPad.buttonC.justPressed;
+			var resetPressed:Bool = controls.RESET || virtualPad.buttonC.justPressed;
 			if (resetPressed)
 			{
-				ClientPrefs.resetKeys(false);
+				ClientPrefs.resetKeys(controls.controllerMode);
 				ClientPrefs.reloadVolumeKeys();
 				var lastSel:Int = curSelected;
 				createTexts();
@@ -348,6 +389,10 @@ class ControlsSubState extends MusicBeatSubstate
 					{
 						funnyText = "Hold B to Cancel\nHold C to Delete";
 					}
+					else if (controls.controllerMode)
+					{
+						funnyText = "Tap to Bind\nHold B: Cancel, BACK: Delete";
+					}
 					else
 					{
 						funnyText = "Hold ESC to Cancel\nHold Backspace to Delete";
@@ -365,7 +410,7 @@ class ControlsSubState extends MusicBeatSubstate
 				else
 				{
 					// Reset to Default
-					ClientPrefs.resetKeys(false);
+					ClientPrefs.resetKeys(controls.controllerMode);
 					ClientPrefs.reloadVolumeKeys();
 					var lastSel:Int = curSelected;
 					createTexts();
@@ -375,35 +420,114 @@ class ControlsSubState extends MusicBeatSubstate
 				}
 			}
 		}
-		else
+	else
+	{
+		var altNum:Int = curAlt ? 1 : 0;
+		var curOption:Array<Dynamic> = options[curOptions[curSelected]];
+		var gamepadMode:Bool = controls.controllerMode;
+		if (virtualPad.buttonB.pressed || controls.BACK || (gamepadMode && FlxG.gamepads.anyPressed(GamepadID.B)))
 		{
-			var altNum:Int = curAlt ? 1 : 0;
-			var curOption:Array<Dynamic> = options[curOptions[curSelected]];
-			if (virtualPad.buttonB.pressed || controls.BACK)
+			holdingEsc += elapsed;
+			if (holdingEsc > 0.5)
 			{
-				holdingEsc += elapsed;
-				if (holdingEsc > 0.5)
-				{
-					FlxG.sound.play(Paths.sound('cancelMenu'));
-					closeBinding();
-				}
+				FlxG.sound.play(Paths.sound('cancelMenu'));
+				closeBinding();
 			}
-			else if (virtualPad.buttonC.pressed || FlxG.keys.pressed.BACKSPACE)
+		}
+		else if (virtualPad.buttonC.pressed || FlxG.keys.pressed.BACKSPACE || (gamepadMode && FlxG.gamepads.anyPressed(GamepadID.BACK)))
+		{
+			holdingEsc += elapsed;
+			if (holdingEsc > 0.5)
 			{
-				holdingEsc += elapsed;
-				if (holdingEsc > 0.5)
+				if (gamepadMode)
+				{
+					ClientPrefs.gamepadBinds.get(curOption[2])[altNum] = GamepadID.NONE;
+					ClientPrefs.clearInvalidButtons(curOption[2]);
+					updateBind(Math.floor(curSelected * 2) + altNum, InputFormatter.getGamepadName(GamepadID.NONE));
+				}
+				else
 				{
 					ClientPrefs.keyBinds.get(curOption[2])[altNum] = NONE;
 					ClientPrefs.clearInvalidKeys(curOption[2]);
 					updateBind(Math.floor(curSelected * 2) + altNum, InputFormatter.getKeyName(NONE));
-					FlxG.sound.play(Paths.sound('cancelMenu'));
+				}
+				FlxG.sound.play(Paths.sound('cancelMenu'));
+				closeBinding();
+			}
+		}
+		else
+		{
+			holdingEsc = 0;
+			var changed:Bool = false;
+
+			if (gamepadMode)
+			{
+				var curButtons:Array<GamepadID> = ClientPrefs.gamepadBinds.get(curOption[2]);
+				while (curButtons.length < 2)
+					curButtons.push(GamepadID.NONE);
+				if (FlxG.gamepads.anyJustPressed(GamepadID.ANY)
+					|| FlxG.gamepads.anyJustPressed(GamepadID.LEFT_TRIGGER)
+					|| FlxG.gamepads.anyJustPressed(GamepadID.RIGHT_TRIGGER)
+					|| FlxG.gamepads.anyJustReleased(GamepadID.ANY))
+				{
+					var buttonPressed:GamepadID = GamepadID.NONE;
+					if (FlxG.gamepads.anyJustPressed(GamepadID.LEFT_TRIGGER))
+						buttonPressed = GamepadID.LEFT_TRIGGER;
+					else if (FlxG.gamepads.anyJustPressed(GamepadID.RIGHT_TRIGGER))
+						buttonPressed = GamepadID.RIGHT_TRIGGER;
+					else
+					{
+						for (i in 0...FlxG.gamepads.numActiveGamepads)
+						{
+							var gamepad:FlxGamepad = FlxG.gamepads.getByID(i);
+							if (gamepad != null)
+							{
+								buttonPressed = gamepad.firstJustPressedID();
+								if (buttonPressed != GamepadID.NONE)
+									break;
+							}
+						}
+						if (buttonPressed == GamepadID.NONE)
+						{
+							for (i in 0...FlxG.gamepads.numActiveGamepads)
+							{
+								var gamepad:FlxGamepad = FlxG.gamepads.getByID(i);
+								if (gamepad != null)
+								{
+									buttonPressed = gamepad.firstJustReleasedID();
+									if (buttonPressed != GamepadID.NONE)
+										break;
+								}
+							}
+						}
+					}
+
+					if (buttonPressed != GamepadID.NONE)
+					{
+						curButtons[altNum] = buttonPressed;
+						changed = true;
+					}
+				}
+
+				if (changed)
+				{
+					if (curButtons[altNum] == curButtons[1 - altNum])
+						curButtons[1 - altNum] = GamepadID.NONE;
+
+					var option:String = curOption[2];
+					ClientPrefs.clearInvalidButtons(option);
+					for (n in 0...2)
+					{
+						var savButton:Array<GamepadID> = ClientPrefs.gamepadBinds.get(option);
+						var button:GamepadID = (n < savButton.length) ? savButton[n] : GamepadID.NONE;
+						updateBind(Math.floor(curSelected * 2) + n, InputFormatter.getGamepadName(button));
+					}
+					FlxG.sound.play(Paths.sound('confirmMenu'));
 					closeBinding();
 				}
 			}
 			else
 			{
-				holdingEsc = 0;
-				var changed:Bool = false;
 				var curKeys:Array<FlxKey> = ClientPrefs.keyBinds.get(curOption[2]);
 
 				if (FlxG.keys.justPressed.ANY || FlxG.keys.justReleased.ANY)
@@ -427,7 +551,7 @@ class ControlsSubState extends MusicBeatSubstate
 					if (curKeys[altNum] == curKeys[1 - altNum])
 						curKeys[1 - altNum] = FlxKey.NONE;
 
-					var option:String = options[curOptions[curSelected]][2];
+					var option:String = curOption[2];
 					ClientPrefs.clearInvalidKeys(option);
 					for (n in 0...2)
 					{
@@ -441,6 +565,7 @@ class ControlsSubState extends MusicBeatSubstate
 				}
 			}
 		}
+	}
 		super.update(elapsed);
 	}
 

@@ -11,7 +11,8 @@ import flixel.util.FlxSpriteUtil;
 /**
  * Handles the note scrollbar preview in the chart editor.
  */
-@:nullSafety @:access(funkin.ui.debug.charting.ChartEditorState)
+@:nullSafety
+@:access(funkin.ui.debug.charting.ChartEditorState)
 class ChartEditorNotePreview extends FlxSprite
 {
   //
@@ -61,6 +62,7 @@ class ChartEditorNotePreview extends FlxSprite
    */
   public function addNote(note:SongNoteData, songLengthInPixels:Int, previewType:NotePreviewType = None):Void
   {
+    if (note == null) return;
     var noteDir:Int = note.getDirection();
     var mustHit:Bool = note.getStrumlineIndex() == 0;
     drawNote(noteDir, mustHit, Std.int(note.time), songLengthInPixels, previewType);
@@ -74,6 +76,7 @@ class ChartEditorNotePreview extends FlxSprite
    */
   public function addEvent(event:SongEventData, songLengthInPixels:Int, isSelection:Bool = false):Void
   {
+    if (event == null) return;
     drawNote(-1, false, Std.int(event.time), songLengthInPixels, isSelection ? Selection : None);
   }
 

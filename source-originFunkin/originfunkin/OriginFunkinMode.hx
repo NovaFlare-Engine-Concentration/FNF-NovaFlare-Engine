@@ -35,6 +35,7 @@ class OriginFunkinMode
 	public static var noticeFontName(default, null):Null<String>;
 	public static var debugDisplay:FunkinDebugDisplay;
 	public static var registeredFontCount(default, null):Int = 0;
+	static var baseEntryIds:Map<String, Array<String>> = [];
 
 	static inline final NOVAFLARE_INTRO_ASSET:String = "assets/videos/menuExtend/titleIntro.mp4";
 	static inline final NOVAFLARE_INTRO_LIBRARY_ASSET:String = "videos:assets/videos/menuExtend/titleIntro.mp4";
@@ -137,8 +138,6 @@ class OriginFunkinMode
 
 			haxe.Log.trace = funkin.util.logging.AnsiTrace.trace;
 			funkin.util.logging.AnsiTrace.traceBF();
-
-			funkin.modding.PolymodHandler.loadAllMods();
 
 			debugDisplay = new FunkinDebugDisplay(10, 10, 0xFFFFFF);
 			final save = funkin.save.Save.load();
@@ -284,6 +283,17 @@ class OriginFunkinMode
 	static function validateRequiredPaths(root:String):Void
 	{
 		#if sys
+		if (isModernAssetLayout(root))
+		{
+			for (relativePath in ["ui/fonts", "ui/title/intro-text.txt", "ui/title/logo-bumpin.png",
+				"ui/title/logo-bumpin.xml", "ui/main-menu/menu-bg.png", "gameplay/songs/tutorial/tutorial-metadata.json",
+				"gameplay/songs/tutorial/Inst.ogg", "gameplay/characters", "gameplay/stages"])
+			{
+				if (!FileSystem.exists(Path.join([root, relativePath])))
+					throw 'originFunkin required path is missing: $relativePath';
+			}
+			return;
+		}
 		var requiredPaths:Array<String> = [
 			"fonts",
 			"preload/data/introText.txt",
@@ -330,8 +340,26 @@ class OriginFunkinMode
 	{
 		var total:Int = 0;
 		mountedLibraries = [];
+		baseEntryIds.clear();
 
 		var defaultManifest:AssetManifest = createManifest("default", root);
+		// Optional historical renderer profiles remain external alongside the main pack.
+		total += appendTree(defaultManifest, root, "compatibility", "assets/compatibility");
+		if (isModernAssetLayout(root))
+		{
+			total += appendTree(defaultManifest, root, "gameplay", "assets/gameplay");
+			total += appendTree(defaultManifest, root, "ui", "assets/ui");
+			#if FEATURE_HAXEUI
+			total += appendTree(defaultManifest, root, "exclude/ui/editors/style", "assets/exclude/ui/editors/style");
+			#end
+			registerManifest("default", defaultManifest);
+			// Drop manifests from the previous NF/CNE state chain before Polymod wraps them.
+			for (foreignLibrary in NAMED_LIBRARIES.concat(["week_assets", "codename_fallback", "codename_mobile"]))
+			{
+				if (Assets.getLibrary(foreignLibrary) != null) Assets.unloadLibrary(foreignLibrary);
+			}
+			return total;
+		}
 		total += appendTree(defaultManifest, root, "preload", "assets");
 		total += appendTree(defaultManifest, root, "fonts", "assets/fonts");
 		registerManifest("default", defaultManifest);
@@ -375,12 +403,47 @@ class OriginFunkinMode
 		return total;
 	}
 
+	static function isModernAssetLayout(root:String):Bool
+	{
+		#if sys
+		return FileSystem.exists(Path.join([root, "gameplay"])) && FileSystem.isDirectory(Path.join([root, "gameplay"]))
+			&& FileSystem.exists(Path.join([root, "ui"])) && FileSystem.isDirectory(Path.join([root, "ui"]));
+		#else
+		return false;
+		#end
+	}
+
+	/** External base entries must be discovered at runtime, before mod overlays. */
+	public static function listBaseGameEntryIds(directory:String):Array<String>
+	{
+		if (baseEntryIds.exists(directory)) return baseEntryIds.get(directory).copy();
+		var result:Array<String> = [];
+		#if sys
+		if (assetsRoot != null)
+		{
+			var path = Path.join([assetsRoot, directory]);
+			if (FileSystem.exists(path) && FileSystem.isDirectory(path))
+			{
+				for (file in FileSystem.readDirectory(path))
+				{
+					if (StringTools.startsWith(file, ".")) continue;
+					if (FileSystem.isDirectory(Path.join([path, file]))) result.push(file);
+					else if (Path.extension(file) == "json") result.push(Path.withoutExtension(file));
+				}
+			}
+		}
+		#end
+		result.sort(Reflect.compare);
+		baseEntryIds.set(directory, result);
+		return result.copy();
+	}
+
 	static function registerExternalFonts():Int
 	{
 		var registered:Int = 0;
 		for (fontId in Assets.list(AssetType.FONT))
 		{
-			if (!StringTools.startsWith(fontId, "assets/fonts/"))
+			if (!StringTools.startsWith(fontId, "assets/fonts/") && !StringTools.startsWith(fontId, "assets/ui/fonts/"))
 			{
 				continue;
 			}
@@ -407,6 +470,8 @@ class OriginFunkinMode
 		return manifest;
 	}
 
+	@:access(lime.utils.AssetLibrary)
+	@:access(openfl.utils.AssetLibrary)
 	static function registerManifest(name:String, manifest:AssetManifest):Void
 	{
 		var library:AssetLibrary = cast AssetLibrary.fromManifest(manifest);
@@ -415,6 +480,33 @@ class OriginFunkinMode
 			throw 'Could not create the originFunkin asset library "$name".';
 		}
 
+		#if FEATURE_HAXEUI
+		if (name == "default")
+		{
+			var previous:lime.utils.AssetLibrary = Assets.getLibrary(name);
+			var target:lime.utils.AssetLibrary = library;
+			if (previous != null)
+			{
+				if (Std.isOfType(previous, AssetLibrary) && (cast previous:AssetLibrary).__proxy != null)
+					previous = (cast previous:AssetLibrary).__proxy;
+				if (library.__proxy != null) target = library.__proxy;
+				// Retain the toolkit's embedded cursors/icons/fonts when replacing
+				// NF's default library with the external Origin manifest.
+				for (id in previous.list(null))
+				{
+					if (!StringTools.startsWith(id, "haxeui-core/") && !StringTools.startsWith(id, "haxeui-flixel/")) continue;
+					target.types.set(id, previous.types.get(id));
+					if (previous.classTypes.exists(id)) target.classTypes.set(id, previous.classTypes.get(id));
+					if (previous.paths.exists(id)) target.paths.set(id, previous.paths.get(id));
+					if (previous.sizes.exists(id)) target.sizes.set(id, previous.sizes.get(id));
+					if (previous.cachedBytes.exists(id)) target.cachedBytes.set(id, previous.cachedBytes.get(id));
+					if (previous.cachedImages.exists(id)) target.cachedImages.set(id, previous.cachedImages.get(id));
+					if (previous.cachedFonts.exists(id)) target.cachedFonts.set(id, previous.cachedFonts.get(id));
+					if (previous.cachedText.exists(id)) target.cachedText.set(id, previous.cachedText.get(id));
+				}
+			}
+		}
+		#end
 		Assets.registerLibrary(name, library);
 		mountedLibraries.push(name);
 	}
@@ -485,7 +577,7 @@ class OriginFunkinMode
 				lowerId.indexOf("/music/") != -1 || lowerId.indexOf("assets/songs/") != -1
 					? AssetType.MUSIC
 					: AssetType.SOUND;
-			case "txt" | "xml" | "json" | "frag" | "vert" | "srt" | "fnt" | "csv" | "hxc" | "hx" | "hscript" | "lua": AssetType.TEXT;
+			case "txt" | "xml" | "json" | "css" | "frag" | "vert" | "srt" | "fnt" | "csv" | "hxc" | "hx" | "hscript" | "lua": AssetType.TEXT;
 			default: AssetType.BINARY;
 		}
 	}

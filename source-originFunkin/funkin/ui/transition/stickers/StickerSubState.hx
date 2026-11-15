@@ -1,5 +1,6 @@
 package funkin.ui.transition.stickers;
 
+import funkin.assets.FunkinAssetCache;
 import flixel.addons.transition.FlxTransitionableState;
 import flixel.FlxG;
 import flixel.FlxState;
@@ -15,7 +16,6 @@ import funkin.graphics.FunkinSprite;
 import funkin.ui.freeplay.FreeplayState;
 import funkin.ui.MusicBeatSubState;
 import funkin.ui.transition.stickers.StickerPack;
-import funkin.FunkinMemory;
 import funkin.util.DeviceUtil;
 import funkin.Preferences;
 
@@ -75,14 +75,9 @@ class StickerSubState extends MusicBeatSubState
     this.stickerPack = targetStickerPack ?? StickerRegistry.instance.fetchDefault();
     // TODO: Make this tied to the sticker pack more closely.
     var assetsInList = Assets.list();
-    var soundFilterFunc = function(a:String)
+    sounds = assetsInList.filter(function(a:String)
     {
-      return a.startsWith('assets/shared/sounds/stickersounds/');
-    };
-    soundSelections = assetsInList.filter(soundFilterFunc);
-    soundSelections = soundSelections.map(function(a:String)
-    {
-      return a.replace('assets/shared/sounds/stickersounds/', '').split('/')[0];
+      return a.startsWith('assets/ui/loading/stickers/sounds/') && a.endsWith(Constants.EXT_SOUND);
     });
     grpStickers = new FlxTypedGroup<StickerSprite>();
     // cracked cleanup... yuchh...
@@ -97,15 +92,9 @@ class StickerSubState extends MusicBeatSubState
     soundSelection = FlxG.random.getObject(soundSelections);
     var filterFunc = function(a:String)
     {
-      return a.startsWith('assets/shared/sounds/stickersounds/' + soundSelection + '/');
+      return a.startsWith('assets/ui/loading/stickers/sounds/' + soundSelection + '/');
     };
-    var assetsInList3 = Assets.list();
-    sounds = assetsInList3.filter(filterFunc);
-    for (i in 0...sounds.length)
-    {
-      sounds[i] = sounds[i].replace('assets/shared/sounds/', '');
-      sounds[i] = sounds[i].substring(0, sounds[i].lastIndexOf('.'));
-    }
+
     if (params.oldStickers != null)
     {
       for (sticker in params.oldStickers) grpStickers.add(sticker);
@@ -137,7 +126,8 @@ class StickerSubState extends MusicBeatSubState
       {
         sticker.visible = false;
         var daSound:String = FlxG.random.getObject(sounds);
-        FunkinSound.playOnce(Paths.sound(daSound));
+        FunkinSound.playOnce(daSound);
+
         // Do the small vibration each time sticker disappears.
         HapticUtil.vibrate(0, 0.01, Constants.MIN_VIBRATION_AMPLITUDE * 0.5);
         if (grpStickers == null || ind == grpStickers.members.length - 1)
@@ -197,7 +187,8 @@ class StickerSubState extends MusicBeatSubState
         if (grpStickers == null) return;
         sticker.visible = true;
         var daSound:String = FlxG.random.getObject(sounds);
-        FunkinSound.playOnce(Paths.sound(daSound));
+        FunkinSound.playOnce(daSound);
+
         // Do the small vibration each time sticker appears.
         HapticUtil.vibrate(0, 0.01, Constants.MIN_VIBRATION_AMPLITUDE * 0.5);
         var frameTimer:Int = FlxG.random.int(0, 2);
@@ -212,15 +203,13 @@ class StickerSubState extends MusicBeatSubState
             switchingState = true;
             FlxTransitionableState.skipNextTransIn = true;
             FlxTransitionableState.skipNextTransOut = true;
-            FlxG.signals.preStateSwitch.addOnce(() -> {
-              #if ios
-              trace(DeviceUtil.iPhoneNumber);
-              if (DeviceUtil.iPhoneNumber > 12) funkin.FunkinMemory.purgeCache(true);
-              else
-                funkin.FunkinMemory.purgeCache();
-              #else
-              funkin.FunkinMemory.purgeCache(true);
-              #end
+            FlxG.signals.preStateSwitch.addOnce(() ->
+            {
+              FunkinAssetCache.instance.preparePurgeCache();
+            });
+            FlxG.signals.postStateSwitch.addOnce(() -> {
+              // TODO: In loading screens, you should be caching BETWEEN these.
+              FunkinAssetCache.instance.purgeCache(#if ios DeviceUtil.iPhoneNumber > 12 #else true #end);
             });
             FlxG.switchState(() ->
             {

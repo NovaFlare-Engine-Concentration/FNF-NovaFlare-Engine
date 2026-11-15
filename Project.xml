@@ -27,8 +27,9 @@
 	<define name="PSYCH_WATERMARKS"/> <!-- DELETE THIS TO REMOVE WATERMARKS/DEV NAMES ON TITLE SCREEN -->
 	<define name="VIDEOS_ALLOWED" if="desktop || mobile" unless="32bits || hl || NOVIDEO || rpi"/> <!-- i'll keep this cuz it makes vscode think i don't use videos -->
     <define name="CUSTOM_SHADERS_ALLOWED" if="LUA_ALLOWED"/>
-	<!-- FNF 0.8.7 compatibility features. Origin scripts remain enabled. -->
+
 	<define name="ORIGIN_FUNKIN_COMPAT"/>
+	<define name="ORIGIN_SDL2_COMPAT"/>
 	<!-- Codename runs as an isolated state chain with NovaFlare's state-aware
 	     mobile input layer. Keyboard, gamepad and touch stay active together. -->
 	<define name="CODENAME_ENGINE_COMPAT" />
@@ -53,6 +54,30 @@
 	<define name="NO_FEATURE_TOUCH_CONTROLS" unless="mobile"/>
 	<define name="FEATURE_TOUCH_CONTROLS" if="mobile"/>
 	<define name="FEATURE_FUNKVIS"/>
+	<define name="FEATURE_MULTITHREADING"/>
+	<define name="origin_editors" if="desktop"/>
+	<section if="origin_editors">
+		<define name="FEATURE_HAXEUI"/>
+		<define name="FEATURE_DEBUG_MENU"/>
+		<define name="FEATURE_DEBUG_FUNCTIONS"/>
+		<define name="FEATURE_DEBUG_FILE_LOGGING"/>
+		<define name="FEATURE_DEBUG_DISPLAY"/>
+		<define name="FEATURE_SCREENSHOTS"/>
+		<define name="FEATURE_ANIMATION_EDITOR"/>
+		<define name="FEATURE_RESULTS_DEBUG"/>
+		<define name="FEATURE_POLYMOD_MODS"/>
+		<define name="FEATURE_CHART_EDITOR"/>
+		<define name="FEATURE_STAGE_EDITOR"/>
+		<define name="FEATURE_CAMERA_EDITOR"/>
+		<haxedef name="haxeui_dont_impose_base_class"/>
+		<haxedef name="haxeui_no_mouse_reset"/>
+	</section>
+	<section if="origin_tracy desktop">
+		<define name="FEATURE_DEBUG_TRACY"/>
+		<haxedef name="HXCPP_TELEMETRY"/>
+		<haxedef name="HXCPP_TRACY"/>
+		<haxedef name="HXCPP_TRACY_ON_DEMAND"/>
+	</section>
 	<define name="FEATURE_LAG_ADJUSTMENT" unless="web"/>
 	<define name="FEATURE_LOST_FOCUS_VOLUME" if="desktop"/>
 	<define name="FEATURE_NAUGHTYNESS"/>
@@ -104,6 +129,11 @@
 	<classpath name="source/moonchart_vendored" />
 	<classpath name="source-originFunkin" />
 	<classpath name="source-codename" if="CODENAME_ENGINE_COMPAT" />
+	<classpath name="source-originFunkin/editor-compat" if="origin_editors"/>
+	<haxeflag name="--macro" value="originfunkin.macro.OriginEditorMacro.configure()" if="origin_editors"/>
+	<haxeflag name="--macro" value="originfunkin.macro.OriginScriptCompatMacro.configure()" />
+	<haxeflag name="--macro" value="addMetadata('@:build(originfunkin.macro.OriginScriptCompatMacro.allowBitmapOverrides())', 'flixel.system.frontEnds.BitmapFrontEnd')" />
+	<haxeflag name="--macro" value="addMetadata('@:build(originfunkin.macro.OriginScriptCompatMacro.allowBitmapOverrides())', 'flixel.sound.FlxSound')" />
 	<haxeflag name="--macro" value="codename.funkin.backend.system.macros.Macros.initMacros()" if="CODENAME_ENGINE_COMPAT"/>
 	<haxeflag name="--macro" value="codename.funkin.backend.system.macros.Macros.addAdditionalClasses()" if="COMPILE_ALL_CLASSES"/>
 
@@ -187,7 +217,6 @@
 	<haxelib name="flxanimate" unless="html5"/>
 	<haxelib name="tjson"/>
 	<haxelib name="json2object"/>
-	<!-- FNF 0.8.7 dependencies; NF's existing core libraries stay selected. -->
 	<haxelib name="polymod"/>
 	<haxelib name="FlxPartialSound"/>
 	<haxelib name="format"/>
@@ -198,6 +227,7 @@
 
     <haxelib name="funkin.vis"/>
 	<haxelib name="grig.audio" />
+	<haxelib name="haxe-concurrent" />
 
 	<haxelib name="flxsoundfilters" />
 
@@ -209,7 +239,7 @@
 	<java path="source/mobile/android/java" if="android" />
 	<java path="source-originFunkin/funkin/external/android/java" if="android" />
 	<config:android extension="funkin.extensions.CallbackUtil" if="android" />
-	<config:android extension="funkin.extensions.FNFCExtension" if="android" />
+	<config:android extension="funkin.extensions.FNFLoaderExtension" if="android" />
 	<config:android extension="funkin.extensions.AudioSession" if="android" />
 
 	<!-- ModChart Specific-->
@@ -283,7 +313,7 @@
 	<haxedef name="HXC_LIBVLC_LOGGING" if="debug hxCodec" />
 	
 	<!--Disable the Flixel core debugger. Automatically gets set whenever you compile in release mode!-->
-	<haxedef name="FLX_NO_DEBUG" unless="debug" />
+	<haxedef name="FLX_NO_DEBUG" unless="debug || origin_editors" />
 
 	<!--Enable this for Nape release builds for a serious peformance improvement-->
 	<haxedef name="NAPE_RELEASE_BUILD" unless="debug" />
@@ -329,7 +359,6 @@
 	<haxeflag name="--macro" value="include('lime', true, ['lime.tools.*', 'lime._internal.*'])" if="origin_include_libs" />
 	<haxeflag name="--macro" value="originfunkin.macro.OriginIncludeMacro.includeFlixel()" if="origin_include_libs" />
 	<haxeflag name="--macro" value="originfunkin.macro.OriginIncludeMacro.includeFunkin()" if="origin_include_funkin" />
-	<haxeflag name="--macro" value="addMetadata('@:build(funkin.util.macro.FlxMacro.buildFlxBasic())', 'flixel.FlxBasic')" />
 	<haxeflag name="--macro" value="addMetadata('@:build(funkin.util.macro.FlxMacro.buildFlxSprite())', 'flixel.FlxSprite')" />
 	<haxeflag name="--macro" value="addMetadata('@:build(originfunkin.macro.OriginFlixelCompatMacro.addZIndex())', 'flixel.FlxBasic')" />
 	<haxeflag name="--macro" value="addMetadata('@:build(originfunkin.macro.OriginFlixelCompatMacro.addContainsExact())', 'thx.Arrays')" />

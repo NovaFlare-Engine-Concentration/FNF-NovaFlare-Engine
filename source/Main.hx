@@ -100,6 +100,26 @@ class Main extends Sprite
 
 	public static function main():Void
 	{
+		#if (sys && FEATURE_DEBUG_FUNCTIONS && CODENAME_ENGINE_COMPAT)
+		// Explicit test launches redirect FlxSave before any engine initializes.
+		// The marker must exist beside the copied executable; the real runtime
+		// has no marker and cannot accidentally use this isolated save folder.
+		if (Sys.args().contains("--cne-isolated-storage"))
+		{
+			var testRoot = haxe.io.Path.directory(Sys.programPath());
+			var marker = haxe.io.Path.join([testRoot, ".codex-cne-isolated-runtime"]);
+			var saves = haxe.io.Path.join([testRoot, ".isolated-saves"]);
+			if (!sys.FileSystem.exists(marker) || !sys.FileSystem.exists(saves) || !sys.FileSystem.isDirectory(saves))
+				throw "CNE isolated storage requires a marked test runtime and pre-existing save directory.";
+			// FlxSave normalizes three parent segments from the Lime storage path.
+			// Keep those parents inside the isolated tree, including legacy saves.
+			var storage = haxe.io.Path.join([saves, "level-a", "level-b", "level-c"]);
+			if (!sys.FileSystem.exists(storage) || !sys.FileSystem.isDirectory(storage))
+				throw "CNE isolated storage requires its pre-created nested storage directory.";
+			@:privateAccess lime.system.System.__applicationStorageDirectory = sys.FileSystem.fullPath(storage);
+			trace('[CNE isolated test] FlxSave storage redirected to ' + sys.FileSystem.fullPath(storage));
+		}
+		#end
 		OriginFunkinMode.detect();
 		#if CODENAME_ENGINE_COMPAT
 		CodeNameMode.detect();
@@ -152,6 +172,9 @@ class Main extends Sprite
 		}
 
 		setupGame();
+		#if (mobile && FLX_MOUSE)
+		mobile.input.VirtualPointerOverlay.install(Lib.current.stage);
+		#end
 
 		#if (cpp && windows)
 		if (!OriginFunkinMode.active)
@@ -239,6 +262,11 @@ class Main extends Sprite
 		
 		Lib.current.stage.align = "tl";
 		Lib.current.stage.scaleMode = StageScaleMode.NO_SCALE;
+
+		#if FLX_DEBUG
+		flixel.system.debug.log.LogStyle.ERROR.openConsole = false;
+		flixel.system.debug.log.LogStyle.WARNING.openConsole = false;
+		#end
 
 		var image:String = Paths.modFolders('images/menuExtend/Others/watermark.png');
 

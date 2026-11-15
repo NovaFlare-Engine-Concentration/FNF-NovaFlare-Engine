@@ -5,6 +5,7 @@ import flixel.graphics.frames.FlxAtlasFrames;
 import funkin.ui.debug.stageeditor.handlers.AssetDataHandler;
 import funkin.ui.debug.stageeditor.StageEditorState.StageEditorAssetFile;
 import funkin.ui.debug.stageeditor.components.TextureAtlasSettingsDialog;
+import funkin.util.BitmapUtil;
 import funkin.util.FileUtil;
 import haxe.io.Bytes;
 import haxe.io.Path;
@@ -16,7 +17,8 @@ import haxe.ui.ToolkitAssets;
 import openfl.display.BitmapData;
 import haxe.ui.events.UIEvent;
 
-@:access(funkin.ui.debug.stageeditor.StageEditorState) @:build(haxe.ui.macros.ComponentMacros.build("assets/exclude/data/ui/stage-editor/toolboxes/object-graphic.xml"))
+@:access(funkin.ui.debug.stageeditor.StageEditorState)
+@:build(originfunkin.macro.OriginEditorMacro.build('assets/exclude/ui/editors/stage-editor/toolboxes/object-graphic.xml'))
 class StageEditorObjectGraphicToolbox extends StageEditorDefaultToolbox
 {
   var linkedObj:StageEditorObject = null;
@@ -43,7 +45,7 @@ class StageEditorObjectGraphicToolbox extends StageEditorDefaultToolbox
     {
       if (linkedObj == null) return;
 
-      FileUtil.browseForFile("Open Image File", [FileUtil.FILE_FILTER_PNG], function(selectedFile)
+      FileUtil.browseForFile('Open Image File', [FileUtil.FILE_FILTER_PNG], function(selectedFile)
       {
         if (selectedFile == null) return;
         objImage.resource = null;
@@ -64,7 +66,7 @@ class StageEditorObjectGraphicToolbox extends StageEditorDefaultToolbox
           objImageWidth.pos = objImageWidth.max;
           objImageHeight.pos = objImageHeight.max;
 
-          state.notifyChange("Object Graphic Loaded", "The Image File " + selectedFile.name + " has been loaded.");
+          state.notifyChange('Object Graphic Loaded', 'The Image File ' + selectedFile.name + ' has been loaded.');
         });
       });
     }
@@ -94,11 +96,11 @@ class StageEditorObjectGraphicToolbox extends StageEditorDefaultToolbox
     {
       if (linkedObj == null) return;
 
-      FileUtil.browseForDirectory("Open Exported Texture Atlas", function(path:String)
+      FileUtil.browseForDirectory('Open Exported Texture Atlas', function(path:String)
       {
         var files:Array<String> = FileUtil.readDir(path);
 
-        if (!files.containsAllExact(["Animation.json", "spritemap1.json", "spritemap1.png"]))
+        if (!files.containsAllExact(['Animation.json', 'spritemap1.json', 'spritemap1.png']))
         {
           state.notifyChange('Texture Atlas Loading Error', 'The folder $path doesn\'t contain required assets for a Texture Atlas.', true);
           return;
@@ -135,7 +137,7 @@ class StageEditorObjectGraphicToolbox extends StageEditorDefaultToolbox
     {
       if (linkedObj == null) return;
 
-      var file:Null<StageEditorAssetFile> = linkedObj.usedFiles.find(f -> f.name.endsWith(".png"));
+      var file:Null<StageEditorAssetFile> = linkedObj.usedFiles.find(f -> f.name.endsWith('.png'));
       linkedObj.loadGraphic(linkedObj.graphic);
 
       if (file != null) linkedObj.usedFiles.push(file);
@@ -147,12 +149,12 @@ class StageEditorObjectGraphicToolbox extends StageEditorDefaultToolbox
     // Callback for loading the text for the Frame Data.
     objLoadFrames.onClick = function(_)
     {
-      FileUtil.browseForFile("Open Text File", [FileUtil.FILE_FILTER_XML, FileUtil.FILE_FILTER_TXT], function(selectedFile)
+      FileUtil.browseForFile('Open Text File', [FileUtil.FILE_FILTER_XML, FileUtil.FILE_FILTER_TXT], function(selectedFile)
       {
         if (selectedFile != null && selectedFile.bytes != null)
         {
           objFrameTxt.text = selectedFile.bytes.toString();
-          state.notifyChange("Frame Text Loaded", "The Text File " + selectedFile.name + " has been loaded.");
+          state.notifyChange('Frame Text Loaded', 'The Text File ' + selectedFile.name + ' has been loaded.');
         }
       });
     }
@@ -168,7 +170,7 @@ class StageEditorObjectGraphicToolbox extends StageEditorDefaultToolbox
     {
       if (linkedObj == null) return;
 
-      var file:StageEditorAssetFile = state.createFile('${linkedObj.name}.png', linkedObj.pixels.image.encode());
+      var file:StageEditorAssetFile = state.createFile('${linkedObj.name}.png', BitmapUtil.encode(linkedObj.pixels));
       linkedObj.loadGraphic(linkedObj.graphic, true, Std.int(objImageWidth.pos), Std.int(objImageHeight.pos));
       linkedObj.updateHitbox();
 
@@ -226,7 +228,7 @@ class StageEditorObjectGraphicToolbox extends StageEditorDefaultToolbox
   {
     if (linkedObj == null || objFrameTxt.text == null || objFrameTxt.text.length == 0) return;
 
-    var file:StageEditorAssetFile = stageEditorState.createFile('${linkedObj.name}.png', linkedObj.pixels.image.encode());
+    var file:StageEditorAssetFile = stageEditorState.createFile('${linkedObj.name}.png', BitmapUtil.encode(linkedObj.pixels));
 
     try
     {
@@ -241,7 +243,7 @@ class StageEditorObjectGraphicToolbox extends StageEditorDefaultToolbox
     }
     catch (e)
     {
-      stageEditorState.notifyChange("Frame Setup Error", e.toString(), true);
+      stageEditorState.notifyChange('Frame Setup Error', e.toString(), true);
       return;
     }
 
@@ -250,11 +252,11 @@ class StageEditorObjectGraphicToolbox extends StageEditorDefaultToolbox
     linkedObj.usedFiles.push(file);
 
     var name:String = Path.withoutExtension(linkedObj.usedFiles[0].name);
-    linkedObj.usedFiles.push(stageEditorState.createFile('$name.${usePacker ? "txt" : "xml"}', Bytes.ofString(objFrameTxt.text)));
+    linkedObj.usedFiles.push(stageEditorState.createFile('$name.${usePacker ? 'txt' : 'xml'}', Bytes.ofString(objFrameTxt.text)));
 
     refresh();
 
-    stageEditorState.notifyChange("Frame Setup Done", "Finished the Frame Setup for the Object " + linkedObj.name + ".");
+    stageEditorState.notifyChange('Frame Setup Done', 'Finished the Frame Setup for the Object ' + linkedObj.name + '.');
     stageEditorState.updateDialog(OBJECT_ANIMS);
   }
 }

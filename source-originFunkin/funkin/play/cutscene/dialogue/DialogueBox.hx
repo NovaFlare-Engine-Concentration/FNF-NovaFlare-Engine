@@ -1,8 +1,11 @@
 package funkin.play.cutscene.dialogue;
 
 import flixel.FlxSprite;
+import flixel.sound.FlxSound;
 import funkin.data.IRegistryEntry;
 import flixel.group.FlxSpriteGroup;
+import funkin.group.FunkinGroup;
+import funkin.group.FunkinGroup.FunkinSpriteGroup;
 import flixel.graphics.frames.FlxFramesCollection;
 import funkin.graphics.FunkinSprite;
 import funkin.util.assets.FlxAnimationUtil;
@@ -13,7 +16,7 @@ import flixel.util.FlxColor;
 import funkin.data.dialogue.DialogueBoxData;
 import funkin.data.dialogue.DialogueBoxRegistry;
 
-class DialogueBox extends FlxSpriteGroup implements IDialogueScriptedClass implements IRegistryEntry<DialogueBoxData>
+class DialogueBox extends FunkinSpriteGroup implements IDialogueScriptedClass implements IRegistryEntry<DialogueBoxData>
 {
   public var dialogueBoxName(get, never):String;
 
@@ -64,32 +67,76 @@ class DialogueBox extends FlxSpriteGroup implements IDialogueScriptedClass imple
     originalPosition[1] = this.y;
 
     this.x = value[0] + originalPosition[0] + animOffsets[0];
+    this.localX = value[0] + originalPosition[0] + animOffsets[0];
     this.y = value[1] + originalPosition[1] + animOffsets[1];
+    this.localY = value[1] + originalPosition[1] + animOffsets[1];
 
     return globalOffsets = value;
   }
 
+  /** Preserve the unoffset position when scripts temporarily move the box. */
+  public function capturePosition():Array<Float>
+  {
+    return [originalPosition[0], originalPosition[1]];
+  }
+
+  public function restorePosition(position:Array<Float>):Void
+  {
+    if (position == null || position.length < 2) return;
+    originalPosition[0] = position[0];
+    originalPosition[1] = position[1];
+    final newX:Float = globalOffsets[0] + originalPosition[0] + animOffsets[0];
+    final newY:Float = globalOffsets[1] + originalPosition[1] + animOffsets[1];
+    this.x = newX;
+    this.localX = newX;
+    this.y = newY;
+    this.localY = newY;
+  }
+
   var boxSprite:FlxSprite;
   var textDisplay:FunkinTypeText;
-  var text(default, set):String;
+  var typingSounds:Array<FlxSound> = [];
+  var instantPreviewTyping:Bool = false;
+  var _text:String = '';
+  public var text(get, set):String;
+
+  function get_text():String return _text;
 
   function set_text(value:String):String
   {
-    this.text = value;
-
-    textDisplay.resetText(this.text);
-    textDisplay.start();
-
-    return this.text;
+    _text = value ?? '';
+    if (textDisplay != null)
+    {
+      textDisplay.prefix = '';
+      textDisplay.resetText(_text);
+      // Starting an empty line can synchronously advance to another line.
+      // Decide from this line before that callback can replace _text.
+      var skipThisLine = instantPreviewTyping && _text.length > 0;
+      textDisplay.start();
+      if (skipThisLine && textDisplay != null) textDisplay.skip();
+    }
+    return _text;
   }
 
-  public var speed(default, set):Float;
+  var _speed:Float = 1.0;
+  var configuredTypingDelay:Null<Float> = null;
+  public var speed(get, set):Float;
+
+  function get_speed():Float return _speed;
 
   function set_speed(value:Float):Float
   {
-    this.speed = value;
-    textDisplay.delay = this.speed * 0.05; // 1.0 x 0.05
-    return this.speed;
+    if (originfunkin.compat.LegacyRuntime.usesPreviewDialogueSpeedWrite())
+    {
+      setPreviewTypingSpeed(value);
+      return _speed;
+    }
+    // Preserve the historical delay-based setter for older dialogue scripts.
+    _speed = value;
+    instantPreviewTyping = value <= 0;
+    configuredTypingDelay = instantPreviewTyping ? 0.05 : value * 0.05;
+    if (textDisplay != null) textDisplay.delay = configuredTypingDelay;
+    return _speed;
   }
 
   public function new(id:String, ?params:Dynamic)
@@ -101,6 +148,22 @@ class DialogueBox extends FlxSpriteGroup implements IDialogueScriptedClass imple
     if (_data == null)
     {
       throw 'Could not parse dialogue box data for id: $id';
+    }
+  }
+
+  /** Query default resources without creating a live dialogue object. */
+  public static function queryAssets(type:funkin.assets.Assets.AssetType, entryId:String,
+    ?params:Dynamic):Array<funkin.assets.Paths.AssetPath>
+  {
+    var data = _fetchData(entryId);
+    if (data == null || data.assetPath == null || data.assetPath == '') return [];
+    return switch (type)
+    {
+      case IMAGE: [funkin.assets.Paths.image(data.assetPath)];
+      case XML:
+        var path = funkin.assets.Paths.xml(data.assetPath, false);
+        path.exists() ? [path] : [];
+      default: [];
     }
   }
 
@@ -122,21 +185,32 @@ class DialogueBox extends FlxSpriteGroup implements IDialogueScriptedClass imple
     if (this.boxSprite != null)
     {
       remove(this.boxSprite);
+      this.boxSprite.kill();
+      this.boxSprite.destroy();
       this.boxSprite = null;
     }
 
+    this.animationOffsets = new Map<String, Array<Float>>();
+    this.animOffsets = [0, 0];
     this.boxSprite = new FunkinSprite(0, 0);
 
     trace('[DIALOGUE BOX] Loading spritesheet ${_data.assetPath} for ${id}');
 
-    var tex:FlxFramesCollection = Paths.getSparrowAtlas(_data.assetPath);
-    if (tex == null)
+    // Preview-format dialogue boxes may use a single image without an XML atlas.
+    var tex:Null<FlxFramesCollection> = null;
+    try
     {
-      trace('Could not load Sparrow sprite: ${_data.assetPath}');
-      return;
+      tex = Paths.getSparrowAtlas(_data.assetPath);
+    }
+    catch (error:Dynamic)
+    {
+      trace('[DIALOGUE BOX] Atlas unavailable for ${_data.assetPath}; trying a static image.');
     }
 
-    this.boxSprite.frames = tex;
+    if (tex != null)
+      this.boxSprite.frames = tex;
+    else
+      this.boxSprite.loadGraphic(Paths.image(_data.assetPath));
 
     if (_data.isPixel)
     {
@@ -155,18 +229,51 @@ class DialogueBox extends FlxSpriteGroup implements IDialogueScriptedClass imple
     add(this.boxSprite);
   }
 
-  public function setText(newText:String):Void
+  public function setTypingSounds(soundPaths:Array<String>):Void
   {
-    textDisplay.prefix = '';
-    textDisplay.resetText(newText);
-    textDisplay.start();
+    if (textDisplay == null) return;
+    for (sound in typingSounds) if (sound != null) sound.destroy();
+    typingSounds = [];
+    if (soundPaths != null)
+    {
+      for (soundPath in soundPaths)
+      {
+        if (soundPath == null || soundPath == '') continue;
+        var sound = FunkinSound.load(Paths.sound(soundPath), 0.6);
+        if (sound != null) typingSounds.push(sound);
+      }
+    }
+    // FlxTypeText dereferences a random sound when this array is non-null.
+    textDisplay.sounds = typingSounds.length == 0 ? null : typingSounds;
   }
 
-  public function appendText(newText:String):Void
+  /** The 1.1 format expresses speed as a multiplier, rather than a delay. */
+  public function setPreviewTypingSpeed(value:Float):Void
   {
-    textDisplay.prefix = this.textDisplay.text;
-    textDisplay.resetText(newText);
+    _speed = Math.max(0.0, value);
+    instantPreviewTyping = _speed <= 0;
+    // A zero delay causes FlxTypeText to divide and modulo by zero.
+    configuredTypingDelay = instantPreviewTyping ? 0.05 : 0.05 / _speed;
+    if (textDisplay != null) textDisplay.delay = configuredTypingDelay;
+  }
+
+  public function setText(newText:String, ?soundPaths:Array<String>):Void
+  {
+    if (soundPaths != null) setTypingSounds(soundPaths);
+    this.text = newText;
+  }
+
+  public function appendText(newText:String, ?soundPaths:Array<String>):Void
+  {
+    if (textDisplay == null) return;
+    if (soundPaths != null) setTypingSounds(soundPaths);
+    var prefix = textDisplay.text ?? '';
+    var suffix = newText ?? '';
+    _text = prefix + suffix;
+    textDisplay.prefix = prefix;
+    textDisplay.resetText(suffix);
     textDisplay.start();
+    if (instantPreviewTyping && suffix.length > 0) textDisplay.skip();
   }
 
   public function skip():Void
@@ -187,14 +294,18 @@ class DialogueBox extends FlxSpriteGroup implements IDialogueScriptedClass imple
 
   /**
    * Set the sprite scale to the appropriate value.
-   * @param scale
+   *
+   * @param scale The desired scale.
    */
   public function setScale(scale:Null<Float>):Void
   {
     if (scale == null) scale = 1.0;
 
     this.boxSprite.scale.x = scale;
+    this.boxSprite.localScale.x = scale;
     this.boxSprite.scale.y = scale;
+    this.boxSprite.localScale.y = scale;
+
     this.boxSprite.updateHitbox();
   }
 
@@ -282,20 +393,34 @@ class DialogueBox extends FlxSpriteGroup implements IDialogueScriptedClass imple
 
   function loadText():Void
   {
+    if (textDisplay != null)
+    {
+      remove(textDisplay);
+      textDisplay.kill();
+      textDisplay.destroy();
+      textDisplay = null;
+    }
     textDisplay = new FunkinTypeText(0, 0, 300, '', 32);
+    if (configuredTypingDelay != null) textDisplay.delay = configuredTypingDelay;
     textDisplay.fieldWidth = _data.text.width;
-    textDisplay.setFormat(_data.text.fontFamily, _data.text.size, FlxColor.fromString(_data.text.color), LEFT, SHADOW,
-      FlxColor.fromString(_data.text.shadowColor ?? '#00000000'), false);
+    textDisplay.setFormat(
+      _data.text.fontFamily,
+      _data.text.size,
+      FlxColor.fromString(_data.text.color),
+      LEFT,
+      SHADOW,
+      FlxColor.fromString(_data.text.shadowColor ?? '#00000000'),
+      false
+    );
     textDisplay.borderSize = _data.text.shadowWidth ?? 2;
-    // TODO: Add an option to configure this.
-    textDisplay.sounds = [
-      FunkinSound.load(Paths.sound('pixelText'), 0.6)
-    ];
+    setTypingSounds(['gameplay/dialogue/boxes/roses/click']);
 
     textDisplay.completeCallback = onTypingComplete;
 
     textDisplay.x += _data.text.offsets[0];
+    textDisplay.localX = textDisplay.x;
     textDisplay.y += _data.text.offsets[1];
+    textDisplay.localY = textDisplay.y;
 
     add(textDisplay);
   }
@@ -363,8 +488,8 @@ class DialogueBox extends FlxSpriteGroup implements IDialogueScriptedClass imple
    */
   public function getCurrentAnimation():String
   {
-    if (this.animation == null || this.animation.curAnim == null) return '';
-    return this.animation.curAnim.name;
+    if (this.boxSprite == null || this.boxSprite.animation == null || this.boxSprite.animation.curAnim == null) return '';
+    return this.boxSprite.animation.curAnim.name;
   }
 
   /**
@@ -393,7 +518,12 @@ class DialogueBox extends FlxSpriteGroup implements IDialogueScriptedClass imple
 
   public function isAnimationFinished():Bool
   {
-    return this.boxSprite?.animation?.finished ?? false;
+    return this.boxSprite?.animation?.finished ?? true;
+  }
+
+  public function isCurrentAnimationLooped():Bool
+  {
+    return this.boxSprite?.animation?.curAnim?.looped ?? false;
   }
 
   public function onDialogueStart(event:DialogueScriptEvent):Void
@@ -414,6 +544,7 @@ class DialogueBox extends FlxSpriteGroup implements IDialogueScriptedClass imple
 
   public function onDialogueEnd(event:DialogueScriptEvent):Void
   {
+    if (textDisplay != null) textDisplay.paused = true;
   }
 
   public function onUpdate(event:UpdateScriptEvent):Void
@@ -426,6 +557,8 @@ class DialogueBox extends FlxSpriteGroup implements IDialogueScriptedClass imple
     boxSprite = null;
     if (textDisplay != null) remove(textDisplay);
     textDisplay = null;
+    for (sound in typingSounds) if (sound != null) sound.destroy();
+    typingSounds = [];
 
     this.clear();
 

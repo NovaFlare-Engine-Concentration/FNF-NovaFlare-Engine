@@ -23,6 +23,55 @@ import funkin.util.BitmapUtil;
  */
 class BackingCard extends FlxSpriteGroup implements IBPMSyncedScriptedClass implements IStateChangingScriptedClass implements IFreeplayScriptedClass
 {
+  public static function queryAssets(type:funkin.assets.Assets.AssetType):Array<funkin.assets.Paths.AssetPath>
+  {
+    return switch (type)
+    {
+      case IMAGE:
+        [funkin.assets.Paths.image('ui/freeplay/interface/card-glow').withPixelData(),
+         funkin.assets.Paths.image('ui/freeplay/interface/confirm-glow-1'),
+         funkin.assets.Paths.image('ui/freeplay/interface/glowing-text'),
+         funkin.assets.Paths.image('ui/freeplay/interface/confirm-glow-2'),
+         funkin.assets.Paths.image('ui/freeplay/interface/beat-glow'),
+         funkin.assets.Paths.image('ui/freeplay/interface/back').withPixelData()]
+          .concat(funkin.assets.Paths.animateAtlas('ui/freeplay/styles/bf/backing-card').image());
+      case JSON: funkin.assets.Paths.animateAtlas('ui/freeplay/styles/bf/backing-card').json();
+      default: [];
+    }
+  }
+
+  /** Find a modern card script without constructing its visible sprites. */
+  public static function getBackingCardScriptedClass(characterId:String):Null<String>
+  {
+    if (characterId == null || characterId == '') return null;
+    for (name in BackingCard.listScriptClasses())
+    {
+      if (!polymod.hscript.PolymodScriptBridge.staticHasFunc(name, 'getCharacterId')) continue;
+      try
+      {
+        if (polymod.hscript.PolymodScriptBridge.staticCall(name, 'getCharacterId', []) == characterId) return name;
+      }
+      catch (error:Dynamic) trace('Backing card lookup failed for $name: $error');
+    }
+    return null;
+  }
+
+  /** Include a modern card script's declared assets when it identifies this player. */
+  public static function queryAssetsScripted(type:funkin.assets.Assets.AssetType, characterId:String):Array<funkin.assets.Paths.AssetPath>
+  {
+    var result = queryAssets(type);
+    var name = getBackingCardScriptedClass(characterId);
+    if (name == null || !polymod.hscript.PolymodScriptBridge.staticHasFunc(name, 'queryAssets')) return result;
+    try
+    {
+      var extra:Array<funkin.assets.Paths.AssetPath> = cast polymod.hscript.PolymodScriptBridge.staticCall(name, 'queryAssets', [type]);
+      if (extra != null) for (asset in extra) if (asset != null && !result.contains(asset)) result.push(asset);
+    }
+    catch (error:Dynamic) trace('Backing card asset query failed for $name: $error');
+    return result;
+  }
+
+
   public var backingTextYeah:FunkinSprite;
   public var orangeBackShit:FunkinSprite;
   public var alsoOrangeLOL:FunkinSprite;
@@ -44,20 +93,37 @@ class BackingCard extends FlxSpriteGroup implements IBPMSyncedScriptedClass impl
 
     this.currentCharacter = currentCharacter;
 
-    var bitmap = BitmapUtil.scalePartByWidth(Assets.getBitmapData(Paths.image('freeplay/cardGlow')), FreeplayState.CUTOUT_WIDTH);
+    var bitmap = BitmapUtil.scalePartByWidth(
+      funkin.assets.Assets.getBitmapData(funkin.assets.Paths.image('ui/freeplay/interface/card-glow').withPixelData()),
+      FreeplayState.CUTOUT_WIDTH
+    );
     cardGlow = new FlxSprite(-30, -30).loadGraphic(bitmap);
 
-    confirmGlow = new FlxSprite((FreeplayState.CUTOUT_WIDTH * FreeplayState.DJ_POS_MULTI) + -30, 240).loadGraphic(Paths.image('freeplay/confirmGlow'));
-    confirmTextGlow = new FlxSprite((FreeplayState.CUTOUT_WIDTH * FreeplayState.DJ_POS_MULTI) + -8, 115).loadGraphic(Paths.image('freeplay/glowingText'));
+    confirmGlow = new FlxSprite(
+      (FreeplayState.CUTOUT_WIDTH * FreeplayState.DJ_POS_MULTI) + -30,
+      240
+    ).loadGraphic(Paths.image('ui/freeplay/interface/confirm-glow-1'));
+    confirmTextGlow = new FlxSprite(
+      (FreeplayState.CUTOUT_WIDTH * FreeplayState.DJ_POS_MULTI) + -8,
+      115
+    ).loadGraphic(Paths.image('ui/freeplay/interface/glowing-text'));
 
-    var bitmap = BitmapUtil.scalePartByWidth(Assets.getBitmapData(Paths.image('freeplay/pinkBack')), FreeplayState.CUTOUT_WIDTH);
+    var bitmap = BitmapUtil.scalePartByWidth(
+      funkin.assets.Assets.getBitmapData(funkin.assets.Paths.image('ui/freeplay/interface/back').withPixelData()),
+      FreeplayState.CUTOUT_WIDTH
+    );
     pinkBack = new FunkinSprite();
     pinkBack.loadGraphic(bitmap);
 
     orangeBackShit = new FunkinSprite(84, 440).makeSolidColor(Std.int(pinkBack.width), 75, 0xFFFEDA00);
     alsoOrangeLOL = new FunkinSprite(0, orangeBackShit.y).makeSolidColor(100, Std.int(orangeBackShit.height), 0xFFFFD400);
-    confirmGlow2 = new FlxSprite(confirmGlow.x, confirmGlow.y).loadGraphic(Paths.image('freeplay/confirmGlow2'));
-    backingTextYeah = FunkinSprite.createTextureAtlas((FreeplayState.CUTOUT_WIDTH * FreeplayState.DJ_POS_MULTI) + -320, 120, "freeplay/backing-text-yeah",);
+    confirmGlow2 = new FlxSprite(confirmGlow.x, confirmGlow.y).loadGraphic(Paths.image('ui/freeplay/interface/confirm-glow-2'));
+
+    backingTextYeah = new FunkinSprite(
+      (FreeplayState.CUTOUT_WIDTH * FreeplayState.DJ_POS_MULTI) + -320,
+      120
+    ).loadTextureAtlas('ui/freeplay/styles/bf/backing-card');
+    backingTextYeah.anim.addBySymbol('wholeTimeline', backingTextYeah.getDefaultSymbol(), backingTextYeah.library.frameRate, false);
 
     pinkBack.color = 0xFFFFD4E9; // sets it to pink!
     pinkBack.x -= pinkBack.width;
@@ -67,7 +133,8 @@ class BackingCard extends FlxSpriteGroup implements IBPMSyncedScriptedClass impl
    * Apply exit movers for the pieces of the backing card.
    * @param exitMovers The exit movers to apply.
    */
-  public function applyExitMovers(?exitMovers:FreeplayState.ExitMoverData, ?exitMoversCharSel:FreeplayState.ExitMoverData):Void
+  public function applyExitMovers(?exitMovers:FreeplayState.ExitMoverData,
+    ?exitMoversCharSel:FreeplayState.ExitMoverData):Void
   {
     if (exitMovers == null)
     {
@@ -130,7 +197,13 @@ class BackingCard extends FlxSpriteGroup implements IBPMSyncedScriptedClass impl
     orangeBackShit.visible = true;
     alsoOrangeLOL.visible = true;
     cardGlow.visible = true;
-    FlxTween.tween(cardGlow, {alpha: 0, "scale.x": 1.2, "scale.y": 1.2}, 0.45, {ease: FlxEase.sineOut});
+    FlxTween.tween(cardGlow, {
+      alpha: 0,
+      'scale.x': 1.2,
+      'scale.y': 1.2
+    }, 0.45, {
+      ease: FlxEase.sineOut
+    });
   }
 
   /**
@@ -138,14 +211,16 @@ class BackingCard extends FlxSpriteGroup implements IBPMSyncedScriptedClass impl
    */
   public function confirm():Void
   {
-    FlxTween.color(pinkBack, 0.33, 0xFFFFD0D5, 0xFF171831, {ease: FlxEase.quadOut});
+    FlxTween.color(pinkBack, 0.33, 0xFFFFD0D5, 0xFF171831, {
+      ease: FlxEase.quadOut
+    });
     orangeBackShit.visible = false;
     alsoOrangeLOL.visible = false;
 
     confirmGlow.visible = true;
     confirmGlow2.visible = true;
 
-    backingTextYeah.anim.play("");
+    backingTextYeah.animation.play('wholeTimeline');
     confirmGlow2.alpha = 0;
     confirmGlow.alpha = 0;
 
@@ -155,7 +230,9 @@ class BackingCard extends FlxSpriteGroup implements IBPMSyncedScriptedClass impl
         instance.angleMaskShader.extraColor = instance.backingImage.color;
       }
     });
-    FlxTween.tween(confirmGlow2, {alpha: 0.5}, 0.33, {
+    FlxTween.tween(confirmGlow2, {
+      alpha: 0.5
+    }, 0.33, {
       ease: FlxEase.quadOut,
       onComplete: function(_)
       {
@@ -163,8 +240,12 @@ class BackingCard extends FlxSpriteGroup implements IBPMSyncedScriptedClass impl
         confirmGlow.alpha = 1;
         confirmTextGlow.visible = true;
         confirmTextGlow.alpha = 1;
-        FlxTween.tween(confirmTextGlow, {alpha: 0.4}, 0.5);
-        FlxTween.tween(confirmGlow, {alpha: 0}, 0.5);
+        FlxTween.tween(confirmTextGlow, {
+          alpha: 0.4
+        }, 0.5);
+        FlxTween.tween(confirmGlow, {
+          alpha: 0
+        }, 0.5);
         FlxTween.color(instance.backingImage, 2, 0xFFCDCDCD, 0xFF555555, {
           ease: FlxEase.expoOut,
           onUpdate: function(_)
@@ -195,12 +276,20 @@ class BackingCard extends FlxSpriteGroup implements IBPMSyncedScriptedClass impl
    */
   public function disappear():Void
   {
-    FlxTween.color(pinkBack, 0.25, 0xFFFFD863, 0xFFFFD0D5, {ease: FlxEase.quadOut});
+    FlxTween.color(pinkBack, 0.25, 0xFFFFD863, 0xFFFFD0D5, {
+      ease: FlxEase.quadOut
+    });
 
     cardGlow.visible = true;
     cardGlow.alpha = 1;
     cardGlow.scale.set(1, 1);
-    FlxTween.tween(cardGlow, {alpha: 0, "scale.x": 1.2, "scale.y": 1.2}, 0.25, {ease: FlxEase.sineOut});
+    FlxTween.tween(cardGlow, {
+      alpha: 0,
+      'scale.x': 1.2,
+      'scale.y': 1.2
+    }, 0.25, {
+      ease: FlxEase.sineOut
+    });
 
     orangeBackShit.visible = false;
     alsoOrangeLOL.visible = false;
@@ -215,7 +304,11 @@ class BackingCard extends FlxSpriteGroup implements IBPMSyncedScriptedClass impl
    */
   public function onCreate(event:ScriptEvent):Void
   {
-    FlxTween.tween(pinkBack, {x: 0}, 0.6, {ease: FlxEase.quartOut});
+    FlxTween.tween(pinkBack, {
+      x: 0
+    }, 0.6, {
+      ease: FlxEase.quartOut
+    });
     add(pinkBack);
 
     add(orangeBackShit);
@@ -334,6 +427,27 @@ class BackingCard extends FlxSpriteGroup implements IBPMSyncedScriptedClass impl
    * Called when Freeplay is closed.
    */
   public function onFreeplayClose(event:FreeplayScriptEvent):Void
+  {
+  }
+
+  /**
+   * Called when a capsule receives a new rank.
+   */
+  public function onCapsuleNewRank(event:CapsuleScriptEvent):Void
+  {
+  }
+
+  /**
+   * Called when the rank letter slams down on a freeplay capsule.
+   */
+  public function onRankSlam(event:CapsuleScriptEvent):Void
+  {
+  }
+
+  /**
+   * Called when the entire capsule slams down, after a new rank has been applied.
+   */
+  public function onCapsuleSlam(event:CapsuleScriptEvent):Void
   {
   }
 

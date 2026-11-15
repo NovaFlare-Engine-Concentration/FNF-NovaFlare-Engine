@@ -57,6 +57,9 @@ import games.backend.Section;
 import games.backend.Rating;
 import games.backend.Replay;
 import games.backend.TimingSystem;
+#if (VIDEOS_ALLOWED && hxvlc)
+import games.backend.GameplayVideoPause;
+#end
 
 import games.cutscenes.CutsceneHandler;
 import games.cutscenes.DialogueBoxPsych;
@@ -1125,6 +1128,9 @@ class PlayState extends MusicBeatState
 	}
 
 	public var videoCutscene:VideoSprite = null;
+	#if (VIDEOS_ALLOWED && hxvlc)
+	private var pausedVideos:GameplayVideoPause = new GameplayVideoPause();
+	#end
 
 	public function startVideo(name:String, forMidSong:Bool = false, canSkip:Bool = true, loop:Bool = false, playOnLoad:Bool = true)
 	{
@@ -2003,11 +2009,7 @@ class PlayState extends MusicBeatState
 		{
 			@:privateAccess
 			var curCamFilters:Array<BitmapFilter> = FlxG.game._filters;
-			if (curCamFilters == null || curCamFilters.length == 0)
-			{
-				FlxG.game.setFilters([effect]);
-				return;
-			}
+			curCamFilters = curCamFilters == null ? [] : curCamFilters.copy();
 			curCamFilters.push(effect);
 			FlxG.game.setFilters(curCamFilters);
 			FlxG.game.filtersEnabled = ClientPrefs.data.shaders;
@@ -2033,11 +2035,7 @@ class PlayState extends MusicBeatState
 				return;
 			}
 			var curCamFilters:Array<BitmapFilter> = camera.filters;
-			if (curCamFilters == null || curCamFilters.length == 0)
-			{
-				camera.filters = [effect];
-				return;
-			}
+			curCamFilters = curCamFilters == null ? [] : curCamFilters.copy();
 			curCamFilters.push(effect);
 			camera.filters = curCamFilters;
 			camera.filtersEnabled = ClientPrefs.data.shaders;
@@ -2074,6 +2072,7 @@ class PlayState extends MusicBeatState
 			var curCamFilters:Array<BitmapFilter> = FlxG.game._filters;
 			if (curCamFilters != null && curCamFilters.contains(filter))
 			{
+				curCamFilters = curCamFilters.copy();
 				curCamFilters.remove(filter);
 				FlxG.game.setFilters(curCamFilters);
 				FlxG.game.filtersEnabled = ClientPrefs.data.shaders;
@@ -2085,6 +2084,7 @@ class PlayState extends MusicBeatState
 		var curFilters:Array<BitmapFilter> = flxCam.filters;
 		if (curFilters != null && curFilters.contains(filter))
 		{
+			curFilters = curFilters.copy();
 			curFilters.remove(filter);
 			flxCam.filters = curFilters;
 			flxCam.filtersEnabled = ClientPrefs.data.shaders;
@@ -2239,15 +2239,16 @@ class PlayState extends MusicBeatState
 		stagesFunc(function(stage:BaseStage) stage.openSubState(SubState));
 		if (paused)
 		{
+			#if (VIDEOS_ALLOWED && hxvlc)
+			pausedVideos.pause();
+			#else
+			if (videoCutscene != null) videoCutscene.pause();
+			#end
 			if (FlxG.sound.music != null)
 			{
 				FlxG.sound.music.pause();
 				vocals.pause();
 				opponentVocals.pause();
-				if (videoCutscene != null)
-				{
-					videoCutscene.pause();
-				};
 			}
 			FlxTimer.globalManager.forEach(function(tmr:FlxTimer) if (!tmr.finished)
 				tmr.active = false);
@@ -2285,6 +2286,11 @@ class PlayState extends MusicBeatState
 
 			paused = false;
 			if (timing != null) timing.resume();
+			#if (VIDEOS_ALLOWED && hxvlc)
+			pausedVideos.resume();
+			#else
+			if (videoCutscene != null) videoCutscene.resume();
+			#end
 			if (mobileControls != null)
 				mobileControls.visible = true;
 			callOnScripts('onResume');
@@ -2308,10 +2314,14 @@ class PlayState extends MusicBeatState
 
 	override public function onFocus():Void
 	{
+		#if mobile
+		if (mobilePauseAfterFocusLoss) mobilePauseOnResume = true;
+		mobilePauseAfterFocusLoss = false;
+		#end
 		callOnScripts('onFocus');
 		if (health > 0 && !paused)
 			resetRPC(Conductor.songPosition > 0.0);
-		if (timing != null) timing.onFocus();
+		if (timing != null && !paused) timing.onFocus();
 		super.onFocus();
 		callOnScripts('onFocusPost');
 	}
@@ -2322,7 +2332,13 @@ class PlayState extends MusicBeatState
 		#if DISCORD_ALLOWED
 		if (health > 0 && !paused && autoUpdateRPC)
 			DiscordClient.changePresence(detailsPausedText, SONG.song + " (" + storyDifficultyText + ")", iconP2.getCharacter());
+		#end
 
+		#if mobile
+		// Android may freeze before a newly opened substate can become active.
+		// Request the menu after focus returns, when the game can update again.
+		mobilePauseAfterFocusLoss = ClientPrefs.data.autoPause && startedCountdown && !paused && canPause;
+		#else
 		if (FlxG.autoPause && startedCountdown && !paused && canPause)
 		{
 			var ret:Dynamic = callOnScripts('onPause', null, true);
@@ -2396,10 +2412,8 @@ class PlayState extends MusicBeatState
 		}
 		vocals.play();
 		opponentVocals.play();
-		if (videoCutscene != null)
-		{
+		if (videoCutscene != null && !paused)
 			videoCutscene.resume();
-		};
 	}
 
 	public var fixDesyncedStep:Int = 0;
@@ -2415,6 +2429,11 @@ class PlayState extends MusicBeatState
 		}
 		return false;
 	}
+
+	#if mobile
+	private var mobilePauseAfterFocusLoss:Bool = false;
+	private var mobilePauseOnResume:Bool = false;
+	#end
 
 	public var paused:Bool = false;
 	private var resumeGameplayGcAfterSubstate:Bool = false;
@@ -2466,6 +2485,22 @@ class PlayState extends MusicBeatState
 
 	override function update(elapsed:Float)
 	{
+		#if mobile
+		if (mobilePauseOnResume)
+		{
+			mobilePauseOnResume = false;
+			if (ClientPrefs.data.autoPause && startedCountdown && !paused && canPause)
+			{
+				var ret:Dynamic = callOnScripts('onPause', null, true);
+				if (ret != LuaUtils.Function_Stop)
+				{
+					openPauseMenu();
+					super.update(elapsed);
+					return;
+				}
+			}
+		}
+		#end
 		if (ClientPrefs.data.pauseButton)
 		{
 			var Pressed:Bool = (pauseButton_menu != null && pauseButton_menu.touchJustPressed(camPause));
@@ -2911,10 +2946,6 @@ class PlayState extends MusicBeatState
 			vocals.pause();
 			opponentVocals.pause();
 		}
-		if (videoCutscene != null)
-		{
-			videoCutscene.pause();
-		};
 		resumeGameplayGcAfterSubstate = GameplayGC.active;
 		GameplayGC.pause();
 
@@ -4097,6 +4128,7 @@ class PlayState extends MusicBeatState
 					&& canBeHitAt
 					&& !tooLateAt
 					&& !n.wasGoodHit
+					&& !isBrokenSustain(n)
 					&& !n.blockHit;
 				if (canHit && !n.isSustainNote && n.noteData == key)
 				{
@@ -4146,7 +4178,7 @@ class PlayState extends MusicBeatState
 			{
 				for (childNote in funnyNote.tail)
 				{
-					childNote.canHold = true;
+					if (childNote != null && !isBrokenSustain(childNote)) childNote.canHold = true;
 				}
 			}
 			if (!ClientPrefs.data.playOpponent)
@@ -4171,6 +4203,7 @@ class PlayState extends MusicBeatState
 						&& canBeHitAt2
 						&& !tooLateAt2
 						&& !n2.wasGoodHit
+						&& !isBrokenSustain(n2)
 						&& !n2.blockHit;
 					if (canHit2 && n2.isSustainNote && n2.noteData == key)
 					{
@@ -4188,7 +4221,7 @@ class PlayState extends MusicBeatState
 				{
 					for (child in parentNote.tail)
 					{
-						if (child != null)
+						if (child != null && !isBrokenSustain(child))
 						{
 							child.canHold = true;
 						}
@@ -4248,6 +4281,7 @@ class PlayState extends MusicBeatState
 
 	public function replayApplyInput(frameTime:Float, pressLanes:Array<Int>, releaseLanes:Array<Int>, heldLanes:Array<Bool>):Void
 	{
+		checkSustainMisses(frameTime);
 		var laneCount:Int = keysArray.length;
 		for (i in 0...laneCount)
 		{
@@ -4297,6 +4331,7 @@ class PlayState extends MusicBeatState
 							&& canBeHitAt
 							&& !tooLateAt
 							&& !daNote.wasGoodHit
+							&& !isBrokenSustain(daNote)
 							&& !daNote.blockHit
 							&& daNote.canHold)
 						{
@@ -4324,9 +4359,34 @@ class PlayState extends MusicBeatState
 					keyReleased(i);
 	}
 
+	private inline function isBrokenSustain(note:Note):Bool
+	{
+		return guitarHeroSustains && (note.missed
+			|| (note.isSustainNote && note.parent != null && note.parent.missed));
+	}
+
+	private function checkSustainMisses(inputSongPos:Float):Void
+	{
+		if (!guitarHeroSustains || !startedCountdown || !generatedMusic || inCutscene || endingSong || paused)
+			return;
+		// Resolve an expired hold before a new press can re-arm its tail.
+		// Waiting for noteKillOffset leaves already missed segments recoverable.
+		for (i in 0...notes.length)
+		{
+			var note = notes.members[i];
+			if (note != null && note.exists && note.alive
+				&& note.mustPress != ClientPrefs.data.playOpponent
+				&& (note.isSustainNote || note.tail.length > 0)
+				&& !note.wasGoodHit && !note.missed && !note.ignoreNote
+				&& note.strumTime < inputSongPos - Conductor.safeZoneOffset * note.lateHitMult)
+				noteMiss(note, i);
+		}
+	}
+
 	// Hold notes
 	private function keysCheck():Void
 	{
+		checkSustainMisses(Conductor.songPosition);
 		for (i in 0...keysArray.length)
 		{
 			var key = keysArray[i];
@@ -4363,6 +4423,7 @@ class PlayState extends MusicBeatState
 							&& canBeHitAt
 							&& !tooLateAt
 							&& !daNote.wasGoodHit
+							&& !isBrokenSustain(daNote)
 							&& !daNote.blockHit
 							&& daNote.canHold)
 						{
@@ -4473,6 +4534,7 @@ class PlayState extends MusicBeatState
 				{
 					childNote.alpha = note.alpha;
 					childNote.missed = true;
+					childNote.canHold = false;
 					childNote.canBeHit = false;
 					childNote.ignoreNote = true;
 					childNote.tooLate = true;
@@ -4504,6 +4566,7 @@ class PlayState extends MusicBeatState
 						if (child != null)
 						{
 							child.missed = true;
+							child.canHold = false;
 							child.canBeHit = false;
 							child.ignoreNote = true;
 							child.tooLate = true;
@@ -4517,7 +4580,10 @@ class PlayState extends MusicBeatState
 			NoteTime.push(note.strumTime); // it will work better for ResultsScreen
 		}
 		if (note != null)
+		{
 			note.missed = true;
+			if (guitarHeroSustains) note.canHold = false;
+		}
 
 		if (instakillOnMiss)
 		{
@@ -4656,7 +4722,7 @@ class PlayState extends MusicBeatState
 
 	public inline function opponentNoteHitForOpponent(note:Note):Void
 	{
-		if (note.wasGoodHit)
+		if (note.wasGoodHit || isBrokenSustain(note))
 			return;
 		if (cpuControlled_opponent && note.ignoreNote)
 			return;
@@ -4769,7 +4835,7 @@ class PlayState extends MusicBeatState
 
 	public function goodNoteHit(note:Note):Void
 	{
-		if (note.wasGoodHit)
+		if (note.wasGoodHit || isBrokenSustain(note))
 			return;
 		if (cpuControlled && note.ignoreNote)
 			return;
@@ -5016,6 +5082,9 @@ class PlayState extends MusicBeatState
 	override function destroy()
 	{
 		MouseEffect.leaveGameplay();
+		#if (VIDEOS_ALLOWED && hxvlc)
+		pausedVideos.destroy();
+		#end
 
 		destroying = true;
 		resumeGameplayGcAfterSubstate = false;

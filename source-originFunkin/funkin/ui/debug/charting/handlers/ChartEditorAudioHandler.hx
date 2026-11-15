@@ -18,7 +18,8 @@ import haxe.io.Path;
  * Functions for loading audio for the chart editor.
  * Handlers split up the functionality of the Chart Editor into different classes based on focus to limit the amount of code in each class.
  */
-@:nullSafety @:access(funkin.ui.debug.charting.ChartEditorState)
+@:nullSafety
+@:access(funkin.ui.debug.charting.ChartEditorState)
 class ChartEditorAudioHandler
 {
   /**
@@ -38,24 +39,6 @@ class ChartEditorAudioHandler
     trace(" WARNING '.bold().bg_yellow() + ' This platform can't load audio from a file path, you'll need to fetch the bytes some other way.");
     return false;
     #end
-  }
-
-  /**
-   * Loads and stores byte data for a vocal track from an asset
-   *
-   * @param path The path to the asset. Use `Paths` to build this.
-   * @param charId The character this vocal track will be for.
-   * @param instId The instrumental this vocal track will be for.
-   * @return Success or failure.
-   */
-  public static function loadVocalsFromAsset(state:ChartEditorState, path:String, charId:String, instId:String = '', wipeFirst:Bool = false):Bool
-  {
-    var trackData:Null<Bytes> = Assets.getBytes(path);
-    if (trackData != null)
-    {
-      return loadVocalsFromBytes(state, trackData, charId, instId, wipeFirst);
-    }
-    return false;
   }
 
   /**
@@ -93,23 +76,6 @@ class ChartEditorAudioHandler
   }
 
   /**
-   * Loads and stores byte data for an instrumental track from an asset
-   *
-   * @param path The path to the asset. Use `Paths` to build this.
-   * @param instId The instrumental this vocal track will be for.
-   * @return Success or failure.
-   */
-  public static function loadInstFromAsset(state:ChartEditorState, path:String, instId:String = '', wipeFirst:Bool = false):Bool
-  {
-    var trackData:Null<Bytes> = Assets.getBytes(path);
-    if (trackData != null)
-    {
-      return loadInstFromBytes(state, trackData, instId, wipeFirst);
-    }
-    return false;
-  }
-
-  /**
    * Loads and stores byte data for a vocal track
    *
    * @param bytes The audio byte data.
@@ -124,25 +90,27 @@ class ChartEditorAudioHandler
     return true;
   }
 
-  public static function switchToInstrumental(state:ChartEditorState, instId:String = '', playerId:String, opponentId:String):Bool
+  /**
+   * Switches to a specific instrumental track, and the corresponding vocal tracks for each character, if they exist.
+   *
+   * @param state The chart editor state.
+   * @param instId The instrumental track to switch to.
+   * @return `true` if the switch was successful, `false` otherwise.
+   */
+  public static function switchToInstrumental(state:ChartEditorState, instId:String = ''):Bool
   {
     var result:Bool = playInstrumental(state, instId);
     if (!result) return false;
 
     stopExistingVocals(state);
 
-    result = playVocals(state, BF, playerId, instId);
-
-    // if (!result) return false;
-    result = playVocals(state, DAD, opponentId, instId);
-    // if (!result) return false;
+    // We assume that the `currentSongMetadata` is correctly loaded.
+    result = playVocals(state, BF, instId);
+    result = playVocals(state, DAD, instId);
 
     state.postLoadVocals();
-
     state.hardRefreshOffsetsToolbox();
-
     state.hardRefreshFreeplayToolbox();
-
     state.loadSubtitles();
 
     return true;
@@ -153,12 +121,10 @@ class ChartEditorAudioHandler
    */
   public static function playInstrumental(state:ChartEditorState, instId:String = ''):Bool
   {
-    if (instId == '') instId = 'default';
+    if (instId == '') instId = Constants.DEFAULT_VARIATION;
     var instTrackData:Null<Bytes> = state.audioInstTrackData.get(instId);
     var instTrack:Null<FunkinSound> = SoundUtil.buildSoundFromBytes(instTrackData);
     if (instTrack == null) return false;
-
-    instTrack.important = true;
 
     stopExistingInstrumental(state);
     state.audioInstTrack = instTrack;
@@ -179,27 +145,104 @@ class ChartEditorAudioHandler
   }
 
   /**
-   * Tell the Chart Editor to select a specific vocal track, that is already loaded.
+   * Tell the Chart Editor to select a specific set of vocal tracks, that is already loaded.
+   *
+   * @param state The chart editor state.
+   * @param charType The character type to play vocals for.
+   * @param variation The variation this vocal track will be for.
+   *
+   * @return `true` if the vocal track(s) were successfully loaded and played, `false` otherwise.
    */
-  public static function playVocals(state:ChartEditorState, charType:CharacterType, charId:String, instId:String = ''):Bool
+  public static function playVocals(state:ChartEditorState, charType:CharacterType, variation:String = ''):Bool
   {
-    var trackId:String = '${charId}${instId == '' ? '' : '-${instId}'}';
-    var vocalTrackData:Null<Bytes> = state.audioVocalTrackData.get(trackId);
-    var vocalTrack:Null<FunkinSound> = SoundUtil.buildSoundFromBytes(vocalTrackData);
+    var vocalTrackIds:Array<String> = [];
+    var oppositeVocalTracksIds:Array<String> = [];
+
+    // We assume that the `currentSongMetadata` is correctly loaded to retrieve info about what vocal tracks to play.
+    switch (charType)
+    {
+      case BF:
+        vocalTrackIds = state.currentSongMetadata.playData.characters.playerVocals ?? [];
+        oppositeVocalTracksIds = state.currentSongMetadata.playData.characters.opponentVocals ?? [];
+      case DAD:
+        vocalTrackIds = state.currentSongMetadata.playData.characters.opponentVocals ?? [];
+        oppositeVocalTracksIds = state.currentSongMetadata.playData.characters.playerVocals ?? [];
+      default:
+        // Do nothing.
+    }
+
+    var totalVoicesCount = (vocalTrackIds.length + oppositeVocalTracksIds.length);
+    var shouldUseLegacyVocals = totalVoicesCount == 0 && state.audioVocalTrackData.exists(''); // Setup for Voices.ogg
+    // we set up legacy vocals as the bf side for ease of use
+    var setUpLegacyVocals = shouldUseLegacyVocals && charType == BF;
+
+    if (vocalTrackIds.length == 0 && !setUpLegacyVocals)
+    {
+      // Didn't play vocals because there are no vocal tracks for this character type on this variation.
+      // state.warning('Failed to play vocals', 'No vocal tracks found in chart data for character type $charType.');
+      return false;
+    }
 
     if (state.audioVocalTrackGroup == null) state.audioVocalTrackGroup = new VoicesGroup();
 
-    // early return
-    if (vocalTrack == null) return false;
+    var vocalTracks:Array<FunkinSound> = [];
 
-    vocalTrack.important = true;
+    if (setUpLegacyVocals)
+    {
+      var vocalTrackData:Null<Bytes> = state.audioVocalTrackData.get('');
+      var vocalTrack:Null<FunkinSound> = SoundUtil.buildSoundFromBytes(vocalTrackData);
+
+      if (vocalTrack != null)
+      {
+        vocalTracks.push(vocalTrack);
+      }
+    }
+
+    for (trackBaseKey in vocalTrackIds)
+    {
+      var trackKeySuffix:String = (variation.isBlank() || variation == Constants.DEFAULT_VARIATION) ? '' : '-${variation}';
+      var trackKey:String = '$trackBaseKey$trackKeySuffix';
+      // For example, for voice ID "bf" on variation "pico", the file name would be "Voices-bf-pico.ogg"
+
+      trace('CHART EDITOR: Switching vocals to "$trackKey"');
+
+      var vocalTrackData:Null<Bytes> = state.audioVocalTrackData.get(trackKey);
+
+      if (vocalTrackData == null)
+      {
+        state.warning('Failed to play vocals', 'Failed to load vocal track "$trackKey" for character type $charType.');
+        continue;
+      }
+
+      var vocalTrack:Null<FunkinSound> = SoundUtil.buildSoundFromBytes(vocalTrackData);
+
+      if (vocalTrack == null)
+      {
+        state.warning('Failed to play vocals', 'Failed to parse vocal track "$trackKey" for character type $charType.');
+        continue;
+      }
+
+      vocalTracks.push(vocalTrack);
+    }
+
+    var firstVocalTrack:Null<FunkinSound> = vocalTracks[0];
+    if (firstVocalTrack == null) return false;
+
+    if (totalVoicesCount < 2 && vocalTracks.length != totalVoicesCount)
+    {
+      state.audioVocalTrackGroup.legacyVoiceSystem = true;
+      state.audioVocalTrackGroup.legacyVoiceUsesPlayer = charType == BF;
+    }
 
     switch (charType)
     {
       case BF:
-        state.audioVocalTrackGroup.addPlayerVoice(vocalTrack);
+        for (vocalTrack in vocalTracks)
+        {
+          state.audioVocalTrackGroup.addPlayerVoice(vocalTrack);
+        }
 
-        var waveformData:Null<WaveformData> = vocalTrack.waveformData;
+        var waveformData:Null<WaveformData> = firstVocalTrack.waveformData;
 
         if (waveformData != null)
         {
@@ -213,10 +256,14 @@ class ChartEditorAudioHandler
 
         state.audioVocalTrackGroup.playerVoicesOffset = state.currentVocalOffsetPlayer;
         return true;
-      case DAD:
-        state.audioVocalTrackGroup.addOpponentVoice(vocalTrack);
 
-        var waveformData:Null<WaveformData> = vocalTrack.waveformData;
+      case DAD:
+        for (vocalTrack in vocalTracks)
+        {
+          state.audioVocalTrackGroup.addOpponentVoice(vocalTrack);
+        }
+
+        var waveformData:Null<WaveformData> = firstVocalTrack.waveformData;
 
         if (waveformData != null)
         {
@@ -231,12 +278,9 @@ class ChartEditorAudioHandler
         state.audioVocalTrackGroup.opponentVoicesOffset = state.currentVocalOffsetOpponent;
 
         return true;
-      case OTHER:
-        state.audioVocalTrackGroup.add(vocalTrack);
-        // TODO: Add offset for other characters.
-        return true;
+
       default:
-        // Do nothing.
+        // Fallthrough
     }
 
     return false;
@@ -295,7 +339,7 @@ class ChartEditorAudioHandler
   {
     if (state.stretchySounds)
     {
-      if (state.stretchySound1 == null) state.stretchySound1 = FunkinSound.load(Paths.sound('chartingSounds/stretch1_UI'));
+      if (state.stretchySound1 == null) state.stretchySound1 = FunkinSound.load(Paths.sound('ui/editors/chart-editor/charting-sounds/stretch-1'));
       if (state.stretchySound1 == null) return;
 
       // Prevent spam playing that could cause issues.
@@ -307,7 +351,7 @@ class ChartEditorAudioHandler
     }
     else
     {
-      if (state.stretchySound2 == null) state.stretchySound2 = FunkinSound.load(Paths.sound('chartingSounds/stretch2_UI'));
+      if (state.stretchySound2 == null) state.stretchySound2 = FunkinSound.load(Paths.sound('ui/editors/chart-editor/charting-sounds/stretch-2'));
       if (state.stretchySound2 == null) return;
 
       // Prevent spam playing that could cause issues.
@@ -329,66 +373,6 @@ class ChartEditorAudioHandler
   {
     state.audioVocalTrackData.clear();
     stopExistingVocals(state);
-  }
-
-  /**
-   * Create a list of ZIP file entries from the current loaded instrumental tracks in the chart eidtor.
-   * @param state The chart editor state.
-   * @return `Array<haxe.zip.Entry>`
-   */
-  public static function makeZIPEntriesFromInstrumentals(state:ChartEditorState):Array<haxe.zip.Entry>
-  {
-    var zipEntries = [];
-
-    var instTrackIds = state.audioInstTrackData.keys().array();
-    for (key in instTrackIds)
-    {
-      if (key == 'default')
-      {
-        var data:Null<Bytes> = state.audioInstTrackData.get('default');
-        if (data == null)
-        {
-          trace(' WARNING '.warning() + ' Failed to access inst track ($key)');
-          continue;
-        }
-        zipEntries.push(FileUtil.makeZIPEntryFromBytes('Inst.ogg', data));
-      }
-      else
-      {
-        var data:Null<Bytes> = state.audioInstTrackData.get(key);
-        if (data == null)
-        {
-          trace(' WARNING '.warning() + ' Failed to access inst track ($key)');
-          continue;
-        }
-        zipEntries.push(FileUtil.makeZIPEntryFromBytes('Inst-${key}.ogg', data));
-      }
-    }
-
-    return zipEntries;
-  }
-
-  /**
-   * Create a list of ZIP file entries from the current loaded vocal tracks in the chart eidtor.
-   * @param state The chart editor state.
-   * @return `Array<haxe.zip.Entry>`
-   */
-  public static function makeZIPEntriesFromVocals(state:ChartEditorState):Array<haxe.zip.Entry>
-  {
-    var zipEntries = [];
-
-    for (key in state.audioVocalTrackData.keys())
-    {
-      var data:Null<Bytes> = state.audioVocalTrackData.get(key);
-      if (data == null)
-      {
-        trace(' WARNING '.warning() + ' Failed to access vocal track ($key)');
-        continue;
-      }
-      zipEntries.push(FileUtil.makeZIPEntryFromBytes('Voices-${key}.ogg', data));
-    }
-
-    return zipEntries;
   }
 }
 #end

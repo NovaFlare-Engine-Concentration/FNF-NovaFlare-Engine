@@ -27,7 +27,9 @@ class InputUtil
       case Keys:
         getKeyName(id);
       case Gamepad(gamepadID):
-        FlxG.gamepads.getByID(gamepadID) != null ? getButtonName(id, FlxG.gamepads.getByID(gamepadID)) : 'N/A';
+        if(FlxG.gamepads.getByID(gamepadID) != null) getButtonName(id, FlxG.gamepads.getByID(gamepadID));
+        else if (FlxG.gamepads.getByID(gamepadID) == null) getKeyName(id); // temp fix to cutscenes N/A gamepad
+        else 'N/A';
     }
   }
 
@@ -61,6 +63,17 @@ class InputUtil
   {
     var isKeyNotPressed:FlxKey->Bool = key -> return FlxG.keys.checkStatus(key, RELEASED) || FlxG.keys.checkStatus(key, JUST_RELEASED);
     return keyArray.exists(isKeyNotPressed);
+  }
+
+  /**
+   * Returns if any key is being pressed (or was just pressed)
+   * @param keyArray An array of FlxKeys
+   * @return `true` if there's any key in keyArray that isn't being pressed
+   */
+  public static function anyPressed(keyArray:Array<FlxKey>):Bool
+  {
+    var isKeyBeingPressed:FlxKey->Bool = key -> return FlxG.keys.checkStatus(key, PRESSED) || FlxG.keys.checkStatus(key, JUST_PRESSED);
+    return keyArray.exists(isKeyBeingPressed);
   }
 
   /**
@@ -172,8 +185,6 @@ class InputUtil
     }
   }
 
-  static var dirReg:EReg = ~/^(l|r).?-(left|right|down|up)$/;
-
   /**
    * Get the shortened name of a button for a gamepad.
    *
@@ -194,6 +205,7 @@ class InputUtil
 
   static function shortenButtonName(name:Null<String>):String
   {
+    var dirReg:EReg = ~/^(l|r).?-(left|right|down|up)$/;
     return switch (name == null ? '' : name.toLowerCase())
     {
       case '':
@@ -259,7 +271,8 @@ class InputUtil
  * Represents a list of controller names, determined based on driver data.
  * Used for displaying names and button prompts in the UI.
  */
-@:nullSafety @:forward
+@:nullSafety
+@:forward
 enum abstract ControllerName(String) from String to String
 {
   /**

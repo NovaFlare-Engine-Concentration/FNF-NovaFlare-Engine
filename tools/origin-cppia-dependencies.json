@@ -1,0 +1,165 @@
+{
+  "description": "Fingerprint of the locally validated experimental CPPIA dependency stack; LF-normalized source text. It checks presence, not runtime correctness.",
+  "polymod": [
+    {
+      "path": "polymod/Polymod.hx",
+      "sha256_lf": "d98f491e2f5d94c882d06245ec9a951e61d5d95fef997646bfb61fe64c527ac7"
+    },
+    {
+      "path": "polymod/hscript/_internal/DependencyOrder.hx",
+      "sha256_lf": "54f8fd8d9a188e50ce79bbf59089d4108b3d2f658a90ce53fb620e335c9b17a6"
+    },
+    {
+      "path": "polymod/hscript/_internal/Expr.hx",
+      "sha256_lf": "0620a69b8b4946a3043f5f0f07968b6da5ffa581c205f1e07350f9bf6629fd04"
+    },
+    {
+      "path": "polymod/hscript/_internal/Interp.hx",
+      "sha256_lf": "b201666e84e44bfd0757b91c43795db4624590beb8c2c496042a58c688eb1cd3"
+    },
+    {
+      "path": "polymod/hscript/_internal/ManifestExports.hx",
+      "sha256_lf": "9ee1817a1d4dd8ba5ae8e0a4ef2682d8cdb74dddc58a3ede256a7a0137f06462"
+    },
+    {
+      "path": "polymod/hscript/_internal/PolymodAbstractScriptClass.hx",
+      "sha256_lf": "3357d2f1ecfc90d2cb5600c7e48888bf232d2e79a6692af4c7188a07ae03c417"
+    },
+    {
+      "path": "polymod/hscript/_internal/PolymodCppiaClassReference.hx",
+      "sha256_lf": "86d168fd810843332abfe05b214948d6ccf6e5b061eb412cf1b78544fe3e1c05"
+    },
+    {
+      "path": "polymod/hscript/_internal/PolymodScriptClass.hx",
+      "sha256_lf": "db521cd99dbf90587f6120cd1b1a73f24954158fe2ce594db3d972d3966010e1"
+    },
+    {
+      "path": "polymod/hscript/_internal/PolymodStaticClassReference.hx",
+      "sha256_lf": "268eb12d4e88364c2afa6bce49c1040adff91ab3beb62c151c6a702adf3f9baf"
+    },
+    {
+      "path": "polymod/util/Util.hx",
+      "sha256_lf": "1f5521c9fa1a4db56823d0e62a68c050d647f86ef2298de3120faf3c530f323c"
+    }
+  ],
+  "hxcpp": [
+    {
+      "path": "include/hx/Scriptable.h",
+      "sha256_lf": "5e9ebbc1c363ab6b50a260199c6c6bbc8c0a850e82ceda1a3dc8e863f02c5263"
+    },
+    {
+      "path": "src/hx/Class.cpp",
+      "sha256_lf": "3a075ddb1422da190a8c1d865ef8d582edd983284257bbb39247eab9a871c796"
+    },
+    {
+      "path": "src/hx/cppia/Cppia.cpp",
+      "sha256_lf": "87aeba8455d248a92d9f991e14474d147ad48043e2c9989c405d30c89171d11a"
+    },
+    {
+      "path": "src/hx/cppia/Cppia.h",
+      "sha256_lf": "f08ad1559b51dd5193365d8fd0a4ddc966333e99f8aae0fce5cb3e68ccb3aecd"
+    },
+    {
+      "path": "src/hx/cppia/CppiaClasses.cpp",
+      "sha256_lf": "a9dce7f6df61e6d82cef07be9038ed3ab19f7b02e5c6e373000b403a5d9a7fd2"
+    },
+    {
+      "path": "src/hx/cppia/CppiaFunction.cpp",
+      "sha256_lf": "ec5e272b9777f781999bbaf526e002f2617cbab1d2dafadfb96fe20c4f84dfdd"
+    },
+    {
+      "path": "src/hx/cppia/CppiaModule.cpp",
+      "sha256_lf": "347d7e1fcbd8b3b4a438c0308f582e0ee94adbfa218642e6347cc2237c10e619"
+    },
+    {
+      "path": "src/hx/cppia/CppiaVars.cpp",
+      "sha256_lf": "383f03b339831c97ee2ec2be042e853fb3b61cf60595942ba54ef8c18b09b8fe"
+    }
+  ],
+  "patches": [
+    {
+      "name": "hxcpp-origin-cppia-notestyle-one.patch",
+      "sha256": "883da919986ef3ffcced218a8f1d99d167f848decd194301579c02888dda35cb"
+    },
+    {
+      "name": "hxcpp-origin-cppia-notestyle-zero.patch",
+      "sha256": "2edb401e18181dcc353a30dc6861ff86e981c07a947080e7b1935f487ee9c1a1"
+    },
+    {
+      "name": "hxcpp-origin-cppia-camera-defaults.patch",
+      "sha256": "1decd77ca4984317e74be4108ed2fd77c3c084922eabc8accbbbe6f059826dc7"
+    },
+    {
+      "name": "polymod-origin-cppia-loader.patch",
+      "sha256": "b58de0ca006cfc8685614e9263d50290cae8fca5648a6e13b4ff8a7cf0a4a7df"
+    },
+    {
+      "name": "polymod-origin-cppia-dependencies.patch",
+      "sha256": "49f23eea9112ec74d5febce72165f93245f591b106ddc4884b6dc0af9e841d36"
+    },
+    {
+      "name": "polymod-origin-cppia-async-result.patch",
+      "sha256": "d9b66f0101f1c290a0eeed1917e832559cf0d9330fe096d7f827f308de402c5f"
+    },
+    {
+      "name": "polymod-origin-cppia-async-order.patch",
+      "sha256": "70baacd62e226d51d15a197a5959d549acc16075a2104c0be16a9dcc609caf34"
+    },
+    {
+      "name": "polymod-origin-cppia-empty-async.patch",
+      "sha256": "f80c199a8e7701baf3871fc4eec3efc60dfea5e186379b0004c8fba6f9800176"
+    },
+    {
+      "name": "polymod-origin-hscript-async-errors.patch",
+      "sha256": "12e62dbc26ed2e84676a832b0155b3f8fd8325c2274e3b70cb01fdf9f871cdf1"
+    },
+    {
+      "name": "polymod-origin-cppia-unload-order.patch",
+      "sha256": "18b520598e2aaab4d544ce44b31a278670bf12124f4971cde416d4b4ba753c53"
+    },
+    {
+      "name": "polymod-origin-cppia-empty-unload.patch",
+      "sha256": "8a8c2ace9d7ebfdfa8f7496140d67ce4e65bc2ef37e8b72333a1f0392b2515e3"
+    },
+    {
+      "name": "polymod-origin-cppia-dependency-order.patch",
+      "sha256": "8e90315c929636f9000d0485e27e5afe3f2e550ecbe5b869ea3815f5c668a940"
+    },
+    {
+      "name": "polymod-origin-cppia-segment-order.patch",
+      "sha256": "96309a6fde2cdbe12ad6a557a5c8682e6066b8f248dd674297a539c57bf603e9"
+    },
+    {
+      "name": "polymod-origin-cppia-duplicate-providers.patch",
+      "sha256": "14c40ec7604f07fc6510bc8f4a4567b454142ffb33490150870db3c3e645e310"
+    },
+    {
+      "name": "polymod-origin-integrated-cppia-accessor.patch",
+      "sha256": "9b47fb3873e85a00b1f83289408c5be8e2abf198f4ed71f5e4436d2fa9695957"
+    },
+    {
+      "name": "hxcpp-origin-cppia.patch",
+      "sha256": "1a1861ebebad23580e4dce21ca115bd82b5a4234ba5e600224e8ee6e3615f38d"
+    },
+    {
+      "name": "hxcpp-origin-cppia-class-registry.patch",
+      "sha256": "4ff68493837f3fb4ca1c9002a51f585950f6340f51881a5600a397d924305525"
+    },
+    {
+      "name": "hxcpp-origin-cppia-bool.patch",
+      "sha256": "c85536bd79b15a05d2f7621523908d2a82333d27a8510661f10cb55e111c72ed"
+    },
+    {
+      "name": "hxcpp-origin-cppia-null-args.patch",
+      "sha256": "687178fa2ae2a56379c2ea03e4bd3c26db628d9798f1e47ebb3129ff6a1ce074"
+    },
+    {
+      "name": "hxcpp-origin-cppia-notestyle.patch",
+      "sha256": "95c28fe87339cced22363234ddc4551686f4c4d3d6b4c13907cf4227b028f7f7"
+    },
+    {
+      "name": "hxcpp-origin-cppia-return-bool.patch",
+      "sha256": "2d16a0557429a810582e9cb090db2218f3a272a75e50acf32198063b6d90b659"
+    }
+  ]
+}

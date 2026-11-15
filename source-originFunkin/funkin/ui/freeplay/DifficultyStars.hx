@@ -7,6 +7,17 @@ import funkin.graphics.shaders.HSVShader;
 @:nullSafety
 class DifficultyStars extends FlxSpriteGroup
 {
+  public static function queryAssets(type:funkin.assets.Assets.AssetType):Array<funkin.assets.Paths.AssetPath>
+  {
+    return switch (type)
+    {
+      case IMAGE: funkin.assets.Paths.animateAtlas('ui/freeplay/difficulty/freeplay-stars').image();
+      case JSON: funkin.assets.Paths.animateAtlas('ui/freeplay/difficulty/freeplay-stars').json();
+      case SHADER: [funkin.assets.Paths.frag('ui/shaders/hsv')];
+      default: [];
+    }
+  }
+
   /**
    * Internal handler var for difficulty... ranges from 0... to 15
    * 0 is 1 star... 15 is 0 stars!
@@ -18,8 +29,31 @@ class DifficultyStars extends FlxSpriteGroup
    */
   public var difficulty(default, set):Int = 1;
 
+  /**
+   * The `FunkinSprite` that contains the stars animation.
+   */
   public var stars:FunkinSprite;
+
+  /**
+   * The flames that display along with the stars.
+   * Only used when the difficulty is 10 or higher.
+   */
   public var flames:FreeplayFlames;
+
+  var ANIMATION_NAME(get, never):String;
+
+  function get_ANIMATION_NAME():String
+  {
+    @:privateAccess
+    if (stars.__backwardsCompatibility)
+    {
+      return 'diff stars';
+    }
+    else
+    {
+      return 'STARS_ANIM';
+    }
+  }
 
   var hsvShader:HSVShader;
 
@@ -31,8 +65,9 @@ class DifficultyStars extends FlxSpriteGroup
 
     flames = new FreeplayFlames(0, 0);
 
-    stars = FunkinSprite.createTextureAtlas(0, 0, "freeplay/freeplayStars");
-    stars.anim.play("diff stars");
+    stars = new FunkinSprite().loadTextureAtlas('ui/freeplay/difficulty/freeplay-stars');
+    stars.anim.addBySymbol('STARS_ANIM', 'diff stars', 24, false);
+    stars.animation.play('STARS_ANIM');
 
     add(flames);
     add(stars);
@@ -46,7 +81,7 @@ class DifficultyStars extends FlxSpriteGroup
   {
     super.update(elapsed);
 
-    // "loops" the current animation
+    // 'loops' the current animation
     // for clarity, the animation file looks like
     // frame : stars
     // 0-99: 1 star
@@ -54,9 +89,9 @@ class DifficultyStars extends FlxSpriteGroup
     // ......
     // 1300-1499: 15 stars
     // 1500 : 0 stars
-    if (curDifficulty < 15 && stars.anim.curAnim.curFrame >= (curDifficulty + 1) * 100)
+    if (curDifficulty < 15 && stars.animation.curAnim.curFrame >= (curDifficulty + 1) * 100)
     {
-      stars.anim.play("diff stars", true, false, curDifficulty * 100);
+      stars.animation.play(ANIMATION_NAME, true, false, curDifficulty * 100);
     }
   }
 
@@ -87,9 +122,14 @@ class DifficultyStars extends FlxSpriteGroup
 
   public function flameCheck():Void
   {
-    if (difficulty > 10) flames.flameCount = difficulty - 10;
+    if (difficulty > 10)
+    {
+      flames.flameCount = difficulty - 10;
+    }
     else
+    {
       flames.flameCount = 0;
+    }
   }
 
   function set_curDifficulty(value:Int):Int
@@ -98,13 +138,12 @@ class DifficultyStars extends FlxSpriteGroup
 
     if (curDifficulty == 15)
     {
-      stars.anim.play("diff stars", true, false, 1500);
-      stars.anim.pause();
+      stars.animation.play(ANIMATION_NAME, true, false, 1500);
+      stars.animation.pause();
     }
     else
     {
-      stars.anim.curAnim.curFrame = Std.int(curDifficulty * 100);
-      stars.anim.play("diff stars", true, false, curDifficulty * 100);
+      stars.animation.play(ANIMATION_NAME, true, false, Std.int(curDifficulty * 100));
     }
 
     return curDifficulty;

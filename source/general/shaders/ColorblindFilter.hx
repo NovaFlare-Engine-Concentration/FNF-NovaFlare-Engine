@@ -13,6 +13,8 @@ class ColorblindFilter
 {
 	public static var matrix:Array<Float>;
 	public static var colorM:Array<Float>;
+	// Keep only our own filter replaceable; scripts may have installed others.
+	private static var appliedFilter:ColorMatrixFilter;
 
 	public static function UpdateColors(?input:Array<BitmapFilter> = null):Void
 	{
@@ -143,8 +145,14 @@ class ColorblindFilter
 		}
 		else
 		{
-			var filters:Array<BitmapFilter> = [];
-			filters.push(new ColorMatrixFilter(matrix));
+			// State/substate creation can run after mod onCreate/onCreatePost.
+			// Preserve their game filters while replacing our previous color filter.
+			@:privateAccess
+			var current:Array<BitmapFilter> = FlxG.game._filters;
+			var filters:Array<BitmapFilter> = current == null ? [] : current.copy();
+			if (appliedFilter != null) filters.remove(appliedFilter);
+			appliedFilter = new ColorMatrixFilter(matrix);
+			filters.push(appliedFilter);
 			FlxG.game.filtersEnabled = true;
 			FlxG.game.setFilters(filters);
 		}

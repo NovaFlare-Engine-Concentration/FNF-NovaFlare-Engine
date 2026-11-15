@@ -118,7 +118,7 @@ class RuntimeRainShader extends RuntimePostEffectShader
 
   public function new()
   {
-    super(Assets.getText(Paths.frag('rain')));
+    super(Assets.getText(Paths.frag('ui/shaders/rain')));
     this.rainColor = 0xFF6680cc;
   }
 
@@ -132,13 +132,11 @@ class RuntimeRainShader extends RuntimePostEffectShader
     super.__processGLData(source, storageType);
     if (storageType == 'uniform')
     {
-      lights = [
-        for (i in 0...MAX_LIGHTS) {
-          position: addFloatUniform('lights[$i].position', 2),
-          color: addFloatUniform('lights[$i].color', 3),
-          radius: addFloatUniform('lights[$i].radius', 1),
-        }
-      ];
+      lights = [for (i in 0...MAX_LIGHTS) {
+        position: addFloatUniform('lights[$i].position', 2),
+        color: addFloatUniform('lights[$i].color', 3),
+        radius: addFloatUniform('lights[$i].radius', 1),
+      }];
     }
   }
 

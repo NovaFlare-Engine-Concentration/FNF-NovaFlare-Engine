@@ -1,0 +1,11 @@
+--- a/polymod/Polymod.hx
++++ b/polymod/Polymod.hx
+@@ -1020,7 +1020,7 @@
+               {
+                 Polymod.warning(SCRIPT_PARSE_FAILED, 'Compiled script "$path" registered no classes, so nothing in it can be used.', SCRIPT_RUNTIME);
+               }
+-              promise.complete(true);
++              promise.complete(registered.length > 0);
+             }
+             catch (e)
+             {

@@ -16,6 +16,7 @@ class CodeNameScriptRuntime
 		cast flixel.addons.util.FlxSimplex,
 		cast flixel.tweens.FlxTweenType_HSC,
 		cast flixel.text.FlxTextAlign_HSC,
+		cast codename.funkin.menus.ui.AlphabetAlignment_HSC,
 		cast flixel.input.keyboard.FlxKey_HSC,
 		cast flixel.input.gamepad.FlxGamepadInputID_HSC,
 		cast openfl.ui.MouseCursor_HSC,

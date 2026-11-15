@@ -20,6 +20,14 @@ class LegacySongData
   public var speed:Either<Float, LegacyScrollSpeeds>;
   @:optional
   public var stageDefault:Null<String>;
+  @:optional
+  public var stage:Null<String>;
+  @:optional
+  public var gfVersion:Null<String>;
+  @:optional
+  public var needsVoices:Null<Bool>;
+  @:optional
+  public var voiceList:Null<Array<String>>;
   public var bpm:Float;
   @:jcustomparse(funkin.data.DataParse.eitherLegacyNoteData)
   public var notes:Either<Array<LegacyNoteSection>, LegacyNoteData>;

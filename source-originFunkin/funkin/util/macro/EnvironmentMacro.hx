@@ -6,6 +6,7 @@ import haxe.macro.Expr;
 import sys.FileSystem;
 import sys.io.File;
 import funkin.util.macro.MacroUtil;
+import funkin.util.AnsiUtil;
 #end
 
 using StringTools;
@@ -100,7 +101,9 @@ class EnvironmentMacro
                   }
                   else
                   {
-                    warning('Value for '.bright_red() + field.name.bold().bright_red() + ' not found in the environment file.'.bright_red(), field.pos);
+                    final debug:Bool = Context.defined("debug");
+                    final texColor = debug ? AnsiUtil.bright_yellow : AnsiUtil.bright_red;
+                    warning(texColor('Value for ') + texColor(field.name.bold()) + texColor(' not found in the environment file.'), field.pos, debug);
                   }
 
                   buildFields[i].kind = FVar(t, e);
@@ -168,18 +171,19 @@ class EnvironmentMacro
     final isMobile:Bool = key.startsWith('MOBILE_') || isIos || isAndroid;
     final isWeb:Bool = key.startsWith('WEB_');
     final isDesktop:Bool = key.startsWith('DESKTOP_');
+    final isNative:Bool = key.startsWith('NATIVE_');
 
     #if web
-    return isMobile || isDesktop;
+    return isMobile || isDesktop || isNative;
     #elseif desktop
-    return isMobile || isWeb;
+    return isIos || isAndroid || isWeb;
     #elseif android
     return isIos || isWeb || isDesktop;
     #elseif ios
     return isAndroid || isWeb || isDesktop;
-    #end
-
+    #else
     return false;
+    #end
   }
 
   static function stripTargetPrefix(key:String):String
@@ -197,16 +201,16 @@ class EnvironmentMacro
     return switch (prefix)
     {
       #if android
-      case 'ANDROID', 'MOBILE':
+      case 'ANDROID', 'MOBILE', 'NATIVE':
         rest;
       #elseif ios
-      case 'IOS', 'MOBILE':
+      case 'IOS', 'MOBILE', 'NATIVE':
         rest;
       #elseif web
       case 'WEB':
         rest;
       #elseif desktop
-      case 'DESKTOP':
+      case 'DESKTOP', 'NATIVE':
         rest;
       #end
       default:
@@ -216,7 +220,7 @@ class EnvironmentMacro
 
   // MIGHT be able to repurpose this for custom context warnings hehe - Zack
 
-  static function warning(msg:String, pos:Position)
+  static function warning(msg:String, pos:Position, debug:Bool = false)
   {
     var infos:Dynamic = Context.getPosInfos(pos);
 
@@ -238,10 +242,17 @@ class EnvironmentMacro
 
     // underline from min to max (at least one ^)
     var underlineLen = Std.int(Math.max(1, infos.max - infos.min));
-    var underline = StringTools.lpad("", " ", Std.int(infos.column - 1)) + StringTools.rpad("", "^", underlineLen).bold().bright_red();
+    var underline = StringTools.lpad("", " ", Std.int(infos.column - 1)) + StringTools.rpad("", "^", underlineLen).bold();
+    if (debug) underline = underline.bright_yellow();
+    else
+      underline = underline.bright_red();
 
     // header like Haxe diagnostics
-    var header_title = " ENVIRONMENT ".bold().bg_red();
+    var header_title = " ENVIRONMENT ".bold();
+    if (debug) header_title = header_title.bg_yellow();
+    else
+      header_title = header_title.bg_red();
+
     var header = '${header_title} ${infos.file}:${infos.line}: characters ${infos.column}-${infos.column + underlineLen}\n';
 
     // body with code + pointer + message

@@ -35,9 +35,7 @@ class AssetDataHandler
       alpha: obj.alpha,
       danceEvery: obj.animation.getNameList().length > 0 ? obj.danceEvery : 0,
       scroll: [obj.scrollFactor.x, obj.scrollFactor.y],
-      animations: [
-        for (n => d in obj.animationDatas) d
-      ],
+      animations: [for (n => d in obj.animationDatas) d],
       startingAnimation: obj.startingAnimation,
       animType: getAnimType(obj),
       angle: obj.angle,

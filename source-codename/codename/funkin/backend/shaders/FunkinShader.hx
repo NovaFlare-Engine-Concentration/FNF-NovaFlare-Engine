@@ -35,9 +35,9 @@ class FunkinShader extends FlxShader implements IHScriptCustomBehaviour {
 	public var fragFileName:String = "FunkinShader";
 	public var vertFileName:String = "FunkinShader";
 
-	public var shaderPrefix:String = "";
-	public var fragmentPrefix:String = "";
-	public var vertexPrefix:String = "";
+	public var shaderPrefix:String = Flags.FUNKIN_SHADER_CODE_PREFIX;
+	public var fragmentPrefix:String = Flags.FUNKIN_SHADER_CODE_FRAGMENT_PREFIX;
+	public var vertexPrefix:String = Flags.FUNKIN_SHADER_CODE_VERTEX_PREFIX;
 
 	/**
 	 * Creates a new shader from the specified fragment and vertex source.
@@ -46,7 +46,7 @@ class FunkinShader extends FlxShader implements IHScriptCustomBehaviour {
 	 * @param vert Vertex source (pass `null` to use default)
 	 * @param glslVer Version of GLSL to use (defaults to 120)
 	 */
-	public override function new(frag:String, vert:String, glslVer:String = null) {
+	public override function new(?frag:String, ?vert:String, glslVer:String = null) {
 		if (glslVer == null) glslVer = Flags.DEFAULT_GLSL_VERSION;
 		if (frag == null) frag = ShaderTemplates.defaultFragmentSource;
 		if (vert == null) vert = ShaderTemplates.defaultVertexSource;
@@ -57,23 +57,44 @@ class FunkinShader extends FlxShader implements IHScriptCustomBehaviour {
 		super();
 	}
 
+	/** Upstream's file API, using NF's existing shader compiler and mobile bridge. */
+	public static function fromFile(fragmentPath:String, ?vertexPath:String, ?version:String):FunkinShader {
+		return new FunkinShader().loadShaderFile(fragmentPath, vertexPath, version);
+	}
+
+	public function loadShaderFile(fragmentPath:String, ?vertexPath:String, ?version:String):FunkinShader {
+		if (vertexPath == null) vertexPath = haxe.io.Path.withoutExtension(fragmentPath);
+		var fragment = Assets.exists(fragmentPath) ? fragmentPath : Paths.fragShader(fragmentPath);
+		var vertex = Assets.exists(vertexPath) ? vertexPath : Paths.vertShader(vertexPath);
+		fileName = fragmentPath;
+		fragFileName = fragment;
+		vertFileName = vertex;
+		glslVer = version ?? Flags.DEFAULT_GLSL_VERSION;
+		glFragmentSource = Assets.exists(fragment) ? Assets.getText(fragment) : ShaderTemplates.defaultFragmentSource;
+		glVertexSource = Assets.exists(vertex) ? Assets.getText(vertex) : ShaderTemplates.defaultVertexSource;
+		return this;
+	}
+
 	static var IMPORT_REGEX = ~/#import\s+<(.*)>/;
 
 	private function processImports(value:String, type:Int):String
 	{
+		var imported:Map<String, Bool> = [];
 		while(IMPORT_REGEX.match(value))
 		{
 			var importPath = IMPORT_REGEX.matched(1);
-			var importSource = Assets.getText("assets/shaders/" + importPath);
+			var importToken = IMPORT_REGEX.matched(0);
+			var path = Paths.getPath("shaders/" + importPath);
+			var importSource = !imported.exists(importPath) && Assets.exists(path) ? Assets.getText(path) : null;
+			imported.set(importPath, true);
 			if(importSource == null) {
 				var fileName = type == FRAGMENT_SHADER ? fragFileName : vertFileName;
 				Logs.traceColored([
 					Logs.logText('[Shader] ', RED),
 					Logs.logText('Failed to import shader ${importPath} in ${fileName}', RED),
 				]);
-			} else {
-				value = value.replace(IMPORT_REGEX.matched(0), importSource);
 			}
+			value = value.replace(importToken, importSource ?? "");
 		}
 		return value;
 	}
@@ -557,13 +578,31 @@ class FunkinShader extends FlxShader implements IHScriptCustomBehaviour {
 		}
 	}
 
+	#if cpp
+	static final __paramTypeCache:haxe.ds.ObjectMap<Dynamic, Int> = new haxe.ds.ObjectMap();
+	#else
+	static final __paramTypeCache:Map<String, Int> = [];
+	#end
+
+	static function __paramTypeOf(cls:Class<Dynamic>):Int {
+		if (cls == null) return 0;
+		var name = Type.getClassName(cls);
+		var key = #if cpp cls #else name #end;
+		var kind = __paramTypeCache.get(key);
+		if (kind == null) {
+			kind = name.startsWith("openfl.display.ShaderParameter") ? 1 : (name.startsWith("openfl.display.ShaderInput") ? 2 : 0);
+			__paramTypeCache.set(key, kind);
+		}
+		return kind;
+	}
+
 	public function hget(name:String):Dynamic {
 		if (__instanceFields.contains(name) || __instanceFields.contains('get_${name}'))
 			return Reflect.getProperty(this, name);
 		if (!Reflect.hasField(data, name))
 			return null;
 		var field:Dynamic = Reflect.field(data, name);
-		var cl:String = Type.getClassName(Type.getClass(field));
+		var kind = __paramTypeOf(Type.getClass(field));
 
 		// little problem we are facing boys...
 
@@ -573,9 +612,9 @@ class FunkinShader extends FlxShader implements IHScriptCustomBehaviour {
 
 		// thanks for looking in the code cne fans :D!! -lunar
 
-		if (cl.startsWith("openfl.display.ShaderParameter"))
+		if (kind == 1)
 			return (field.__length > 1) ? field.value : field.value[0];
-		else if (cl.startsWith("openfl.display.ShaderInput"))
+		else if (kind == 2)
 			return field.input;
 		return field;
 	}
@@ -592,10 +631,10 @@ class FunkinShader extends FlxShader implements IHScriptCustomBehaviour {
 		}
 
 		var field = Reflect.field(data, name);
-		var cl = Type.getClassName(Type.getClass(field));
+		var kind = __paramTypeOf(Type.getClass(field));
 		var isNotNull = val != null;
 		// cant do "field is ShaderInput" for some reason
-		if (cl.startsWith("openfl.display.ShaderParameter")) {
+		if (kind == 1) {
 			if (field.__length <= 1) {
 				// that means we wait for a single number, instead of an array
 				if (field.__isInt && isNotNull && !(val is Int)) {
@@ -618,7 +657,7 @@ class FunkinShader extends FlxShader implements IHScriptCustomBehaviour {
 				}
 				return field.value = val;
 			}
-		} else if (cl.startsWith("openfl.display.ShaderInput")) {
+		} else if (kind == 2) {
 			// shader input!!
 			var bitmap:BitmapData;
 			if (!isNotNull) bitmap = null;

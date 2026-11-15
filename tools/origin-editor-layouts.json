@@ -1,0 +1,481 @@
+{
+  "repository": "FunkinCrew/funkin.assets",
+  "commit": "0b28106619ecf017af57c54dfde8653350b66128",
+  "files": [
+    {
+      "path": "exclude/ui/editors/camera-editor/components/menu.xml",
+      "gitBlobSha": "4f0cb9c24e7aa3bdab02135d93b3ccb9edad6b4a",
+      "size": 3627
+    },
+    {
+      "path": "exclude/ui/editors/camera-editor/components/properties.xml",
+      "gitBlobSha": "20eaf41fffcbc0133ceb32ce28d5dd300aa7741d",
+      "size": 204
+    },
+    {
+      "path": "exclude/ui/editors/camera-editor/components/properties/focus-camera.xml",
+      "gitBlobSha": "fdfd5b94b698a1cbd91670da33b4de97b5392242",
+      "size": 862
+    },
+    {
+      "path": "exclude/ui/editors/camera-editor/components/properties/play-animation.xml",
+      "gitBlobSha": "ef68bb76585d712db1b357eee33268a20bdf97c4",
+      "size": 677
+    },
+    {
+      "path": "exclude/ui/editors/camera-editor/components/properties/zoom-camera.xml",
+      "gitBlobSha": "3a4c60d10f0a0394b5f01bf5750986efb0c99838",
+      "size": 1081
+    },
+    {
+      "path": "exclude/ui/editors/camera-editor/dialogs/about.xml",
+      "gitBlobSha": "388c48a01aa899dc4dc6aa039d43434f22589921",
+      "size": 386
+    },
+    {
+      "path": "exclude/ui/editors/camera-editor/dialogs/auto-gen.xml",
+      "gitBlobSha": "affa88543e2bfa6364169a9a9a8a663277618f21",
+      "size": 701
+    },
+    {
+      "path": "exclude/ui/editors/camera-editor/dialogs/upload-chart.xml",
+      "gitBlobSha": "eca4ff5147fbea054e3263f7738616753d873bfe",
+      "size": 570
+    },
+    {
+      "path": "exclude/ui/editors/camera-editor/dialogs/user-guide.xml",
+      "gitBlobSha": "dfb018927b889272f784ac7b17f4d3af9dfebaf6",
+      "size": 3140
+    },
+    {
+      "path": "exclude/ui/editors/camera-editor/dialogs/welcome.xml",
+      "gitBlobSha": "d3c91fc28d3b7f4bb545a8e287637a7eeacfd28c",
+      "size": 969
+    },
+    {
+      "path": "exclude/ui/editors/camera-editor/main-view.xml",
+      "gitBlobSha": "1d6232075cd79a4c4055f4b8698ee2fc7c39f772",
+      "size": 520
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/components/command-palette.xml",
+      "gitBlobSha": "3efeda14a1a9644aa81cf38a9c6ac4d70770aebd",
+      "size": 1036
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/components/comment.xml",
+      "gitBlobSha": "46e52e278509adc1887d7c013d48582979b10c4d",
+      "size": 644
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/components/menubar.xml",
+      "gitBlobSha": "dd5790e5573764b0f2032443cfbd90b2b93679e6",
+      "size": 10055
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/components/playbar-head.xml",
+      "gitBlobSha": "311b77355100007139278b4bb27ed599b915f8b9",
+      "size": 590
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/components/playbar.xml",
+      "gitBlobSha": "ce8c54f77c45aec6f3dbc667d04b240bb2e3202c",
+      "size": 2256
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/context-menus/default.xml",
+      "gitBlobSha": "b726689250bd3cc572342869dd8fd6eb802058f1",
+      "size": 134
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/context-menus/event.xml",
+      "gitBlobSha": "ec6c8fca6172cce93dc471509ff928d84206ced0",
+      "size": 793
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/context-menus/hold-note.xml",
+      "gitBlobSha": "6e574ebd0816b3bb0d544e99d548e4675adb420e",
+      "size": 1265
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/context-menus/note.xml",
+      "gitBlobSha": "b7b73ebdf49ddbbf46860f0828168a86250d4f1a",
+      "size": 1067
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/context-menus/selection.xml",
+      "gitBlobSha": "62db75e7e3818bea9cb278d356a551a58a7cb475",
+      "size": 1622
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/context/test.xml",
+      "gitBlobSha": "8e42700b9039c4f0c2a91ace9bf3050224994f83",
+      "size": 789
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/dialogs/about.xml",
+      "gitBlobSha": "1092efe52b6f977e87d88f82a1828dff844b7b79",
+      "size": 377
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/dialogs/character-icon-selector.xml",
+      "gitBlobSha": "8d95e2d8930836efa2e8f7e9034bc9dd18c58e7f",
+      "size": 301
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/dialogs/color-picker.xml",
+      "gitBlobSha": "758e77cc3598b37d51109c720e123df7c1968294",
+      "size": 1019
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/dialogs/edit-song-event.xml",
+      "gitBlobSha": "5ce65bbd4953afe56f2dbf37e3279846ca85ba28",
+      "size": 707
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/dialogs/upload-chart.xml",
+      "gitBlobSha": "9d1934cdff98cf82c285c38ba9a30e6294fd30a0",
+      "size": 584
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/dialogs/upload-vocals-entry.xml",
+      "gitBlobSha": "20fc1fcd9f4364598844890e39811221250ac2b5",
+      "size": 325
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/dialogs/upload-vocals.xml",
+      "gitBlobSha": "bddc13a3bf42dd4d40c6ce547e8c71206b0bb791",
+      "size": 473
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/dialogs/welcome.xml",
+      "gitBlobSha": "8b9ed1477ad5af1c154b8605fb1ed8017e0dcb08",
+      "size": 1739
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/main-view.xml",
+      "gitBlobSha": "f9d07637a0a7ad0e6c78754bf82e2fb9f1b26bde",
+      "size": 195
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/toolboxes/difficulty.xml",
+      "gitBlobSha": "3fd295341c7d7ba29220ff860f8b9640633bd054",
+      "size": 1954
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/toolboxes/event-data.xml",
+      "gitBlobSha": "e07d07b3d23b6ed3103c429a4ba0dbaa91c07ea9",
+      "size": 880
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/toolboxes/freeplay.xml",
+      "gitBlobSha": "1933b8bb905df27227feeb4a26485f50cc29d36a",
+      "size": 2839
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/toolboxes/metadata.xml",
+      "gitBlobSha": "89b6389d166e9f1dfc7dad4dbbb5e85facc83d0c",
+      "size": 9952
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/toolboxes/note-data.xml",
+      "gitBlobSha": "31325f7d59b90350bf183e25ebdbe025a6993c8f",
+      "size": 761
+    },
+    {
+      "path": "exclude/ui/editors/chart-editor/toolboxes/offsets.xml",
+      "gitBlobSha": "c48bfed56aa8e9b149bae178ef7840690ad1c2f8",
+      "size": 4565
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/components/bottom-bar.xml",
+      "gitBlobSha": "85a2a6fd09166cb5367fefae451c33c67cd11442",
+      "size": 1330
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/components/menu.xml",
+      "gitBlobSha": "372b9ffd5508ad56b808a9ea40d04702b8a78de6",
+      "size": 4193
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/dialogs/about.xml",
+      "gitBlobSha": "336a457dc7f2e1e570b0577e195d043b32e3a130",
+      "size": 372
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/dialogs/exit-confirm.xml",
+      "gitBlobSha": "99a778edabcd2c90d159c8cf9b356e9f59c78a35",
+      "size": 176
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/dialogs/find-object.xml",
+      "gitBlobSha": "b17fa9427cb52db248f8c91f857273e5c053a720",
+      "size": 586
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/dialogs/load-url.xml",
+      "gitBlobSha": "a962fde190d4a80e320c0ee9ea9c078a5ae14a22",
+      "size": 214
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/dialogs/new-object.xml",
+      "gitBlobSha": "7fa7f55f23887e946f7856d478d88e915e0b339e",
+      "size": 209
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/dialogs/texture-atlas-settings.xml",
+      "gitBlobSha": "73501428f8a3b7b36024ef549f91fbc952f89292",
+      "size": 1555
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/dialogs/user-guide.xml",
+      "gitBlobSha": "a417f10eccef09d42fbdbfed61895d2536e995af",
+      "size": 2207
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/dialogs/welcome.xml",
+      "gitBlobSha": "256c34f8ef88ef89f59f04bae3f85ce49912d8d3",
+      "size": 1945
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/main-view.xml",
+      "gitBlobSha": "223c5e1953ba34250433222008a9eaa312ef100d",
+      "size": 195
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/toolboxes/character-properties.xml",
+      "gitBlobSha": "4d4dd27155ffe79eafa8088ae59ac5a6a5298993",
+      "size": 2223
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/toolboxes/object-anims.xml",
+      "gitBlobSha": "34aff9cfaff60c0ba3018a64ee7ee428061aa633",
+      "size": 2215
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/toolboxes/object-graphic.xml",
+      "gitBlobSha": "1c272b84fe86e4b6addea9c5d13ddb20b81b6ef7",
+      "size": 2277
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/toolboxes/object-properties.xml",
+      "gitBlobSha": "eda820a09d0d7c018feac325a6103df7265eae46",
+      "size": 3727
+    },
+    {
+      "path": "exclude/ui/editors/stage-editor/toolboxes/stage-settings.xml",
+      "gitBlobSha": "aa2db552d6f0f4dd635a21982bc2b4bdeadf4b08",
+      "size": 862
+    },
+    {
+      "path": "exclude/ui/editors/style/buttons.css",
+      "gitBlobSha": "010707dd800d7e7b5811eeb824fa4de042dd50e2",
+      "size": 130
+    },
+    {
+      "path": "exclude/ui/editors/style/compact.css",
+      "gitBlobSha": "3f58d0673041536161dd61b0480cd57c4a07e7c2",
+      "size": 165
+    },
+    {
+      "path": "exclude/ui/editors/style/dialogs.css",
+      "gitBlobSha": "c4dc7537acc277b9476eb1d0042518db693229d0",
+      "size": 1182
+    },
+    {
+      "path": "exclude/ui/editors/style/general.css",
+      "gitBlobSha": "98fb06a2c02e126a3790ba641cab6f04cb59c03a",
+      "size": 268
+    },
+    {
+      "path": "exclude/ui/editors/style/notifs.css",
+      "gitBlobSha": "4b4bebd14cb4fdc5328f92023406394468ab0c86",
+      "size": 201
+    },
+    {
+      "path": "exclude/ui/editors/style/playbar.css",
+      "gitBlobSha": "ee5478b512b7ff59fcaa4eec1f9aaa4efd159cb9",
+      "size": 403
+    },
+    {
+      "path": "exclude/ui/editors/style/text.css",
+      "gitBlobSha": "0ed955a26449118e7c2398327d2778989879e6d9",
+      "size": 428
+    },
+    {
+      "path": "exclude/ui/editors/style/toolbox.css",
+      "gitBlobSha": "62ef8eb3952a5501fc5074517c03453b1e44bd59",
+      "size": 557
+    },
+    {
+      "path": "ui/editors/animation-editor/offset-editor-view.xml",
+      "gitBlobSha": "4aa2903bf223839eac5a2046e525bc2e70b7e7c1",
+      "size": 2087
+    },
+    {
+      "path": "ui/editors/chart-editor/dialogs/add-difficulty.xml",
+      "gitBlobSha": "5765f9686802af8fe4e6bbed2e9f74bd454e1e31",
+      "size": 1270
+    },
+    {
+      "path": "ui/editors/chart-editor/dialogs/add-variation.xml",
+      "gitBlobSha": "bfa5449e021406122e63c4d07bfc2809c3f2f02d",
+      "size": 5346
+    },
+    {
+      "path": "ui/editors/chart-editor/dialogs/backup-available.xml",
+      "gitBlobSha": "a4a8f0a99391e7361cc7832f18768e67a61d584b",
+      "size": 678
+    },
+    {
+      "path": "ui/editors/chart-editor/dialogs/clone-difficulty.xml",
+      "gitBlobSha": "d8090983910699a53a0e680bc4bd8c67409ea27a",
+      "size": 1366
+    },
+    {
+      "path": "ui/editors/chart-editor/dialogs/import-chart.xml",
+      "gitBlobSha": "74360f1adabdbf259639298fe75ced48e1d9dc42",
+      "size": 609
+    },
+    {
+      "path": "ui/editors/chart-editor/dialogs/move-difficulty.xml",
+      "gitBlobSha": "5fb8dcdaa6f572f80f7f2df5cabf5ad6583fbe42",
+      "size": 1362
+    },
+    {
+      "path": "ui/editors/chart-editor/dialogs/open-chart-parts-entry.xml",
+      "gitBlobSha": "5e08dfbbafb5387a462f82b492c8962d5ea03436",
+      "size": 304
+    },
+    {
+      "path": "ui/editors/chart-editor/dialogs/open-chart-parts.xml",
+      "gitBlobSha": "ba69f8f2a6225cd96ce9e9b408960ef180ed9529",
+      "size": 548
+    },
+    {
+      "path": "ui/editors/chart-editor/dialogs/song-metadata.xml",
+      "gitBlobSha": "bcd3542560793814f9f827d0f97e0341bc59c09b",
+      "size": 3647
+    },
+    {
+      "path": "ui/editors/chart-editor/dialogs/upload-inst.xml",
+      "gitBlobSha": "be99a5ccde721b020ab3ae6dd783bfe1358026b9",
+      "size": 600
+    },
+    {
+      "path": "ui/editors/chart-editor/dialogs/user-guide.xml",
+      "gitBlobSha": "4ad526b43e309ecdcfe15aac4767c4ad3216fa3e",
+      "size": 5362
+    },
+    {
+      "path": "ui/editors/chart-editor/events/BPMChange.xml",
+      "gitBlobSha": "56d79aeb60572ea1eb45ff5739f71106b755d875",
+      "size": 170
+    },
+    {
+      "path": "ui/editors/chart-editor/events/Default.xml",
+      "gitBlobSha": "4983cbe86272a3ec9656c28e279bce505ae01e69",
+      "size": 166
+    },
+    {
+      "path": "ui/editors/chart-editor/events/FocusCamera.xml",
+      "gitBlobSha": "efd96ea4c9ae030fd3a0b00744f8b0f0ef1bc4c5",
+      "size": 174
+    },
+    {
+      "path": "ui/editors/chart-editor/events/PlayAnimation.xml",
+      "gitBlobSha": "607ed04b66c56e0226a2e8afb963e89333e49386",
+      "size": 178
+    },
+    {
+      "path": "ui/editors/chart-editor/events/ScrollSpeed.xml",
+      "gitBlobSha": "84161ad91abe15500853371fb5d443129bd54ed9",
+      "size": 174
+    },
+    {
+      "path": "ui/editors/chart-editor/events/SetCharacter.xml",
+      "gitBlobSha": "a3051d3928ba6de6eed6a85bc7c8a6379fafebb4",
+      "size": 176
+    },
+    {
+      "path": "ui/editors/chart-editor/events/SetHealthIcon.xml",
+      "gitBlobSha": "5d4beae5ee2cd2a6124f2a544aace2630d034eef",
+      "size": 178
+    },
+    {
+      "path": "ui/editors/chart-editor/events/SetStage.xml",
+      "gitBlobSha": "961139b1e05a6d3aa942a73fe09757e2e94a9d85",
+      "size": 168
+    },
+    {
+      "path": "ui/editors/chart-editor/events/sserafimDark.xml",
+      "gitBlobSha": "53850d01b9126259b944255c0797fe8036daf3a3",
+      "size": 176
+    },
+    {
+      "path": "ui/editors/chart-editor/events/sserafimKick.xml",
+      "gitBlobSha": "ba1f8eadaf11f3f638a389a36604bd333fb94e92",
+      "size": 176
+    },
+    {
+      "path": "ui/editors/chart-editor/events/sserafimLights.xml",
+      "gitBlobSha": "182dde57704a9bbb2b81566c9515b1e3736525a0",
+      "size": 180
+    },
+    {
+      "path": "ui/editors/chart-editor/events/sserafimPulseLights.xml",
+      "gitBlobSha": "25464706f87d1b899979ce010f7bb256f903a5a7",
+      "size": 190
+    },
+    {
+      "path": "ui/editors/chart-editor/events/sserafimShow.xml",
+      "gitBlobSha": "23150b7eda71c82e4962de79627f3d8dd8edc26a",
+      "size": 176
+    },
+    {
+      "path": "ui/editors/chart-editor/events/sserafimSing.xml",
+      "gitBlobSha": "05d9ce917c09273413f9c2ac663ee0453b23c5ab",
+      "size": 176
+    },
+    {
+      "path": "ui/editors/chart-editor/toolbox/icon-selector.xml",
+      "gitBlobSha": "2ff68082990fb67c3482dc26f97032b098f37215",
+      "size": 338
+    },
+    {
+      "path": "ui/editors/chart-editor/toolbox/opponent-preview.xml",
+      "gitBlobSha": "b96ddc40c836e6fe9a7c95d315abfbcd24597ee4",
+      "size": 350
+    },
+    {
+      "path": "ui/editors/chart-editor/toolbox/player-preview.xml",
+      "gitBlobSha": "df4ff788c5b8e53c32451b3e8c387adcef1e5466",
+      "size": 344
+    },
+    {
+      "path": "ui/editors/chart-editor/toolbox/playtest-properties.xml",
+      "gitBlobSha": "c2ad230f92862c2fea108fe611fa7a6a4644a785",
+      "size": 1194
+    },
+    {
+      "path": "ui/editors/chart-editor/toolbox/tools.xml",
+      "gitBlobSha": "352d0e5d157448ad6dc8c9626dd19ab4d6eccf10",
+      "size": 119
+    },
+    {
+      "path": "ui/editors/stage-editor/components/layers.xml",
+      "gitBlobSha": "b34274d494523ee30878ae7d54b40648ded6da69",
+      "size": 427
+    },
+    {
+      "path": "ui/editors/stage-editor/components/menubar.xml",
+      "gitBlobSha": "435dfd930104bed5c1bf75a35f15e444698f2514",
+      "size": 3674
+    },
+    {
+      "path": "ui/editors/stage-editor/stage-editor-view.xml",
+      "gitBlobSha": "1544cdddc07830207dfc63fd0323ac3bc8479719",
+      "size": 2328
+    }
+  ]
+}

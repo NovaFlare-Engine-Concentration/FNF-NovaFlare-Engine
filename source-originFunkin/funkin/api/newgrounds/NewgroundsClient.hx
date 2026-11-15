@@ -1,7 +1,8 @@
 package funkin.api.newgrounds;
 
-#if FEATURE_NEWGROUNDS
 import funkin.save.Save;
+import funkin.api.newgrounds.Medals.Medal;
+#if FEATURE_NEWGROUNDS
 import io.newgrounds.Call.CallError;
 import io.newgrounds.NG;
 import io.newgrounds.NGLite;
@@ -16,7 +17,8 @@ import io.newgrounds.objects.User;
 import funkin.mobile.util.WebViewUtil;
 #end
 
-@:build(funkin.util.macro.EnvironmentMacro.build()) @:nullSafety
+@:build(funkin.util.macro.EnvironmentMacro.build())
+@:nullSafety
 class NewgroundsClient
 {
   @:envField
@@ -29,7 +31,7 @@ class NewgroundsClient
   static function get_instance():NewgroundsClient
   {
     if (NewgroundsClient._instance == null) _instance = new NewgroundsClient();
-    if (NewgroundsClient._instance == null) throw 'Could not initialize singleton NewgroundsClient!';
+    if (NewgroundsClient._instance == null) throw "Could not initialize singleton NewgroundsClient!";
     return NewgroundsClient._instance;
   }
 
@@ -49,7 +51,7 @@ class NewgroundsClient
 
     if (!hasValidCredentials())
     {
-      FlxG.log.warn('Tried to initialize Newgrounds client, but credentials are invalid!');
+      FlxG.log.warn("Tried to initialize Newgrounds client, but credentials are invalid!");
       return;
     }
 
@@ -99,7 +101,7 @@ class NewgroundsClient
   {
     if (NG.core == null)
     {
-      FlxG.log.warn('No Newgrounds client initialized! Are your credentials invalid?');
+      FlxG.log.warn("No Newgrounds client initialized! Are your credentials invalid?");
       return;
     }
     if (NG.core.attemptingLogin)
@@ -124,7 +126,7 @@ class NewgroundsClient
         NG.core.onPassportUrlOpen();
       }
       else
-        NG.core.logError('Cannot open passport');
+        NG.core.logError("Cannot open passport");
       #else
       NG.core.openPassportUrl();
       #end
@@ -144,7 +146,7 @@ class NewgroundsClient
   {
     if (NG.core == null)
     {
-      FlxG.log.warn('No Newgrounds client initialized! Are your credentials invalid?');
+      FlxG.log.warn("No Newgrounds client initialized! Are your credentials invalid?");
       return;
     }
 
@@ -186,6 +188,7 @@ class NewgroundsClient
     }
 
     Save.instance.ngSessionId.value = null;
+    Save.instance.flush();
   }
 
   /**
@@ -205,12 +208,14 @@ class NewgroundsClient
    */
   static function hasValidCredentials():Bool
   {
-    return !(API_NG_APP_ID == null
+    return !(
+      API_NG_APP_ID == null
       || API_NG_APP_ID == ''
       || (API_NG_APP_ID != null && API_NG_APP_ID.contains(' '))
       || API_NG_ENC_KEY == null
       || API_NG_ENC_KEY == ''
-      || (API_NG_ENC_KEY != null && API_NG_ENC_KEY.contains(' ')));
+      || (API_NG_ENC_KEY != null && API_NG_ENC_KEY.contains(' '))
+    );
   }
 
   function onLoginResolved(outcome:LoginOutcome):Void
@@ -273,6 +278,7 @@ class NewgroundsClient
 
     // Persist the session ID.
     Save.instance.ngSessionId.value = NG.core.sessionId;
+    Save.instance.flush();
 
     trace(NG.core.sessionId);
 
@@ -344,6 +350,8 @@ class NewgroundsClient
   function onFetchedLeaderboards(outcome:Outcome<CallError>):Void
   {
     trace(' NEWGROUNDS '.bold().bg_orange() + ' Fetched leaderboards!');
+
+    // trace(funkin.api.newgrounds.Leaderboards.listLeaderboardData());
   }
 
   function onFetchedSaveSlots(outcome:Outcome<CallError>):Void

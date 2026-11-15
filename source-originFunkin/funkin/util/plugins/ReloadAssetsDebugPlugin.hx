@@ -1,13 +1,15 @@
 package funkin.util.plugins;
 
-import funkin.ui.ScriptedMusicBeatState;
-import flixel.FlxG;
+import flixel.util.typeLimit.NextState;
 import flixel.FlxBasic;
+import flixel.FlxG;
+import flixel.FlxState;
+import flixel.FlxSubState;
+import flixel.addons.transition.FlxTransitionableState;
+import funkin.ui.transition.preload.hotreload.HotReloadState;
+import funkin.ui.transition.preload.hotreload.HotReloadState.HotReloadStateParams;
 import funkin.ui.MusicBeatState;
 import funkin.ui.MusicBeatSubState;
-#if android
-import funkin.external.android.CallbackUtil;
-#end
 
 /**
  * A plugin which adds functionality to press `F5` to reload all game assets, then reload the current state.
@@ -16,14 +18,7 @@ import funkin.external.android.CallbackUtil;
 @:nullSafety
 class ReloadAssetsDebugPlugin extends FlxBasic
 {
-  public function new()
-  {
-    super();
-
-    #if android
-    CallbackUtil.onActivityResult.add(onActivityResult);
-    #end
-  }
+  public static var hotReloadInProgress:Bool = false;
 
   public static function initialize():Void
   {
@@ -34,69 +29,99 @@ class ReloadAssetsDebugPlugin extends FlxBasic
   {
     super.update(elapsed);
 
-    #if html5
-    if (FlxG.keys.justPressed.FIVE && FlxG.keys.pressed.SHIFT)
-    #else
-    if (FlxG.keys.justPressed.F5)
-    #end
+    if (!hotReloadInProgress)
     {
-      reload();
+      #if html5
+      if (FlxG.keys.justPressed.FIVE && FlxG.keys.pressed.SHIFT)
+      #else
+      if (FlxG.keys.justPressed.F5)
+      #end
+      {
+        reload();
+      }
     }
   }
-
-  override public function destroy():Void
-  {
-    super.destroy();
-
-    #if android
-    if (CallbackUtil.onActivityResult.has(onActivityResult))
-    {
-      CallbackUtil.onActivityResult.remove(onActivityResult);
-    }
-    #end
-  }
-
-  var path:String = '';
 
   @:noCompletion
   function reload():Void
   {
-    var state:Dynamic = FlxG.state;
-    var isScripted:Bool = state is ScriptedMusicBeatState;
+    hotReloadInProgress = true;
+    FlxTransitionableState.skipNextTransIn = true;
+
+    var state:Dynamic = cast FlxG.state;
+    var isScripted:Bool = state._asc != null;
+
+    var hotReloadParams:HotReloadStateParams = {};
     if (isScripted)
     {
-      var s:ScriptedMusicBeatState = cast FlxG.state;
       @:privateAccess
-      path = s._asc.fullyQualifiedName;
-      trace('Current scripted state path: ' + path);
-    }
+      var path:String = state._asc?.fullyQualifiedName ?? '';
+      var constructorArgs:Array<Dynamic> = state._asc?.getConstructorArgs() ?? [];
 
-    if ((state is MusicBeatState || state is MusicBeatSubState) && !isScripted) state.reloadAssets();
+      trace('Hot-reloading scripted state: ' + path);
+
+      if (Std.isOfType(state, MusicBeatState) || Std.isOfType(state, MusicBeatSubState))
+      {
+        state.onPreHotReload();
+
+        hotReloadParams = state.getHotReloadParams();
+      }
+      else
+      {
+        var newState:Null<FlxState> = null;
+
+        // Just load the scripted FlxState instead.
+        var scriptedNextState:NextState = () ->
+        {
+          if (Std.isOfType(state, FlxState))
+          {
+            newState = FlxState.scriptInit(path, ...constructorArgs);
+          }
+          else if (Std.isOfType(state, FlxSubState))
+          {
+            newState = FlxSubState.scriptInit(path, ...constructorArgs);
+          }
+          if (newState == null) return new funkin.ui.mainmenu.MainMenuState();
+          return newState;
+        }
+
+        hotReloadParams = {
+          targetState: scriptedNextState
+        }
+      }
+      FlxG.switchState(() -> new HotReloadState(hotReloadParams));
+    }
     else
     {
-      funkin.modding.PolymodHandler.forceReloadAssets();
-
-      trace('Reloaded assets, checking for scripted state. Scripted: ' + isScripted + ', Path: ' + path);
-      if (isScripted)
+      var clsName:String = Type.getClassName(Type.getClass(state));
+      if (funkin.modding.CppiaScripts.exists(clsName))
       {
-        trace('Reloading scripted state: ' + path);
-        var state:Dynamic = ScriptedMusicBeatState.scriptInit(path);
-        FlxG.switchState(state);
+        trace('Hot-reloading compiled state: ' + clsName);
+        if (Std.isOfType(state, MusicBeatState) || Std.isOfType(state, MusicBeatSubState)) state.onPreHotReload();
+        hotReloadParams = {
+          targetState: () ->
+          {
+            var newState:Null<FlxState> = funkin.modding.CppiaScripts.exists(clsName) ? cast funkin.modding.CppiaScripts.create(clsName) : null;
+            if (newState == null) return new funkin.ui.mainmenu.MainMenuState();
+            return newState;
+          }
+        };
+        FlxG.switchState(() -> new HotReloadState(hotReloadParams));
+        return;
       }
+      // Fallback to using default params.
+      hotReloadParams = {
+        targetState: state._constructor
+      };
 
-      // Create a new instance of the current state, so old data is cleared.
-      if (!isScripted) FlxG.resetState();
+      if (Std.isOfType(state, MusicBeatState) || Std.isOfType(state, MusicBeatSubState))
+      {
+        state.onPreHotReload();
+
+        // Fetch the custom hot reload params for this state.
+        hotReloadParams = state.getHotReloadParams();
+      }
+      FlxG.switchState(() -> new HotReloadState(hotReloadParams));
     }
   }
-
-  #if android
-  @:noCompletion
-  function onActivityResult(requestCode:Int, resultCode:Int):Void
-  {
-    if (requestCode == CallbackUtil.DATA_FOLDER_CLOSED)
-    {
-      reload();
-    }
-  }
-  #end
 }

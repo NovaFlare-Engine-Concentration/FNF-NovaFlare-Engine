@@ -16,12 +16,20 @@ interface IScriptedClass
 }
 
 /**
- * Defines an element which can receive script events.
- * For example, the PlayState dispatches the event to all its child elements.
+ * Defines an element which can receive script events and propagate them to its children,
+ * generally the current state.
  */
 interface IEventHandler
 {
-  public function dispatchEvent(event:ScriptEvent):Void;
+  /**
+   * Propagate a script event to this handler's children.
+   *
+   * @param event The script event to propagate.
+   * @param finish If `true`, the event will automatically be marked as not in use once dispatched to all relevant children.
+   *   Keep this `true` by default to allow event objects to be reused, optimizing memory usage.
+   *   Set to `false` if you plan to perform other operations on the event before freeing it.
+   */
+  public function dispatchEvent(event:ScriptEvent, finish:Bool = true):Void;
 }
 
 /**
@@ -71,6 +79,11 @@ interface INoteScriptedClass extends IScriptedClass
    * Called when EITHER player (usually the player) misses a note.
    */
   public function onNoteMiss(event:NoteScriptEvent):Void;
+
+  /**
+   * Called when either player holds a note.
+   */
+  public function onNoteHoldHit(event:HoldNoteScriptEvent):Void;
 
   /**
    * Called when EITHER player (usually the player) drops a hold note.
@@ -157,6 +170,9 @@ interface IPlayStateScriptedClass extends INoteScriptedClass extends IBPMSyncedS
    */
   public function onSongEvent(event:SongEventScriptEvent):Void;
 
+  /** Called while a chart custom event is active. */
+  public function onCustomEvent(event:CustomEventScriptEvent):Void;
+
   /**
    * Called when the countdown of the song starts.
    */
@@ -207,6 +223,21 @@ interface IFreeplayScriptedClass extends IScriptedClass
    * Called when Freeplay is closed.
    */
   public function onFreeplayClose(event:FreeplayScriptEvent):Void;
+
+  /**
+   * Called when a capsule receives a new rank.
+   */
+  public function onCapsuleNewRank(event:CapsuleScriptEvent):Void;
+
+  /**
+   * Called when the new rank letter slams onto the current freeplay capsule.
+   */
+  public function onRankSlam(event:CapsuleScriptEvent):Void;
+
+  /**
+   * Called when the entire freeplay capsule slams down, after a new rank transition.
+   */
+  public function onCapsuleSlam(event:CapsuleScriptEvent):Void;
 }
 
 /**

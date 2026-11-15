@@ -1,5 +1,6 @@
 package funkin.ui.debug.charting.handlers;
 
+import funkin.data.song.importer.ChartManifestData;
 #if FEATURE_CHART_EDITOR
 import flixel.util.FlxTimer;
 import funkin.data.song.importer.FNFLegacyData;
@@ -49,21 +50,34 @@ using Lambda;
 /**
  * Handles dialogs for the new Chart Editor.
  */
-@:nullSafety @:access(funkin.ui.debug.charting.ChartEditorState)
+@:nullSafety
+@:access(funkin.ui.debug.charting.ChartEditorState)
 class ChartEditorDialogHandler
 {
   // Paths to HaxeUI layout files for each dialog.
-  static final CHART_EDITOR_DIALOG_UPLOAD_INST_LAYOUT:String = Paths.ui('chart-editor/dialogs/upload-inst');
-  static final CHART_EDITOR_DIALOG_SONG_METADATA_LAYOUT:String = Paths.ui('chart-editor/dialogs/song-metadata');
-  static final CHART_EDITOR_DIALOG_OPEN_CHART_PARTS_LAYOUT:String = Paths.ui('chart-editor/dialogs/open-chart-parts');
-  static final CHART_EDITOR_DIALOG_OPEN_CHART_PARTS_ENTRY_LAYOUT:String = Paths.ui('chart-editor/dialogs/open-chart-parts-entry');
-  static final CHART_EDITOR_DIALOG_IMPORT_CHART_LAYOUT:String = Paths.ui('chart-editor/dialogs/import-chart');
-  static final CHART_EDITOR_DIALOG_USER_GUIDE_LAYOUT:String = Paths.ui('chart-editor/dialogs/user-guide');
-  static final CHART_EDITOR_DIALOG_ADD_VARIATION_LAYOUT:String = Paths.ui('chart-editor/dialogs/add-variation');
-  static final CHART_EDITOR_DIALOG_ADD_DIFFICULTY_LAYOUT:String = Paths.ui('chart-editor/dialogs/add-difficulty');
-  static final CHART_EDITOR_DIALOG_CLONE_DIFFICULTY_LAYOUT:String = Paths.ui('chart-editor/dialogs/clone-difficulty');
-  static final CHART_EDITOR_DIALOG_MOVE_DIFFICULTY_LAYOUT:String = Paths.ui('chart-editor/dialogs/move-difficulty');
-  static final CHART_EDITOR_DIALOG_BACKUP_AVAILABLE_LAYOUT:String = Paths.ui('chart-editor/dialogs/backup-available');
+  static final CHART_EDITOR_DIALOG_UPLOAD_INST_LAYOUT:String = funkin.assets.ValidatedPaths.xml('ui/editors/chart-editor/dialogs/upload-inst').toString();
+  static final CHART_EDITOR_DIALOG_SONG_METADATA_LAYOUT:String = funkin.assets.ValidatedPaths.xml('ui/editors/chart-editor/dialogs/song-metadata').toString();
+  static final CHART_EDITOR_DIALOG_OPEN_CHART_PARTS_LAYOUT:String = funkin.assets.ValidatedPaths
+    .xml('ui/editors/chart-editor/dialogs/open-chart-parts')
+    .toString();
+  static final CHART_EDITOR_DIALOG_OPEN_CHART_PARTS_ENTRY_LAYOUT:String = funkin.assets.ValidatedPaths
+    .xml('ui/editors/chart-editor/dialogs/open-chart-parts-entry')
+    .toString();
+  static final CHART_EDITOR_DIALOG_IMPORT_CHART_LAYOUT:String = funkin.assets.ValidatedPaths.xml('ui/editors/chart-editor/dialogs/import-chart').toString();
+  static final CHART_EDITOR_DIALOG_USER_GUIDE_LAYOUT:String = funkin.assets.ValidatedPaths.xml('ui/editors/chart-editor/dialogs/user-guide').toString();
+  static final CHART_EDITOR_DIALOG_ADD_VARIATION_LAYOUT:String = funkin.assets.ValidatedPaths.xml('ui/editors/chart-editor/dialogs/add-variation').toString();
+  static final CHART_EDITOR_DIALOG_ADD_DIFFICULTY_LAYOUT:String = funkin.assets.ValidatedPaths
+    .xml('ui/editors/chart-editor/dialogs/add-difficulty')
+    .toString();
+  static final CHART_EDITOR_DIALOG_CLONE_DIFFICULTY_LAYOUT:String = funkin.assets.ValidatedPaths
+    .xml('ui/editors/chart-editor/dialogs/clone-difficulty')
+    .toString();
+  static final CHART_EDITOR_DIALOG_MOVE_DIFFICULTY_LAYOUT:String = funkin.assets.ValidatedPaths
+    .xml('ui/editors/chart-editor/dialogs/move-difficulty')
+    .toString();
+  static final CHART_EDITOR_DIALOG_BACKUP_AVAILABLE_LAYOUT:String = funkin.assets.ValidatedPaths
+    .xml('ui/editors/chart-editor/dialogs/backup-available')
+    .toString();
 
   /**
    * Builds and opens a dialog giving brief credits for the chart editor.
@@ -125,9 +139,7 @@ class ChartEditorDialogHandler
   {
     var charData:SongCharacterData = state.currentSongMetadata.playData.characters;
 
-    var charIdsForVocals:Array<String> = [charData.player, charData.opponent];
-
-    var dialog = ChartEditorUploadVocalsDialog.build(state, charIdsForVocals, closable);
+    var dialog = ChartEditorUploadVocalsDialog.build(state, charData.player, charData.opponent, closable);
 
     dialog.zIndex = 1000;
     state.isHaxeUIDialogOpen = true;
@@ -173,7 +185,7 @@ class ChartEditorDialogHandler
     var backupTimeLabel:Null<Label> = dialog.findComponent('backupTimeLabel', Label);
     if (backupTimeLabel == null) throw 'Could not locate backupTimeLabel button in Backup Available dialog';
 
-    var latestBackupInfo:Null<String> = ChartEditorImportExportHandler.getLatestBackupInfo();
+    var latestBackupInfo:Null<String> = ChartEditorImportExportHandler.getLatestBackupInfo('chart-editor-');
     if (latestBackupInfo != null)
     {
       backupTimeLabel.text = latestBackupInfo;
@@ -200,31 +212,25 @@ class ChartEditorDialogHandler
     if (buttonOpenBackup == null) throw 'Could not locate buttonOpenBackup button in Backup Available dialog';
     buttonOpenBackup.onClick = function(_)
     {
-      var latestBackupPath:Null<String> = ChartEditorImportExportHandler.getLatestBackupPath();
+      var latestBackupPath:Null<String> = ChartEditorImportExportHandler.getLatestBackupPath('chart-editor-');
 
-      var result:Null<Array<String>> = (latestBackupPath != null) ? state.loadFromFNFCPath(latestBackupPath) : null;
-      if (result != null)
+      if (latestBackupPath == null)
       {
-        if (result.length == 0)
-        {
-          // No warnings.
-          state.success('Loaded Chart', 'Loaded chart (${latestBackupPath})');
-        }
-        else
-        {
-          // One or more warnings.
-          state.warning('Loaded Chart', 'Loaded chart (${latestBackupPath})\n${result.join("\n")}');
-        }
-
-        // Close the welcome dialog behind this.
-        dialog.hideDialog(DialogButton.APPLY);
+        state.error('No Backup Found', 'No backup file was found to load.');
+        // Don't close the welcome dialog so we aren't in a broken state.
       }
       else
       {
-        state.error('Failed to Load Chart', 'Failed to load chart (${latestBackupPath})');
-
-        // Song failed to load, don't close the Welcome dialog so we aren't in a broken state.
-        dialog.hideDialog(DialogButton.CANCEL);
+        try
+        {
+          state.loadSongFromFNFCPath(latestBackupPath);
+          dialog.hideDialog(DialogButton.APPLY);
+        }
+        catch (e)
+        {
+          state.error('Failed to Load Backup', 'Failed to load backup (${latestBackupPath}):\n$e');
+          // Don't close the welcome dialog so we aren't in a broken state.
+        }
       }
     }
 
@@ -524,7 +530,10 @@ class ChartEditorDialogHandler
 
     var instId:String = state.currentInstrumentalId;
 
-    var dropHandler:DialogDropTarget = {component: instrumentalBox, handler: null};
+    var dropHandler:DialogDropTarget = {
+      component: instrumentalBox,
+      handler: null
+    };
 
     instrumentalBox.onClick = function(_)
     {
@@ -616,6 +625,10 @@ class ChartEditorDialogHandler
 
     newSongMetadata.variation = targetVariation;
     newSongMetadata.playData.difficulties = (erect) ? ['erect', 'nightmare'] : ['easy', 'normal', 'hard'];
+
+    // Tell the game not to load any vocal tracks until they get uploaded.
+    newSongMetadata.playData.characters.opponentVocals = [];
+    newSongMetadata.playData.characters.playerVocals = [];
 
     var inputSongName:Null<TextField> = dialog.findComponent('inputSongName', TextField);
     if (inputSongName == null) throw 'Could not locate inputSongName TextField in Song Metadata dialog';
@@ -718,8 +731,11 @@ class ChartEditorDialogHandler
       if (event.data?.id == null) return;
       newSongMetadata.playData.characters.player = event.data.id;
     };
-    var startingValuePlayer = ChartEditorDropdowns.populateDropdownWithCharacters(inputCharacterPlayer, CharacterType.BF,
-      newSongMetadata.playData.characters.player);
+    var startingValuePlayer = ChartEditorDropdowns.populateDropdownWithCharacters(
+      inputCharacterPlayer,
+      CharacterType.BF,
+      newSongMetadata.playData.characters.player
+    );
     inputCharacterPlayer.value = startingValuePlayer;
 
     var inputCharacterOpponent:Null<DropDown> = dialog.findComponent('inputCharacterOpponent', DropDown);
@@ -729,8 +745,11 @@ class ChartEditorDialogHandler
       if (event.data?.id == null) return;
       newSongMetadata.playData.characters.opponent = event.data.id;
     };
-    var startingValueOpponent = ChartEditorDropdowns.populateDropdownWithCharacters(inputCharacterOpponent, CharacterType.DAD,
-      newSongMetadata.playData.characters.opponent);
+    var startingValueOpponent = ChartEditorDropdowns.populateDropdownWithCharacters(
+      inputCharacterOpponent,
+      CharacterType.DAD,
+      newSongMetadata.playData.characters.opponent
+    );
     inputCharacterOpponent.value = startingValueOpponent;
 
     var inputCharacterGirlfriend:Null<DropDown> = dialog.findComponent('inputCharacterGirlfriend', DropDown);
@@ -740,8 +759,11 @@ class ChartEditorDialogHandler
       if (event.data?.id == null) return;
       newSongMetadata.playData.characters.girlfriend = event.data.id == "none" ? "" : event.data.id;
     };
-    var startingValueGirlfriend = ChartEditorDropdowns.populateDropdownWithCharacters(inputCharacterGirlfriend, CharacterType.GF,
-      newSongMetadata.playData.characters.girlfriend);
+    var startingValueGirlfriend = ChartEditorDropdowns.populateDropdownWithCharacters(
+      inputCharacterGirlfriend,
+      CharacterType.GF,
+      newSongMetadata.playData.characters.girlfriend
+    );
     inputCharacterGirlfriend.value = startingValueGirlfriend;
 
     var dialogBPM:Null<NumberStepper> = dialog.findComponent('dialogBPM', NumberStepper);
@@ -753,9 +775,7 @@ class ChartEditorDialogHandler
       var timeChanges:Array<SongTimeChange> = newSongMetadata.timeChanges;
       if (timeChanges == null || timeChanges.length == 0)
       {
-        timeChanges = [
-          new SongTimeChange(0, event.value)
-        ];
+        timeChanges = [new SongTimeChange(0, event.value)];
       }
       else
       {
@@ -824,7 +844,15 @@ class ChartEditorDialogHandler
     if (buttonContinue == null) throw 'Could not locate dialogContinue button in Open Chart dialog';
     buttonContinue.onClick = function(_)
     {
-      state.loadSong(songMetadata, songChartData);
+      state.loadSongFromFNFCData({
+        manifest: new ChartManifestData(state.currentSongId),
+
+        songMetadatas: songMetadata,
+        songChartDatas: songChartData,
+
+        instrumentals: [],
+        vocals: []
+      });
 
       dialog.hideDialog(DialogButton.APPLY);
     }
@@ -936,8 +964,11 @@ class ChartEditorDialogHandler
         return;
       }
 
-      var songMetadataVariation:Null<SongMetadata> = SongRegistry.instance.parseEntryMetadataRawWithMigration(songMetadataTxt, path.toString(),
-        songMetadataVersion);
+      var songMetadataVariation:Null<SongMetadata> = SongRegistry.instance.parseEntryMetadataRawWithMigration(
+        songMetadataTxt,
+        path.toString(),
+        songMetadataVersion
+      );
 
       if (songMetadataVariation == null)
       {
@@ -978,8 +1009,11 @@ class ChartEditorDialogHandler
             return;
           }
 
-          var songMetadataVariation:Null<SongMetadata> = SongRegistry.instance.parseEntryMetadataRawWithMigration(songMetadataTxt, selectedFile.name,
-            songMetadataVersion);
+          var songMetadataVariation:Null<SongMetadata> = SongRegistry.instance.parseEntryMetadataRawWithMigration(
+            songMetadataTxt,
+            selectedFile.name,
+            songMetadataVersion
+          );
 
           if (songMetadataVariation != null)
           {
@@ -1020,8 +1054,11 @@ class ChartEditorDialogHandler
         return;
       }
 
-      var songChartDataVariation:Null<SongChartData> = SongRegistry.instance.parseEntryChartDataRawWithMigration(songChartDataTxt, path.toString(),
-        songChartDataVersion);
+      var songChartDataVariation:Null<SongChartData> = SongRegistry.instance.parseEntryChartDataRawWithMigration(
+        songChartDataTxt,
+        path.toString(),
+        songChartDataVersion
+      );
 
       if (songChartDataVariation != null)
       {
@@ -1064,8 +1101,11 @@ class ChartEditorDialogHandler
             return;
           }
 
-          var songChartDataVariation:Null<SongChartData> = SongRegistry.instance.parseEntryChartDataRawWithMigration(songChartDataTxt, selectedFile.name,
-            songChartDataVersion);
+          var songChartDataVariation:Null<SongChartData> = SongRegistry.instance.parseEntryChartDataRawWithMigration(
+            songChartDataTxt,
+            selectedFile.name,
+            songChartDataVersion
+          );
 
           if (songChartDataVariation != null)
           {
@@ -1098,7 +1138,10 @@ class ChartEditorDialogHandler
     #end
 
     metadataEntry.onClick = onClickMetadataVariation.bind(Constants.DEFAULT_VARIATION).bind(metadataEntryLabel);
-    state.addDropHandler({component: metadataEntry, handler: onDropFileMetadataVariation.bind(Constants.DEFAULT_VARIATION).bind(metadataEntryLabel)});
+    state.addDropHandler({
+      component: metadataEntry,
+      handler: onDropFileMetadataVariation.bind(Constants.DEFAULT_VARIATION).bind(metadataEntryLabel)
+    });
     metadataEntry.onMouseOver = function(_event)
     {
       metadataEntry.swapClass('upload-bg', 'upload-bg-hover');
@@ -1255,8 +1298,10 @@ class ChartEditorDialogHandler
           else if (osuManiaData.General.Mode != 3)
           {
             var modes = ["osu!", "osu!taiko", "osu!catch"];
-            state.error('Failure',
-              'Not a osu!mania beatmap!\nGiven beatmap seems to be a ${modes[osuManiaData.General.Mode]} beatmap (${path.file}.${path.ext})');
+            state.error(
+              'Failure',
+              'Not a osu!mania beatmap!\nGiven beatmap seems to be a ${modes[osuManiaData.General.Mode]} beatmap (${path.file}.${path.ext})'
+            );
             return;
           }
 
@@ -1271,11 +1316,19 @@ class ChartEditorDialogHandler
         state.error('Failure', 'Failed to load song (${path.file}.${path.ext})');
         return;
       }
-      state.loadSong([
-        Constants.DEFAULT_VARIATION => songMetadata
-      ], [
-        Constants.DEFAULT_VARIATION => songChartData
-      ]);
+      state.loadSongFromFNFCData({
+        manifest: new ChartManifestData(state.currentSongId),
+
+        songMetadatas: [
+          Constants.DEFAULT_VARIATION => songMetadata
+        ],
+        songChartDatas: [
+          Constants.DEFAULT_VARIATION => songChartData
+        ],
+
+        instrumentals: [],
+        vocals: []
+      });
 
       dialog.hideDialog(DialogButton.APPLY);
       state.success('Success', '$loadedText (${path.file}.${path.ext})');
@@ -1300,7 +1353,10 @@ class ChartEditorDialogHandler
       onFileSelected(pathStr, selectedFileText);
     };
 
-    state.addDropHandler({component: importBox, handler: onDropFile});
+    state.addDropHandler({
+      component: importBox,
+      handler: onDropFile
+    });
 
     return dialog;
   }
@@ -1379,18 +1435,27 @@ class ChartEditorDialogHandler
 
     var dialogCharacterPlayer:Null<DropDown> = dialog.findComponent('dialogCharacterPlayer', DropDown);
     if (dialogCharacterPlayer == null) throw 'Could not locate dialogCharacterPlayer DropDown in Add Variation dialog';
-    dialogCharacterPlayer.value = ChartEditorDropdowns.populateDropdownWithCharacters(dialogCharacterPlayer, CharacterType.BF,
-      state.currentSongMetadata.playData.characters.player);
+    dialogCharacterPlayer.value = ChartEditorDropdowns.populateDropdownWithCharacters(
+      dialogCharacterPlayer,
+      CharacterType.BF,
+      state.currentSongMetadata.playData.characters.player
+    );
 
     var dialogCharacterOpponent:Null<DropDown> = dialog.findComponent('dialogCharacterOpponent', DropDown);
     if (dialogCharacterOpponent == null) throw 'Could not locate dialogCharacterOpponent DropDown in Add Variation dialog';
-    dialogCharacterOpponent.value = ChartEditorDropdowns.populateDropdownWithCharacters(dialogCharacterOpponent, CharacterType.DAD,
-      state.currentSongMetadata.playData.characters.opponent);
+    dialogCharacterOpponent.value = ChartEditorDropdowns.populateDropdownWithCharacters(
+      dialogCharacterOpponent,
+      CharacterType.DAD,
+      state.currentSongMetadata.playData.characters.opponent
+    );
 
     var dialogCharacterGirlfriend:Null<DropDown> = dialog.findComponent('dialogCharacterGirlfriend', DropDown);
     if (dialogCharacterGirlfriend == null) throw 'Could not locate dialogCharacterGirlfriend DropDown in Add Variation dialog';
-    dialogCharacterGirlfriend.value = ChartEditorDropdowns.populateDropdownWithCharacters(dialogCharacterGirlfriend, CharacterType.GF,
-      state.currentSongMetadata.playData.characters.girlfriend);
+    dialogCharacterGirlfriend.value = ChartEditorDropdowns.populateDropdownWithCharacters(
+      dialogCharacterGirlfriend,
+      CharacterType.GF,
+      state.currentSongMetadata.playData.characters.girlfriend
+    );
 
     var dialogBPM:Null<NumberStepper> = dialog.findComponent('dialogBPM', NumberStepper);
     if (dialogBPM == null) throw 'Could not locate dialogBPM NumberStepper in Add Variation dialog';
@@ -1408,8 +1473,12 @@ class ChartEditorDialogHandler
       var dialogVariationName:Null<TextField> = dialog.findComponent('dialogVariationName', TextField);
       if (dialogVariationName == null) throw 'Could not locate dialogVariationName TextField in Add Variation dialog';
 
-      var pendingVariation:SongMetadata = new SongMetadata(dialogSongName.text, dialogSongArtist.text, dialogSongCharter.text,
-        dialogVariationName.text.toLowerCase());
+      var pendingVariation:SongMetadata = new SongMetadata(
+        dialogSongName.text,
+        dialogSongArtist.text,
+        dialogSongCharter.text,
+        dialogVariationName.text.toLowerCase()
+      );
 
       pendingVariation.playData.stage = dialogStage.value.id;
       pendingVariation.playData.noteStyle = dialogNoteStyle.value.id;
@@ -1473,6 +1542,11 @@ class ChartEditorDialogHandler
     {
       labelScrollSpeed.text = 'Scroll Speed: ${inputScrollSpeed.value}x';
     };
+    inputScrollSpeed.onRightClick = _ ->
+    {
+      inputScrollSpeed.value = 1;
+      labelScrollSpeed.text = 'Scroll Speed: 1x';
+    }
     inputScrollSpeed.value = state.currentSongChartScrollSpeed;
     labelScrollSpeed.text = 'Scroll Speed: ${inputScrollSpeed.value}x';
 
@@ -1538,6 +1612,11 @@ class ChartEditorDialogHandler
     {
       labelScrollSpeed.text = 'Scroll Speed: ${inputScrollSpeed.value}x';
     };
+    inputScrollSpeed.onRightClick = _ ->
+    {
+      inputScrollSpeed.value = 1;
+      labelScrollSpeed.text = 'Scroll Speed: 1x';
+    }
     inputScrollSpeed.value = state.currentSongChartScrollSpeed;
     labelScrollSpeed.text = 'Scroll Speed: ${inputScrollSpeed.value}x';
 
@@ -1584,15 +1663,20 @@ class ChartEditorDialogHandler
    */
   public static function openLeaveConfirmationDialog(state:ChartEditorState):Dialog
   {
-    var dialog:Null<Dialog> = Dialogs.messageBox("You are about to leave the editor without saving.\n\nAre you sure?", "Leave Editor",
-      MessageBoxType.TYPE_YESNO, true, function(button:DialogButton)
-    {
-      state.isHaxeUIDialogOpen = false;
-      if (button == DialogButton.YES)
+    var dialog:Null<Dialog> = Dialogs.messageBox(
+      "You are about to leave the editor without saving.\n\nAre you sure?",
+      "Leave Editor",
+      MessageBoxType.TYPE_YESNO,
+      true,
+      function(button:DialogButton)
       {
-        state.quitChartEditor();
+        state.isHaxeUIDialogOpen = false;
+        if (button == DialogButton.YES)
+        {
+          state.quitChartEditor();
+        }
       }
-    });
+    );
 
     dialog.destroyOnClose = true;
     state.isHaxeUIDialogOpen = true;
@@ -1679,7 +1763,7 @@ class ChartEditorDialogHandler
 
   static final EPSILON:Float = 0.01;
 
-  static function onDropFile(path:String, state:String, x:Float, y:Float):Void
+  static function onDropFile(file:lime.utils.DroppedFile, state:String, x:Float, y:Float):Void
   {
     // a VERY short timer to wait for the mouse position to update
     new FlxTimer().start(EPSILON, function(_)
@@ -1688,7 +1772,7 @@ class ChartEditorDialogHandler
       {
         if (handler.component.hitTest(FlxG.mouse.viewX, FlxG.mouse.viewY))
         {
-          handler.handler(path);
+          handler.handler(file.path);
           return;
         }
       }

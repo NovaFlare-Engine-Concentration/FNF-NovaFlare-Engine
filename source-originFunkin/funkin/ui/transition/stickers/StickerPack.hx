@@ -10,6 +10,15 @@ import funkin.graphics.FunkinSprite;
  */
 class StickerPack implements IRegistryEntry<StickerData>
 {
+  public static function queryAssets(type:funkin.assets.Assets.AssetType, entryId:String,
+    ?params:funkin.data.stickers.StickerRegistry.StickerEntryParams):Array<funkin.assets.Paths.AssetPath>
+  {
+    var registry = funkin.data.stickers.StickerRegistry.instance;
+    if (registry.fetchEntry(entryId, params) == null) return [];
+    @:privateAccess return registry.queryDefaultAssets(type, entryId, params);
+  }
+
+
   /**
    * The internal ID for this sticker pack.
    */
@@ -65,7 +74,7 @@ class StickerPack implements IRegistryEntry<StickerData>
    */
   public function getRandomStickerPath(last:Bool):String
   {
-    return FlxG.random.getObject(getStickers());
+    return funkin.assets.Paths.formatRelative(FlxG.random.getObject(getStickers()), 'ui/loading/stickers/stickerpacks', Constants.EXT_IMAGE);
   }
 
   public function toString():String

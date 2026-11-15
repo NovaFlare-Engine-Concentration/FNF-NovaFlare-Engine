@@ -34,6 +34,23 @@ class SetHealthIconSongEvent extends SongEvent
     });
   }
 
+  override public function queryAssets(type:funkin.assets.Assets.AssetType, data:SongEventData):Array<funkin.assets.Paths.AssetPath>
+  {
+    var characterId = data.getString('id') ?? Constants.DEFAULT_HEALTH_ICON;
+    var key = 'gameplay/characters/$characterId/icon-$characterId';
+    return switch (type)
+    {
+      case IMAGE:
+        var image = funkin.assets.Paths.image(key, false);
+        image.exists() ? [image] : [];
+      case XML:
+        var xml = funkin.assets.Paths.xml(key, false);
+        xml.exists() ? [xml] : [];
+      default:
+        [];
+    }
+  }
+
   static final DEFAULT_CHAR:Int = 0;
   static final DEFAULT_SCALE:Float = 1.0;
   static final DEFAULT_FLIPX:Bool = false;

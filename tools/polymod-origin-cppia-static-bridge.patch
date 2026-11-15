@@ -1,0 +1,77 @@
+--- a/polymod/hscript/_internal/Interp.hx
++++ b/polymod/hscript/_internal/Interp.hx
+@@ -645,6 +645,14 @@
+         return null;
+       }
+     }
++
++    #if POLYMOD_CPPIA
++    if (!_scriptClassDescriptors.exists(clsName))
++    {
++      var cppia = PolymodCppiaClassReference.tryBuildCppia(clsName);
++      if (cppia != null) return cppia.callFunction(fnName, args ?? []);
++    }
++    #end
+ 
+     var fn:Null<FunctionDecl> = null;
+     var imports:Map<String, ClassImport> = [];
+@@ -5317,6 +5325,14 @@
+     // Every scripted class has these functions, so we force the check to return true.
+     if (['scriptInit', 'listScriptClasses'].contains(fieldName)) return true;
+ 
++    #if POLYMOD_CPPIA
++    if (!_scriptClassDescriptors.exists(clsName) && PolymodCppiaClassReference.hasCppiaClass(clsName))
++    {
++      var cppiaCls = PolymodCppiaClassReference.getCppiaClass(clsName);
++      return cppiaCls != null && Type.getClassFields(cppiaCls).contains(fieldName);
++    }
++    #end
++
+     var imports:Map<String, ClassImport> = [];
+ 
+     var cls:Null<ClassDecl> = _scriptClassDescriptors.get(clsName);
+@@ -5347,6 +5363,14 @@
+   {
+     // Every scripted class has these functions, so we force the check to return true.
+     if (["scriptInit", "listScriptClasses"].contains(fnName)) return true;
++
++    #if POLYMOD_CPPIA
++    if (!_scriptClassDescriptors.exists(clsName) && PolymodCppiaClassReference.hasCppiaClass(clsName))
++    {
++      var cppiaCls = PolymodCppiaClassReference.getCppiaClass(clsName);
++      return cppiaCls != null && Type.getClassFields(cppiaCls).contains(fnName) && Reflect.isFunction(Reflect.field(cppiaCls, fnName));
++    }
++    #end
+ 
+     var imports:Map<String, ClassImport> = [];
+ 
+@@ -5380,6 +5404,14 @@
+ 
+   public function getScriptClassStaticField(clsName:String, fieldName:String):Null<Dynamic>
+   {
++    #if POLYMOD_CPPIA
++    if (!_scriptClassDescriptors.exists(clsName))
++    {
++      var cppia = PolymodCppiaClassReference.tryBuildCppia(clsName);
++      if (cppia != null) return cppia.getField(fieldName);
++    }
++    #end
++
+     var prefixedName = clsName + '#' + fieldName;
+     var fieldDecl = getScriptClassStaticFieldDecl(clsName, fieldName);
+ 
+@@ -5464,6 +5496,14 @@
+ 
+   public function setScriptClassStaticField(clsName:String, fieldName:String, value:Dynamic):Null<Dynamic>
+   {
++    #if POLYMOD_CPPIA
++    if (!_scriptClassDescriptors.exists(clsName))
++    {
++      var cppia = PolymodCppiaClassReference.tryBuildCppia(clsName);
++      if (cppia != null) return cppia.setField(fieldName, value);
++    }
++    #end
++
+     var prefixedName = clsName + '#' + fieldName;
+     var fieldDecl = getScriptClassStaticFieldDecl(clsName, fieldName);
+     if (fieldDecl != null)

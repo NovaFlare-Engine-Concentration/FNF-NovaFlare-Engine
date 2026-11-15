@@ -6,7 +6,7 @@ import flixel.math.FlxMath;
 import flixel.math.FlxPoint;
 import flixel.tweens.FlxTween;
 import flixel.tweens.FlxEase;
-import funkin.data.character.CharacterData.CharacterDataParser;
+import funkin.data.character.CharacterRegistry;
 import funkin.graphics.FunkinSprite;
 import funkin.util.MathUtil;
 
@@ -277,13 +277,15 @@ class HealthIcon extends FunkinSprite
           // Update the animation based on the current state.
           updateHealthIcon(PlayState.instance.health);
           // Update the position to match the health bar.
-          this.x = PlayState.instance.healthBar.x
+          this.x =
+            PlayState.instance.healthBar.x
             + (PlayState.instance.healthBar.width * (FlxMath.remapToRange(PlayState.instance.healthBar.value, 0, 2, 100, 0) * 0.01) - POSITION_OFFSET);
         case 1: // Dad
           // Update the animation based on the current state.
           updateHealthIcon(MAXIMUM_HEALTH - PlayState.instance.health);
           // Update the position to match the health bar.
-          this.x = PlayState.instance.healthBar.x
+          this.x =
+            PlayState.instance.healthBar.x
             + (PlayState.instance.healthBar.width * (FlxMath.remapToRange(PlayState.instance.healthBar.value, 0, 2, 100, 0) * 0.01))
             - (this.width - POSITION_OFFSET);
       }
@@ -303,16 +305,21 @@ class HealthIcon extends FunkinSprite
     {
       bopTween?.cancel();
       setGraphicSize(Std.int(this.width + (HEALTH_ICON_SIZE * this.size.x * BOP_SCALE)), 0);
-      bopTween = FlxTween.num(this.width + (HEALTH_ICON_SIZE * this.size.x * BOP_SCALE), HEALTH_ICON_SIZE * this.size.x,
-        Math.min(Conductor.instance.stepLengthMs * 0.002, .175), {
+      bopTween = FlxTween.num(
+        this.width + (HEALTH_ICON_SIZE * this.size.x * BOP_SCALE),
+        HEALTH_ICON_SIZE * this.size.x,
+        Math.min(Conductor.instance.stepLengthMs * 0.002, .175),
+        {
           onComplete: _ -> bopTween = null
-        }, value ->
-      {
-        setGraphicSize(Std.int(value), 0);
-        // Ensure the icon is positioned correctly after updating the hitbox, while its changing size.
-        this.updateHitbox();
-        this.updatePosition();
-      });
+        },
+        value ->
+        {
+          setGraphicSize(Std.int(value), 0);
+          // Ensure the icon is positioned correctly after updating the hitbox, while its changing size.
+          this.updateHitbox();
+          this.updatePosition();
+        }
+      );
       // Ensure the icon is positioned correctly after updating the hitbox.
       this.updateHitbox();
       this.updatePosition();
@@ -412,14 +419,14 @@ class HealthIcon extends FunkinSprite
     }
   }
 
-  function iconExists(charId:String):Bool
+  static function iconExists(charId:String):Bool
   {
-    return Assets.exists(Paths.image('icons/icon-$charId'));
+    return funkin.assets.Paths.image('gameplay/characters/$charId/icon-$charId', false).exists();
   }
 
-  function isNewSpritesheet(charId:String):Bool
+  static function isNewSpritesheet(charId:String):Bool
   {
-    return Assets.exists(Paths.file('images/icons/icon-$characterId.xml'));
+    return funkin.assets.Paths.xml('gameplay/characters/$charId/icon-$charId', false).exists();
   }
 
   function loadCharacter(charId:Null<String>):Void
@@ -437,13 +444,18 @@ class HealthIcon extends FunkinSprite
 
     if (!isLegacyStyle)
     {
-      loadSparrow('icons/icon-$charId');
+      loadSparrow('gameplay/characters/$charId/icon-$charId');
 
       loadAnimationNew();
     }
     else
     {
-      loadGraphic(Paths.image('icons/icon-$charId'), true, isPixel ? PIXEL_ICON_SIZE : HEALTH_ICON_SIZE, isPixel ? PIXEL_ICON_SIZE : HEALTH_ICON_SIZE);
+      loadGraphic(
+        Paths.image('gameplay/characters/$charId/icon-$charId'),
+        true,
+        isPixel ? PIXEL_ICON_SIZE : HEALTH_ICON_SIZE,
+        isPixel ? PIXEL_ICON_SIZE : HEALTH_ICON_SIZE
+      );
 
       loadAnimationOld();
     }

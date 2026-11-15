@@ -36,14 +36,10 @@ class Perf
    * The current timestamp, in fractional seconds.
    * @return The current timestamp.
    */
-  static function current():Float
+  public static function current():Float
   {
-    #if sys
-    // This one is more accurate if it's available.
-    return Sys.time();
-    #else
-    return haxe.Timer.stamp();
-    #end
+    // This one is nanosecond accurate.
+    return lime.system.System.getTimer();
   }
 
   /**
@@ -62,7 +58,7 @@ class Perf
   public function durationClean():Float
   {
     var round:Float = 100;
-    return Math.floor(duration() * Constants.MS_PER_SEC * round) / round;
+    return Math.floor(duration() * round) / round;
   }
 
   /**

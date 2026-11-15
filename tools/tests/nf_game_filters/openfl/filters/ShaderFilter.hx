@@ -1,0 +1,1 @@
+package openfl.filters; class ShaderFilter extends BitmapFilter { public function new() {super();} }

@@ -1,0 +1,14 @@
+--- a/src/hx/cppia/CppiaVars.cpp
++++ b/src/hx/cppia/CppiaVars.cpp
+@@ -216,7 +216,10 @@
+    switch(storeType)
+    {
+       case fsByte: return *(unsigned char *)(base);
+-      case fsInt: return *(int *)(base);
++      case fsInt:
++         if (type && (type->name==HX_CSTRING("Bool") || type->name==HX_CSTRING("bool")))
++            return (bool)*(int *)(base);
++         return *(int *)(base);
+       case fsBool: return *(bool *)(base);
+       case fsFloat: return *(Float *)(base);
+       case fsString: return *(String *)(base);

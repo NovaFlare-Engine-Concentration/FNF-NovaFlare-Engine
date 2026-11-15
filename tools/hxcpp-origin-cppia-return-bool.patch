@@ -1,0 +1,28 @@
+diff --git a/src/hx/cppia/CppiaFunction.cpp b/src/hx/cppia/CppiaFunction.cpp
+index 0d6c778..2df7b11 100644
+--- a/src/hx/cppia/CppiaFunction.cpp
++++ b/src/hx/cppia/CppiaFunction.cpp
+@@ -775,6 +775,11 @@ public:
+                case etFloat:
+                   return ctx->getFloat();
+                case etInt:
++                  // Dynamic closures must preserve the declared Bool type.
++                  if (function->data && function->returnTypeId >= 0 &&
++                      function->returnTypeId < (int)function->data->types.size() &&
++                      function->data->types[function->returnTypeId]->haxeClass==ClassOf<bool>())
++                     return Dynamic(ctx->getInt()!=0);
+                   return ctx->getInt();
+                case etString:
+                   return ctx->getString();
+@@ -798,6 +803,11 @@ public:
+          case etFloat:
+             return ctx->getFloat( );
+          case etInt:
++            // Match the JIT path when a Bool result is boxed as Dynamic.
++            if (function->data && function->returnTypeId >= 0 &&
++                function->returnTypeId < (int)function->data->types.size() &&
++                function->data->types[function->returnTypeId]->haxeClass==ClassOf<bool>())
++               return Dynamic(ctx->getInt()!=0);
+             return ctx->getInt( );
+          case etString:
+             return ctx->getString( );

@@ -9,12 +9,17 @@ class AnimationDataUtil
       name: name,
       prefix: data.prefix,
       assetPath: data.assetPath,
+      scale: data.scale,
+      cameraOffsets: data.cameraOffsets,
       offsets: data.offsets,
       looped: data.looped,
       flipX: data.flipX,
       flipY: data.flipY,
       frameRate: data.frameRate,
-      frameIndices: data.frameIndices
+      frameIndices: data.frameIndices,
+      animType: data.animType,
+      renderType: data.renderType,
+      atlasSettings: data.atlasSettings
     };
   }
 
@@ -33,12 +38,17 @@ class AnimationDataUtil
     return {
       prefix: data.prefix,
       assetPath: data.assetPath,
+      scale: data.scale,
+      cameraOffsets: data.cameraOffsets,
       offsets: data.offsets,
       looped: data.looped,
       flipX: data.flipX,
       flipY: data.flipY,
       frameRate: data.frameRate,
-      frameIndices: data.frameIndices
+      frameIndices: data.frameIndices,
+      animType: data.animType,
+      renderType: data.renderType,
+      atlasSettings: data.atlasSettings
     };
   }
 
@@ -88,6 +98,10 @@ typedef UnnamedAnimationData =
    */
   @:optional
   var assetPath:Null<String>;
+
+  /** Per-animation overrides retained by older character exporters. */
+  @:optional var scale:Null<Float>;
+  @:optional var cameraOffsets:Null<Array<Float>>;
 
   /**
    * Offset the character's position by this amount when playing this animation.

@@ -1,0 +1,609 @@
+--- a/polymod/hscript/_internal/Expr.hx
++++ b/polymod/hscript/_internal/Expr.hx
+@@ -328,6 +328,8 @@
+    * Whether this import is a wildcard and we need to validate it for later.
+    */
+   var ?wildcard:Bool;
++  var ?isDefault:Bool;
++  var ?isPackageImport:Bool;
+ }
+ 
+ typedef EnumDecl =
+--- a/polymod/hscript/_internal/Interp.hx
++++ b/polymod/hscript/_internal/Interp.hx
+@@ -132,6 +132,7 @@
+   var curSwitchBinopValue:Null<Dynamic>;
+ 
+   var inPrivateAccess:Bool = false;
++  var inBypassAccessor:Bool = false;
+   var inNoPrivateAccess:Bool = false;
+ 
+   function getClassDecl():Null<ClassDecl>
+@@ -645,6 +646,14 @@
+         return null;
+       }
+     }
++
++    #if POLYMOD_CPPIA
++    if (!_scriptClassDescriptors.exists(clsName))
++    {
++      var cppia = PolymodCppiaClassReference.tryBuildCppia(clsName);
++      if (cppia != null) return cppia.callFunction(fnName, args ?? []);
++    }
++    #end
+ 
+     var fn:Null<FunctionDecl> = null;
+     var imports:Map<String, ClassImport> = [];
+@@ -1933,7 +1942,7 @@
+           return superClass.fieldRead(id);
+         }
+ 
+-        return Reflect.getProperty(_proxy.superClass, id);
++        return inBypassAccessor ? Reflect.field(_proxy.superClass, id) : Reflect.getProperty(_proxy.superClass, id);
+       }
+       else if (_proxy.hasPurgedScriptFunction(id))
+       {
+@@ -2591,6 +2600,20 @@
+               return obj;
+             }
+             return expr(e);
++          case ':bypassAccessor':
++            var previous = inBypassAccessor;
++            inBypassAccessor = true;
++            try
++            {
++              var result = expr(e);
++              inBypassAccessor = previous;
++              return result;
++            }
++            catch (error:Dynamic)
++            {
++              inBypassAccessor = previous;
++              throw error;
++            }
+           default:
+             return expr(e);
+         }
+@@ -3739,7 +3762,7 @@
+     {
+       var ref:PolymodStaticClassReference = cast(o, PolymodStaticClassReference);
+ 
+-      return ref.getField(f);
++      return ref.getField(f, inBypassAccessor);
+     }
+     else if (Std.isOfType(o, PolymodEnum))
+     {
+@@ -3752,6 +3775,7 @@
+       var proxy:PolymodAbstractScriptClass = cast(o, PolymodScriptClass);
+       if (proxy.fieldExists(f))
+       {
++        proxy.inBypassAccessor = inBypassAccessor;
+         return proxy.fieldRead(f);
+       }
+       else if (proxy.superClass != null && proxy.superHasField(f))
+@@ -3759,16 +3783,17 @@
+         if (Std.isOfType(proxy.superClass, PolymodScriptClass))
+         {
+           var superClass:PolymodAbstractScriptClass = cast(proxy.superClass, PolymodScriptClass);
++          superClass.inBypassAccessor = inBypassAccessor;
+           return superClass.fieldRead(f);
+         }
+ 
+-        return Reflect.getProperty(proxy.superClass, f);
++        return inBypassAccessor ? Reflect.field(proxy.superClass, f) : Reflect.getProperty(proxy.superClass, f);
+       }
+       else
+       {
+         try
+         {
+-          return proxy.resolveField(f);
++          return proxy.resolveField(f, inBypassAccessor);
+         }
+         catch (e:Dynamic)
+         {
+@@ -3782,6 +3807,7 @@
+     {
+       if (o.scriptGet != null)
+       {
++        if (o._asc != null) o._asc.inBypassAccessor = inBypassAccessor;
+         return o.scriptGet(f);
+       }
+ 
+@@ -3808,7 +3834,8 @@
+     }
+     #end
+ 
+-    // Default behavior
++    // Preserve ordinary historical lookup; bypass explicitly reads the backing field.
++    if (inBypassAccessor) return Reflect.field(o, f);
+     #if hl
+     // On HL, hasField on properties returns true but Reflect.field
+     // might return null so we have to check if a getter exists too.
+@@ -3893,7 +3920,7 @@
+ 
+       try
+       {
+-        return ref.setField(f, v);
++        return ref.setField(f, v, inBypassAccessor);
+       }
+       catch (e:Dynamic)
+       {
+@@ -3905,6 +3932,7 @@
+       var proxy:PolymodAbstractScriptClass = cast(o, PolymodScriptClass);
+       if (proxy.fieldExists(f))
+       {
++        proxy.inBypassAccessor = inBypassAccessor;
+         return proxy.fieldWrite(f, v);
+       }
+       else if (proxy.superClass != null && proxy.superHasField(f))
+@@ -3912,6 +3940,7 @@
+         if (Std.isOfType(proxy.superClass, PolymodScriptClass))
+         {
+           var superClass:PolymodAbstractScriptClass = cast(proxy.superClass, PolymodScriptClass);
++          superClass.inBypassAccessor = inBypassAccessor;
+           return superClass.fieldWrite(f, v);
+         }
+ 
+@@ -3927,6 +3956,7 @@
+     {
+       if (o.scriptSet != null)
+       {
++        if (o._asc != null) o._asc.inBypassAccessor = inBypassAccessor;
+         return o.scriptSet(f, v);
+       }
+ 
+@@ -3943,7 +3973,7 @@
+ 
+     try
+     {
+-      PolymodAbstractScriptClass.setClassObjectField(o, f, v);
++      PolymodAbstractScriptClass.setClassObjectField(o, f, v, inBypassAccessor);
+     }
+     catch (e)
+     {
+@@ -3991,6 +4021,7 @@
+           pkg: splitPath.slice(0, splitPath.length - 1),
+           fullPath: importPath,
+           cls: PolymodScriptClass.defaultImports.get(importPath),
++          isDefault: true,
+         });
+       }
+     }
+@@ -4034,11 +4065,14 @@
+               {
+                 Polymod.error(SCRIPTED_CLASS_BLACKLISTED_MODULE, 'Scripted class ${clsName} is blacklisted and cannot be used in scripts.', SCRIPT_RUNTIME);
+               }
+-              else
++              else if (imports.get(clsName).fullPath == path.join('.'))
+               {
++                // An explicit repeat of a default import still outranks import.hx.
++                imports.get(clsName).isDefault = false;
+                 Polymod.warning(SCRIPTED_CLASS_REDUNDANT_IMPORT, 'Scripted class ${clsName} has already been imported.', SCRIPT_RUNTIME);
++                continue;
+               }
+-              continue;
++              if (imports.get(clsName) == null) continue;
+             }
+ 
+             var importedClass:ClassImport =
+@@ -4563,11 +4597,19 @@
+           {
+             for (name => clsImport in importWildcard(inter.imports, imp))
+             {
+-              inter.imports.set(name, clsImport);
+-            }
+-          }
+-          else
+-            inter.imports.set(imp.name, imp);
++              if (!inter.imports.exists(name) || inter.imports.get(name)?.isDefault)
++              {
++                clsImport.isPackageImport = true;
++                inter.imports.set(name, clsImport);
++              }
++            }
++          }
++          else if (!inter.imports.exists(imp.name) || inter.imports.get(imp.name)?.isDefault)
++          {
++            var packageImport:ClassImport = Reflect.copy(imp);
++            packageImport.isPackageImport = true;
++            inter.imports.set(imp.name, packageImport);
++          }
+         }
+       }
+ 
+@@ -4737,11 +4779,19 @@
+           {
+             for (name => clsImport in importWildcard(cls.imports, imp))
+             {
+-              cls.imports.set(name, clsImport);
+-            }
+-          }
+-          else
+-            tryImport(cls, imp);
++              if (!cls.imports.exists(name) || cls.imports.get(name)?.isDefault)
++              {
++                clsImport.isPackageImport = true;
++                cls.imports.set(name, clsImport);
++              }
++            }
++          }
++          else if (!cls.imports.exists(imp.name) || cls.imports.get(imp.name)?.isDefault)
++          {
++            var packageImport:ClassImport = Reflect.copy(imp);
++            packageImport.isPackageImport = true;
++            tryImport(cls, packageImport);
++          }
+         }
+       }
+ 
+@@ -5080,7 +5130,8 @@
+       for (clsName in classesToImport)
+       {
+         var name:String = clsName.substr(pack.length + 1);
+-        if (importList.exists(name))
++        // A wildcard may replace an injected default, but never an explicit import or blacklist.
++        if (importList.exists(name) && !(importList.get(name)?.isDefault ?? false) && !(importList.get(name)?.isPackageImport ?? false))
+         {
+           if (importList.get(name) == null)
+           {
+@@ -5317,6 +5368,14 @@
+     // Every scripted class has these functions, so we force the check to return true.
+     if (['scriptInit', 'listScriptClasses'].contains(fieldName)) return true;
+ 
++    #if POLYMOD_CPPIA
++    if (!_scriptClassDescriptors.exists(clsName) && PolymodCppiaClassReference.hasCppiaClass(clsName))
++    {
++      var cppiaCls = PolymodCppiaClassReference.getCppiaClass(clsName);
++      return cppiaCls != null && Type.getClassFields(cppiaCls).contains(fieldName);
++    }
++    #end
++
+     var imports:Map<String, ClassImport> = [];
+ 
+     var cls:Null<ClassDecl> = _scriptClassDescriptors.get(clsName);
+@@ -5347,6 +5406,14 @@
+   {
+     // Every scripted class has these functions, so we force the check to return true.
+     if (["scriptInit", "listScriptClasses"].contains(fnName)) return true;
++
++    #if POLYMOD_CPPIA
++    if (!_scriptClassDescriptors.exists(clsName) && PolymodCppiaClassReference.hasCppiaClass(clsName))
++    {
++      var cppiaCls = PolymodCppiaClassReference.getCppiaClass(clsName);
++      return cppiaCls != null && Type.getClassFields(cppiaCls).contains(fnName) && Reflect.isFunction(Reflect.field(cppiaCls, fnName));
++    }
++    #end
+ 
+     var imports:Map<String, ClassImport> = [];
+ 
+@@ -5378,8 +5445,16 @@
+     return false;
+   }
+ 
+-  public function getScriptClassStaticField(clsName:String, fieldName:String):Null<Dynamic>
+-  {
++  public function getScriptClassStaticField(clsName:String, fieldName:String, bypassAccessor:Bool = false):Null<Dynamic>
++  {
++    #if POLYMOD_CPPIA
++    if (!_scriptClassDescriptors.exists(clsName))
++    {
++      var cppia = PolymodCppiaClassReference.tryBuildCppia(clsName);
++      if (cppia != null) return cppia.getField(fieldName);
++    }
++    #end
++
+     var prefixedName = clsName + '#' + fieldName;
+     var fieldDecl = getScriptClassStaticFieldDecl(clsName, fieldName);
+ 
+@@ -5401,7 +5476,7 @@
+           {
+             switch (v.get)
+             {
+-              case 'get':
++              case 'get' if (!bypassAccessor):
+                 var getterFunc = 'get_${fieldName}';
+                 final getName = '${clsName}#$getterFunc';
+                 if (hasScriptClassStaticFunction(clsName, getterFunc))
+@@ -5423,7 +5498,7 @@
+                   throw 'Could not resolve getter for property ${prefixedName}';
+                 }
+ 
+-              case 'default':
++              case 'get' | 'default':
+                 if (!this.variables.exists(prefixedName))
+                 {
+                   var result = this.exprWithType(v.expr, v.type);
+@@ -5462,8 +5537,16 @@
+     }
+   }
+ 
+-  public function setScriptClassStaticField(clsName:String, fieldName:String, value:Dynamic):Null<Dynamic>
+-  {
++  public function setScriptClassStaticField(clsName:String, fieldName:String, value:Dynamic, bypassAccessor:Bool = false):Null<Dynamic>
++  {
++    #if POLYMOD_CPPIA
++    if (!_scriptClassDescriptors.exists(clsName))
++    {
++      var cppia = PolymodCppiaClassReference.tryBuildCppia(clsName);
++      if (cppia != null) return cppia.setField(fieldName, value);
++    }
++    #end
++
+     var prefixedName = clsName + '#' + fieldName;
+     var fieldDecl = getScriptClassStaticFieldDecl(clsName, fieldName);
+     if (fieldDecl != null)
+@@ -5496,7 +5579,7 @@
+           {
+             switch (v.set)
+             {
+-              case 'set':
++              case 'set' if (!bypassAccessor):
+                 var setterFunc = 'set_${fieldName}';
+                 final setName = '${clsName}#$setterFunc';
+                 if (hasScriptClassStaticFunction(clsName, setterFunc))
+@@ -5525,7 +5608,7 @@
+               case 'null':
+                 throw 'Cannot assign to property ${prefixedName}';
+ 
+-              case 'default':
++              case 'set' | 'default':
+                 this.variables.set(prefixedName, value);
+                 return value;
+               default:
+--- a/polymod/hscript/_internal/PolymodAbstractScriptClass.hx
++++ b/polymod/hscript/_internal/PolymodAbstractScriptClass.hx
+@@ -11,7 +11,7 @@
+ {
+   static final fieldsCache:ObjectMap<Dynamic, Array<String>> = new ObjectMap();
+ 
+-  private function resolveField(name:String):Dynamic
++  private function resolveField(name:String, bypassAccessor:Bool = false):Dynamic
+   {
+     switch (name)
+     {
+@@ -35,7 +35,7 @@
+           @:privateAccess
+           switch (v.get)
+           {
+-            case "get":
++            case "get" if (!bypassAccessor):
+               final getName = 'get_$name';
+               if (!this._interp._propTrack.exists(getName))
+               {
+@@ -101,6 +101,7 @@
+           var superScriptClass:PolymodAbstractScriptClass = cast(this.superClass, PolymodScriptClass);
+           try
+           {
++            superScriptClass.inBypassAccessor = bypassAccessor;
+             return superScriptClass.fieldRead(name);
+           }
+           catch (e:Dynamic) {}
+@@ -110,7 +111,7 @@
+           // Class object
+           try
+           {
+-            return getClassObjectField(this.superClass, name);
++            return getClassObjectField(this.superClass, name, bypassAccessor);
+           }
+           catch (e:String)
+           {
+@@ -119,20 +120,14 @@
+         }
+     }
+ 
+-    if (this.superClass == null)
+-    {
+-      throw "field '" + name + "' does not exist in script class '" + this.fullyQualifiedName + "'";
+-    }
+-    else
+-    {
+-      throw "field '" + name + "' does not exist in script class '" + this.fullyQualifiedName + "' or super class '"
+-        + Type.getClassName(Type.getClass(this.superClass)) + "'";
+-    }
++    throw 'field "$name" does not exist in script class "${this.fullyQualifiedName}"${this.superClass == null ? '' : ' or super class "${Type.getClassName(Type.getClass(this.superClass))}"'}';
+   }
+ 
+   @:op(a.b) public function fieldRead(name:String):Dynamic
+   {
+-    return resolveField(name);
++    var bypassAccessor = this.inBypassAccessor;
++    this.inBypassAccessor = false;
++    return resolveField(name, bypassAccessor);
+   }
+ 
+   public function fieldExists(name:String):Bool
+@@ -171,6 +166,8 @@
+ 
+   @:op(a.b) public function fieldWrite(name:String, value:Dynamic):Null<Dynamic>
+   {
++    var bypassAccessor = this.inBypassAccessor;
++    this.inBypassAccessor = false;
+     if (this.findVar(name) != null)
+     {
+       var decl = this.findVar(name, true);
+@@ -182,7 +179,7 @@
+       @:privateAccess
+       switch (decl.set)
+       {
+-        case "set":
++        case "set" if (!bypassAccessor):
+           final setName = 'set_$name';
+           if (!this._interp._propTrack.exists(setName))
+           {
+@@ -234,6 +231,7 @@
+       var superScriptClass:PolymodAbstractScriptClass = cast(this.superClass, PolymodScriptClass);
+       try
+       {
++        superScriptClass.inBypassAccessor = bypassAccessor;
+         return superScriptClass.fieldWrite(name, value);
+       }
+       catch (e:Dynamic) {}
+@@ -242,7 +240,7 @@
+     {
+       // Class object
+       try {
+-        if (setClassObjectField(this.superClass, name, value))
++        if (setClassObjectField(this.superClass, name, value, bypassAccessor))
+         {
+           return value;
+         }
+@@ -257,14 +255,7 @@
+       }
+     }
+ 
+-    if (this.superClass == null)
+-    {
+-      return this._interp.error(EInvalidAccess(name));
+-    }
+-    else
+-    {
+-      return this._interp.error(EInvalidAccess(name));
+-    }
++    return this._interp.error(EInvalidAccess(name));
+ 
+     trace('fieldWrite() fallthrough???');
+     return null;
+@@ -304,12 +295,17 @@
+     return fields;
+   }
+ 
+-  static function getClassObjectField(o:Dynamic, field:String):Null<Dynamic>
++  static function getClassObjectField(o:Dynamic, field:String, bypassAccessor:Bool = false):Null<Dynamic>
+   {
+     if (Util.getTypeNameOf(o) == "Object") return Reflect.getProperty(o, field);
+ 
+     var fields = retrieveClassObjectFields(o);
+-    if (fields.contains(field) || fields.contains('get_$field')) return Reflect.getProperty(o, field);
++    if (fields.contains(field) || fields.contains('get_$field'))
++    {
++      if (bypassAccessor) return Reflect.field(o, field);
++      else
++        return Reflect.getProperty(o, field);
++    }
+ 
+     throw 'No such field $field';
+   }
+@@ -321,9 +317,10 @@
+    * @param o The object to modify.
+    * @param field The name of the field to modify.
+    * @param value The value to assign to the field.
++   * @param bypassAccessor Whether to bypass the set function if it exists.
+    * @return `true` for success.
+    */
+-  public static function setClassObjectField(o:Dynamic, field:String, value:Dynamic):Bool
++  public static function setClassObjectField(o:Dynamic, field:String, value:Dynamic, bypassAccessor:Bool = false):Bool
+   {
+     if (Util.getTypeNameOf(o) == "Object") {
+       Reflect.setProperty(o, field, value);
+@@ -347,7 +344,9 @@
+       var fields = retrieveClassFields(o);
+       if (fields.contains(field) || fields.contains('set_$field'))
+       {
+-        Reflect.setProperty(o, field, value);
++        if (bypassAccessor) Reflect.setField(o, field, value);
++        else
++          Reflect.setProperty(o, field, value);
+         return true;
+       }
+     } else {
+@@ -355,7 +354,9 @@
+       var fields = retrieveClassObjectFields(o);
+       if (fields.contains(field) || fields.contains('set_$field'))
+       {
+-        Reflect.setProperty(o, field, value);
++        if (bypassAccessor) Reflect.setField(o, field, value);
++        else
++          Reflect.setProperty(o, field, value);
+         return true;
+       }
+     }
+--- a/polymod/hscript/_internal/PolymodStaticClassReference.hx
++++ b/polymod/hscript/_internal/PolymodStaticClassReference.hx
+@@ -133,9 +133,9 @@
+    * @param fieldName The name of the field to retrieve
+    * @return The value of the field
+    */
+-  public function getField(fieldName:String):Dynamic
++  public function getField(fieldName:String, bypassAccessor:Bool = false):Dynamic
+   {
+-    return PolymodScriptClass.getScriptClassStaticField(getFullyQualifiedName(), fieldName);
++    return PolymodScriptClass.getScriptClassStaticField(getFullyQualifiedName(), fieldName, bypassAccessor);
+   }
+ 
+   /**
+@@ -144,9 +144,9 @@
+    * @param fieldValue The value to assign to the field
+    * @return The value of the field
+    */
+-  public function setField(fieldName:String, fieldValue:Dynamic):Dynamic
++  public function setField(fieldName:String, fieldValue:Dynamic, bypassAccessor:Bool = false):Dynamic
+   {
+-    return PolymodScriptClass.setScriptClassStaticField(getFullyQualifiedName(), fieldName, fieldValue);
++    return PolymodScriptClass.setScriptClassStaticField(getFullyQualifiedName(), fieldName, fieldValue, bypassAccessor);
+   }
+ 
+   /**
+--- a/polymod/hscript/_internal/PolymodScriptClass.hx
++++ b/polymod/hscript/_internal/PolymodScriptClass.hx
+@@ -752,14 +752,14 @@
+     return scriptInterp.hasScriptClassStaticFunction(clsName, funcName);
+   }
+ 
+-  public static function getScriptClassStaticField(clsName:String, fieldName:String):Dynamic
+-  {
+-    return scriptInterp.getScriptClassStaticField(clsName, fieldName);
+-  }
+-
+-  public static function setScriptClassStaticField(clsName:String, fieldName:String, fieldValue:Dynamic):Dynamic
+-  {
+-    return scriptInterp.setScriptClassStaticField(clsName, fieldName, fieldValue);
++  public static function getScriptClassStaticField(clsName:String, fieldName:String, bypassAccessor:Bool = false):Dynamic
++  {
++    return scriptInterp.getScriptClassStaticField(clsName, fieldName, bypassAccessor);
++  }
++
++  public static function setScriptClassStaticField(clsName:String, fieldName:String, fieldValue:Dynamic, bypassAccessor:Bool = false):Dynamic
++  {
++    return scriptInterp.setScriptClassStaticField(clsName, fieldName, fieldValue, bypassAccessor);
+   }
+ 
+   public static function reloadPersistentStaticFields():Void
+@@ -1337,6 +1337,7 @@
+ 
+   private var _c:ClassDecl;
+   private var _interp:Interp;
++  public var inBypassAccessor:Bool = false;
+   private var _interfacesList:Map<String, PolymodStaticInterfaceReference>;
+ 
+   public var superClass:Dynamic = null;
+--- a/polymod/hscript/_internal/PolymodCppiaClassReference.hx
++++ b/polymod/hscript/_internal/PolymodCppiaClassReference.hx
+@@ -871,7 +871,7 @@
+     }
+   }
+ 
+-  override public function getField(fieldName:String):Dynamic
++  override public function getField(fieldName:String, bypassAccessor:Bool = false):Dynamic
+   {
+     if (cppiaClass == null)
+     {
+@@ -888,7 +888,7 @@
+     return Reflect.field(cppiaClass, fieldName);
+   }
+ 
+-  override public function setField(fieldName:String, fieldValue:Dynamic):Dynamic
++  override public function setField(fieldName:String, fieldValue:Dynamic, bypassAccessor:Bool = false):Dynamic
+   {
+     if (cppiaClass == null)
+     {
+--- a/polymod/util/Util.hx
++++ b/polymod/util/Util.hx
+@@ -797,6 +797,8 @@
+         #if js
+         // On JavaScript, Std.string(cls) produces a string representation of the ENTIRE class, rather than just the name.
+         untyped cls.__name__;
++        #elseif eval
++        Type.getClassName(cls);
+         #else
+         Std.string(cls);
+         #end

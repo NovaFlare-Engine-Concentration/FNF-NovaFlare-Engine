@@ -1,7 +1,9 @@
 package funkin;
 
-#if mobile
+#if FEATURE_TOUCH_CONTROLS
 import funkin.mobile.ui.FunkinHitbox;
+#end
+#if FEATURE_MOBILE_IAP
 import funkin.mobile.util.InAppPurchasesUtil;
 #end
 import funkin.save.Save;
@@ -21,10 +23,22 @@ class Preferences
    * Configurable on native targets, or fixed to 60 on web.
    * @default `60`
    */
+  #if (sys && FEATURE_DEBUG_FUNCTIONS)
+  // Explicit test-only override; never mutates the player's saved preferences.
+  static function isLowLoadTest():Bool
+  {
+    var args = Sys.args();
+    return args.contains('--origin-test-low-load') && Lambda.exists(args, arg -> StringTools.startsWith(arg, '--origin-test='));
+  }
+  #end
+
   public static var framerate(get, set):Int;
 
   static function get_framerate():Int
   {
+    #if (sys && FEATURE_DEBUG_FUNCTIONS)
+    if (isLowLoadTest()) return 60;
+    #end
     #if web
     return 60;
     #else
@@ -93,7 +107,8 @@ class Preferences
 
   static function get_downscroll():Bool
   {
-    return Save?.instance?.options?.downscroll #if mobile ?? true #else ?? false #end;
+    final defaultValue:Bool = #if FEATURE_TOUCH_CONTROLS true #else false #end;
+    return Save?.instance?.options?.downscroll ?? defaultValue;
   }
 
   static function set_downscroll(value:Bool):Bool
@@ -357,11 +372,37 @@ class Preferences
     return value;
   }
 
-  /**
-   * A global audio offset in milliseconds.
-   * This is used to sync the audio.
-   * @default `0`
-   */
+  /** Historical Discord preference, backed by the existing saved option. */
+  public static var enabledDiscordRPC(get, set):Bool;
+
+  static function get_enabledDiscordRPC():Bool return Save?.instance?.options?.enabledDiscordRPC ?? true;
+
+  static function set_enabledDiscordRPC(value:Bool):Bool
+  {
+    #if FEATURE_DISCORD_RPC
+    toggleDiscordRPC(value);
+    #end
+    Save.instance.options.enabledDiscordRPC = value;
+    Save.system.flush();
+    return value;
+  }
+
+  #if FEATURE_DISCORD_RPC
+  public static function toggleDiscordRPC(enable:Bool):Void
+  {
+    var client = funkin.api.discord.DiscordClient.instance;
+    if (enable)
+    {
+      client.init();
+      if (funkin.api.discord.DiscordClient.presenceParamsCache != null)
+        client.setPresence(funkin.api.discord.DiscordClient.presenceParamsCache);
+    }
+    else
+      client.shutdown();
+  }
+  #end
+
+  /** A global audio offset in milliseconds, used to sync audio. */
   public static var globalOffset(get, set):Int;
 
   static function get_globalOffset():Int
@@ -436,6 +477,9 @@ class Preferences
 
   static function get_unlockedFramerate():Bool
   {
+    #if (sys && FEATURE_DEBUG_FUNCTIONS)
+    if (isLowLoadTest()) return false;
+    #end
     #if (mobile || web)
     return false;
     #else
@@ -607,6 +651,34 @@ class Preferences
     return value;
   }
 
+  /**
+   * Controls Scheme for the hitbox.
+   * @default `4 Lanes`
+   */
+  public static var controlsScheme(get, set):String;
+
+  static function get_controlsScheme():String
+  {
+    #if mobile
+    final value:String = Save?.instance?.mobileOptions?.controlsScheme ?? FunkinHitboxControlSchemes.Origin;
+    return value == FunkinHitboxControlSchemes.Hitbox ? FunkinHitboxControlSchemes.Hitbox : FunkinHitboxControlSchemes.Origin;
+    #else
+    return Save?.instance?.options?.controlsScheme ?? "Arrows";
+    #end
+  }
+
+  static function set_controlsScheme(value:String):String
+  {
+    var save:Save = Save.instance;
+    #if mobile
+    save.mobileOptions.controlsScheme = value;
+    #else
+    save.options.controlsScheme = value;
+    #end
+    Save.system.flush();
+    return value;
+  }
+
   #if mobile
   /**
    * If enabled, device will be able to sleep on its own.
@@ -628,29 +700,9 @@ class Preferences
     Save.system.flush();
     return value;
   }
+  #end
 
-  /**
-   * Controls Scheme for the hitbox.
-   * @default `4 Lanes`
-   */
-  public static var controlsScheme(get, set):String;
-
-  static function get_controlsScheme():String
-  {
-    final value:String = Save?.instance?.mobileOptions?.controlsScheme ?? FunkinHitboxControlSchemes.Origin;
-    return value == FunkinHitboxControlSchemes.Hitbox
-      ? FunkinHitboxControlSchemes.Hitbox
-      : FunkinHitboxControlSchemes.Origin;
-  }
-
-  static function set_controlsScheme(value:String):String
-  {
-    var save:Save = Save.instance;
-    save.mobileOptions.controlsScheme = value;
-    Save.system.flush();
-    return value;
-  }
-
+  #if mobile
   public static inline function usesOriginControls():Bool
   {
     return controlsScheme == FunkinHitboxControlSchemes.Origin;
@@ -681,6 +733,8 @@ class Preferences
     return value;
   }
 
+  #end
+
   #if FEATURE_MOBILE_IAP
   /**
    * If bought, the game will not show any ads.
@@ -705,6 +759,5 @@ class Preferences
     Save.system.flush();
     return value;
   }
-  #end
   #end
 }

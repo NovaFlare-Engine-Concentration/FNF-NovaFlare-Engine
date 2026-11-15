@@ -48,16 +48,14 @@ class ShaderFunctions
 			}
 
 			var arr:Array<String> = funk.runtimeShaders.get(shader);
-			// Both FlxGame and FlxCamera has a _filters array and a setFilters function
-			// We should maybe make an interface for that?
 			var camera = getCam(cam);
-			@:privateAccess {
-				if (camera._filters == null)
-					camera._filters = [];
-				var filter = new ShaderFilter(new FlxRuntimeShader(arr[0], arr[1]));
-				storedFilters.set(index, filter);
-				camera._filters.push(filter);
-			}
+			if (camera == null) return false;
+			var current = getCameraFilters(camera);
+			var filters:Array<openfl.filters.BitmapFilter> = current == null ? [] : current.copy();
+			var filter = new ShaderFilter(new FlxRuntimeShader(arr[0], arr[1]));
+			storedFilters.set(index, filter);
+			filters.push(filter);
+			setCameraFilters(camera, filters);
 			return true;
 			#else
 			FunkinLua.luaTrace("addShaderToCam: Platform unsupported for Runtime Shaders!", false, false, FlxColor.RED);
@@ -69,23 +67,24 @@ class ShaderFunctions
 		{
 			#if (!flash && MODS_ALLOWED && sys)
 			var camera = getCam(cam);
-			@:privateAccess {
-				if (!storedFilters.exists(shader))
-				{
-					FunkinLua.luaTrace('removeCamShader: $shader does not exist!', false, false, FlxColor.YELLOW);
-					return false;
-				}
-
-				if (camera._filters == null)
-				{
-					FunkinLua.luaTrace('removeCamShader: camera $cam does not have any shaders!', false, false, FlxColor.YELLOW);
-					return false;
-				}
-
-				camera._filters.remove(storedFilters.get(shader));
-				storedFilters.remove(shader);
-				return true;
+			if (!storedFilters.exists(shader))
+			{
+				FunkinLua.luaTrace('removeCamShader: $shader does not exist!', false, false, FlxColor.YELLOW);
+				return false;
 			}
+
+			var current = getCameraFilters(camera);
+			if (current == null)
+			{
+				FunkinLua.luaTrace('removeCamShader: camera $cam does not have any shaders!', false, false, FlxColor.YELLOW);
+				return false;
+			}
+
+			var filters:Array<openfl.filters.BitmapFilter> = current.copy();
+			filters.remove(storedFilters.get(shader));
+			setCameraFilters(camera, filters);
+			storedFilters.remove(shader);
+			return true;
 			#else
 			FunkinLua.luaTrace('removeCamShader: Platform unsupported for Runtime Shaders!', false, false, FlxColor.RED);
 			#end
@@ -523,6 +522,32 @@ class ShaderFunctions
 			return null;
 		}
 		return cast(target.shader, FlxRuntimeShader);
+	}
+
+	// FlxCamera._filters is a property; reading it dynamically does not invoke its getter.
+	private static function getCameraFilters(camera:Dynamic):Null<Array<openfl.filters.BitmapFilter>>
+	{
+		if (camera == null) return null;
+		if (camera == FlxG.game)
+		{
+			@:privateAccess return FlxG.game._filters;
+		}
+		if (Std.isOfType(camera, flixel.FlxCamera))
+		{
+			var flxCamera:flixel.FlxCamera = cast camera;
+			return flxCamera.filters;
+		}
+		return null;
+	}
+
+	private static function setCameraFilters(camera:Dynamic, filters:Array<openfl.filters.BitmapFilter>):Void
+	{
+		if (camera == FlxG.game) FlxG.game.setFilters(filters);
+		else if (Std.isOfType(camera, flixel.FlxCamera))
+		{
+			var flxCamera:flixel.FlxCamera = cast camera;
+			flxCamera.filters = filters;
+		}
 	}
 
 	public static function getCam(obj:String):Dynamic

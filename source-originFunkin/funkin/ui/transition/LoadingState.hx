@@ -1,5 +1,6 @@
 package funkin.ui.transition;
 
+import funkin.assets.FunkinAssetCache;
 import funkin.data.notestyle.NoteStyleRegistry;
 import flixel.FlxSprite;
 import flixel.math.FlxMath;
@@ -27,6 +28,7 @@ class LoadingState extends MusicBeatSubState
 {
   inline static var MIN_TIME = 1.0;
 
+  var loadingDestroyed:Bool = false;
   var asSubState:Bool = false;
   var target:NextState;
   var playParams:Null<PlayStateParams>;
@@ -44,7 +46,7 @@ class LoadingState extends MusicBeatSubState
     this.stopMusic = stopMusic;
 
     this.loadBar = new FunkinSprite(0, FlxG.height - 20).makeSolidColor(0, 10, 0xFFff16d2);
-    this.funkay = FunkinSprite.create('funkay');
+    this.funkay = new FunkinSprite().loadTexture('ui/loading/funkay');
   }
 
   override function create():Void
@@ -60,65 +62,168 @@ class LoadingState extends MusicBeatSubState
 
     add(loadBar);
 
-    initSongsManifest().onComplete(function(lib)
+    callbacks = new MultiCallback(onLoad);
+    var introComplete = callbacks.add('introComplete');
+
+    if (playParams != null)
     {
-      callbacks = new MultiCallback(onLoad);
-      var introComplete = callbacks.add('introComplete');
-
-      if (playParams != null)
+      // Load and cache the song's charts.
+      if (playParams.targetSong == null)
       {
-        // Load and cache the song's charts.
-        if (playParams.targetSong == null)
-        {
-          throw 'Invalid parameter: Target song should not be null';
-        }
-
-        playParams.targetSong.cacheCharts(true);
-
-        // Preload the song for the play state.
-        var difficulty:String = playParams.targetDifficulty ?? Constants.DEFAULT_DIFFICULTY;
-        var variation:String = playParams.targetVariation ?? Constants.DEFAULT_VARIATION;
-        var targetChart:Null<SongDifficulty> = playParams.targetSong.getDifficulty(difficulty, variation);
-        if (targetChart == null)
-        {
-          throw 'Couldn\'t retrieve chart data for song "${playParams.targetSong.songName}" on difficulty "$difficulty" and variation "$variation"';
-        }
-        var instPath:String = targetChart.getInstPath(playParams.targetInstrumental);
-        var voicesPaths:Array<String> = targetChart.buildVoiceList();
-
-        checkLoadSong(instPath);
-        for (voicePath in voicesPaths)
-        {
-          checkLoadSong(voicePath);
-        }
+        throw 'Invalid parameter: Target song should not be null';
       }
 
-      checkLibrary('shared');
-      checkLibrary('videos');
-      checkLibrary(stageDirectory);
-      checkLibrary('tutorial');
+      playParams.targetSong.cacheCharts(true);
 
-      var fadeTime:Float = 0.5;
-      FlxG.camera.fade(FlxG.camera.bgColor, fadeTime, true);
-      new FlxTimer().start(fadeTime + MIN_TIME, function(_) introComplete());
-    });
+      // Preload the song for the play state.
+      var difficulty:String = playParams.targetDifficulty ?? Constants.DEFAULT_DIFFICULTY;
+      var variation:String = playParams.targetVariation ?? Constants.DEFAULT_VARIATION;
+      var targetChart:Null<SongDifficulty> = playParams.targetSong.getDifficulty(difficulty, variation);
+      if (targetChart == null)
+      {
+        throw 'Couldn\'t retrieve chart data for song "${playParams.targetSong.songName}" on difficulty "$difficulty" and variation "$variation"';
+      }
+      var instPath:String = targetChart.getPlaybackInstPath(playParams.targetInstrumental).toString();
+      var voicesPaths:Array<String> = targetChart.buildVoiceList().map(function(voice) return voice.toString());
+
+      checkLoadSong(instPath);
+      for (voicePath in voicesPaths)
+      {
+        checkLoadSong(voicePath);
+      }
+      if (!(playParams.minimalMode ?? false))
+      {
+        var chartAssets = collectChartAssets(playParams, targetChart);
+        var seenImages:Map<String, Bool> = [];
+        var seenSounds:Map<String, Bool> = [];
+        seenSounds.set(instPath, true);
+        for (voicePath in voicesPaths) seenSounds.set(voicePath, true);
+        for (asset in chartAssets.images)
+        {
+          if (asset == null || seenImages.exists(asset.toString())) continue;
+          seenImages.set(asset.toString(), true);
+          checkLoadChartAsset(asset, true);
+        }
+        for (asset in chartAssets.sounds)
+        {
+          if (asset == null || seenSounds.exists(asset.toString())) continue;
+          seenSounds.set(asset.toString(), true);
+          checkLoadChartAsset(asset, false);
+        }
+      }
+    }
+
+    FlxG.camera.stopFlash();
+    var fadeTime:Float = 0.5;
+    FlxG.camera.fade(FlxG.camera.bgColor, fadeTime, true);
+    new FlxTimer().start(fadeTime + MIN_TIME, function(_) introComplete());
+  }
+
+  /** Gather chart assets once for either loading path. */
+  @:nullSafety(Off)
+  static function collectChartAssets(params:PlayStateParams, songDifficulty:SongDifficulty):{images:Array<funkin.assets.Paths.AssetPath>, sounds:Array<funkin.assets.Paths.AssetPath>}
+  {
+    var spritesToCache:Array<funkin.assets.Paths.AssetPath> = [];
+    var soundsToCache:Array<funkin.assets.Paths.AssetPath> = [];
+    var noteStyle = NoteStyleRegistry.instance.fetchEntry(songDifficulty.noteStyle ?? '');
+    if (noteStyle == null) noteStyle = NoteStyleRegistry.instance.fetchDefault();
+    spritesToCache.append(noteStyle.queryAssets(IMAGE));
+    soundsToCache.append(noteStyle.queryAssets(SOUND));
+
+    // 0.9 scripts may declare assets statically on the song, stage,
+    // characters and note styles. Do not scan every fallback directory.
+    var songRegistry = funkin.data.song.SongRegistry.instance;
+    var stageRegistry = funkin.data.stage.StageRegistry.instance;
+    var characterRegistry = funkin.data.character.CharacterRegistry.instance;
+    var noteRegistry = NoteStyleRegistry.instance;
+    var songParams = {variation: songDifficulty.variation};
+    for (type in [funkin.assets.Assets.AssetType.IMAGE, funkin.assets.Assets.AssetType.SOUND])
+    {
+      var target = type == funkin.assets.Assets.AssetType.IMAGE ? spritesToCache : soundsToCache;
+      target.append(songRegistry.queryScriptedAssets(type, params.targetSong.id, songParams));
+      target.append(funkin.modding.ScriptGuard.get(null, 'stage asset query (${songDifficulty.stage})',
+        () -> stageRegistry.queryAssets(type, songDifficulty.stage), []));
+      target.append(noteRegistry.queryScriptedAssets(type, noteStyle.id));
+      if (songDifficulty.characters != null)
+      {
+        var seenCharacters:Map<String, Bool> = [];
+        for (id in [songDifficulty.characters.player, songDifficulty.characters.opponent, songDifficulty.characters.girlfriend])
+        {
+          if (id == null || id == '' || seenCharacters.exists(id)) continue;
+          seenCharacters.set(id, true);
+          target.append(funkin.modding.ScriptGuard.get(null, 'character asset query ($id)',
+            () -> characterRegistry.queryAssets(type, id), []));
+        }
+      }
+    }
+
+    // Origin 0.9 song events can declare assets needed by their own scripts.
+    if (songDifficulty.events != null)
+    {
+      for (event in songDifficulty.events)
+      {
+        spritesToCache.append(funkin.data.event.SongEventRegistry.queryAssets(IMAGE, event));
+        soundsToCache.append(funkin.data.event.SongEventRegistry.queryAssets(SOUND, event));
+      }
+    }
+
+    // also cache all other note styles used in the song, so that we don't have to load them mid-song
+    for (kindStyle in funkin.play.notes.notekind.NoteKindManager.listNoteStylesByNoteData(songDifficulty.notes ?? []))
+    {
+      if (kindStyle == null || kindStyle == noteStyle) continue;
+      spritesToCache.append(kindStyle.queryAssets(IMAGE));
+      soundsToCache.append(kindStyle.queryAssets(SOUND));
+      spritesToCache.append(noteRegistry.queryScriptedAssets(IMAGE, kindStyle.id));
+      soundsToCache.append(noteRegistry.queryScriptedAssets(SOUND, kindStyle.id));
+    }
+    return {images: spritesToCache, sounds: soundsToCache};
   }
 
   function checkLoadSong(path:String):Void
   {
     if (!OpenFLAssets.cache.hasSound(path))
     {
-      var library = Assets.getLibrary('songs');
       var symbolPath = path.split(':').pop();
       // @:privateAccess
       // library.types.set(symbolPath, SOUND);
       // @:privateAccess
       // library.pathGroups.set(symbolPath, [library.__cacheBreak(symbolPath)]);
       var callback = callbacks?.add('song:' + path);
-      Assets.loadSound(path).onComplete(function(_)
+      try Assets.loadSound(path).onComplete(function(_)
       {
         if (callback != null) callback();
+      }).onError(function(error)
+      {
+        trace('Could not preload song audio $path: $error');
+        if (callback != null) callback();
+      }) catch (error:Dynamic)
+      {
+        trace('Could not start loading song audio $path: $error');
+        if (callback != null) callback();
+      }
+    }
+  }
+
+  /** Finish the loading callback on both success and failure. */
+  function checkLoadChartAsset(asset:funkin.assets.Paths.AssetPath, image:Bool):Void
+  {
+    var callback = callbacks?.add((image ? 'image:' : 'sound:') + asset.toString());
+    try
+    {
+      var future = image ? funkin.assets.Assets.cacheFlxGraphic(asset) : funkin.assets.Assets.cacheSound(asset);
+      future.onComplete(function(_)
+      {
+        if (callback != null) callback();
+      }).onError(function(error)
+      {
+        trace('Could not preload chart asset $asset: $error');
+        if (callback != null) callback();
       });
+    }
+    catch (error:Dynamic)
+    {
+      trace('Could not start loading chart asset $asset: $error');
+      if (callback != null) callback();
     }
   }
 
@@ -185,10 +290,13 @@ class LoadingState extends MusicBeatSubState
     }
   }
 
+  @:nullSafety(Off) // why isn't FlxG.sound.music nullable
   function onLoad():Void
   {
+    // Asynchronous loads can complete after this state has already been destroyed.
+    if (loadingDestroyed) return;
+
     // Stop the instrumental.
-    @:nullSafety(Off)
     if (stopMusic && FlxG.sound.music != null)
     {
       FlxG.sound.music.destroy();
@@ -207,8 +315,6 @@ class LoadingState extends MusicBeatSubState
     }
   }
 
-  static var stageDirectory:String = "shared";
-
   /**
    * Starts the transition to a new `PlayState` to start a new song.
    * First switches to the `LoadingState` if assets need to be loaded.
@@ -218,12 +324,12 @@ class LoadingState extends MusicBeatSubState
    */
   public static function loadPlayState(params:PlayStateParams, shouldStopMusic = false, asSubState = false, ?onConstruct:PlayState->Void):Void
   {
-    var daChart:Null<SongDifficulty> = params.targetSong?.getDifficulty(params.targetDifficulty ?? Constants.DEFAULT_DIFFICULTY,
-      params.targetVariation ?? Constants.DEFAULT_VARIATION);
+    var daChart:Null<SongDifficulty> = params.targetSong?.getDifficulty(
+      params.targetDifficulty ?? Constants.DEFAULT_DIFFICULTY,
+      params.targetVariation ?? Constants.DEFAULT_VARIATION
+    );
 
-    var daStage:Null<Stage> = funkin.data.stage.StageRegistry.instance.fetchEntry(daChart?.stage ?? Constants.DEFAULT_STAGE);
-    stageDirectory = daStage?._data?.directory ?? "shared";
-    Paths.setCurrentLevel(stageDirectory);
+    var daStage = funkin.data.stage.StageRegistry.instance.fetchEntry(daChart?.stage ?? Constants.DEFAULT_STAGE);
 
     if (funkin.ui.FullScreenScaleMode.instance != null) funkin.ui.FullScreenScaleMode.instance.onMeasurePostAwait();
 
@@ -279,73 +385,84 @@ class LoadingState extends MusicBeatSubState
 
     if (shouldPreloadLevelAssets)
     {
-      preloadLevelAssets();
-
-      // Cache the note style.
-      var songDifficulty = params.targetSong.getDifficulty(params.targetDifficulty, params.targetVariation);
-      if (songDifficulty != null)
+      FlxG.signals.preStateSwitch.addOnce(() ->
       {
-        var noteStyle = NoteStyleRegistry.instance.fetchEntry(songDifficulty.noteStyle ?? '');
-        if (noteStyle == null) noteStyle = NoteStyleRegistry.instance.fetchDefault();
-        FunkinMemory.cacheNoteStyle(noteStyle);
-      }
+        FunkinAssetCache.instance.preparePurgeCache();
 
-      // TODO: This sucks lol.
-      if (params.targetSong.songName == "2hot")
-      {
-        var spritesToCache = [
-          "wked1_cutscene_1_can",
-          "spraypaintExplosionEZ",
-          "SpraypaintExplosion",
-          "CanImpactParticle",
-          "spraycanAtlas/spritemap1"
-        ];
+        preloadLevelAssets();
 
-        var soundsToCache = [
-          "Darnell_Lighter",
-          "fuse_burning",
-          "Gun_Prep",
-          "Kick_Can_FORWARD",
-          "Kick_Can_UP",
-          "Lightning1",
-          "Lightning2",
-          "Lightning3",
-          "Pico_Bonk",
-          "Shoot_1",
-          "shot1",
-          "shot2",
-          "shot3",
-          "shot4"
-        ];
+        var spritesToCache:Array<funkin.assets.Paths.AssetPath> = [];
+        var soundsToCache:Array<funkin.assets.Paths.AssetPath> = [];
 
-        for (sprite in spritesToCache)
+        var songDifficulty = params.targetSong.getDifficulty(params.targetDifficulty, params.targetVariation);
+        if (songDifficulty != null)
         {
-          trace('Queueing $sprite to preload.');
-          // new Future<String>(function() {
-          var path = Paths.image(sprite, "weekend1");
-          funkin.FunkinMemory.cacheTexture(path);
+          var chartAssets = collectChartAssets(params, songDifficulty);
+          spritesToCache.append(chartAssets.images);
+          soundsToCache.append(chartAssets.sounds);
+        }
+
+        // TODO: This sucks lol.
+        if (params.targetSong.songName == '2hot')
+        {
+          spritesToCache.append([
+            funkin.assets.Paths.image('gameplay/songs/darnell/cutscene/cutscene-can'),
+            funkin.assets.Paths.image('gameplay/songs/2hot/graphics/spraycan-explosion-ez'),
+            funkin.assets.Paths.image('gameplay/songs/2hot/graphics/can-impact'),
+            funkin.assets.Paths.image('gameplay/songs/2hot/spraycan/spritemap1')
+          ]);
+
+          soundsToCache.append([
+            funkin.assets.Paths.sound('gameplay/songs/2hot/sounds/darnell-lighter'),
+            funkin.assets.Paths.sound('gameplay/characters/pico-playable/sounds/gun-prep'),
+            funkin.assets.Paths.sound('gameplay/songs/2hot/sounds/kick-can-forward'),
+            funkin.assets.Paths.sound('gameplay/songs/2hot/sounds/kick-can-up'),
+            funkin.assets.Paths.sound('gameplay/stages/phillyBlazin/sounds/lightning-1'),
+            funkin.assets.Paths.sound('gameplay/stages/phillyBlazin/sounds/lightning-2'),
+            funkin.assets.Paths.sound('gameplay/stages/phillyBlazin/sounds/lightning-3'),
+            funkin.assets.Paths.sound('gameplay/characters/pico-playable/sounds/bonk'),
+            funkin.assets.Paths.sound('gameplay/characters/pico-playable/sounds/shot-1'),
+            funkin.assets.Paths.sound('gameplay/characters/pico-playable/sounds/shot-2'),
+            funkin.assets.Paths.sound('gameplay/characters/pico-playable/sounds/shot-3'),
+            funkin.assets.Paths.sound('gameplay/characters/pico-playable/sounds/shot-4')
+          ]);
+        }
+
+        var seenImages:Map<String, Bool> = [];
+        for (assetPath in spritesToCache)
+        {
+          if (assetPath == null || seenImages.exists(assetPath.toString())) continue;
+          seenImages.set(assetPath.toString(), true);
+          trace('Queueing ${assetPath.toString()} to preload.');
+          funkin.assets.Assets.cacheFlxGraphic(assetPath).onComplete((success:Bool) ->
+          {
+            // TODO: This should be where the the progress bar should be handled, i think
+            trace('Succesfully cached ${assetPath.toString()}!');
+          });
           // Another dumb hack: FlxAnimate fetches from OpenFL's BitmapData cache directly and skips the FlxGraphic cache.
           // Since FlxGraphic tells OpenFL to not cache it, we have to do it manually.
-          if (path.endsWith('spritemap1.png') #if FEATURE_COMPRESSED_TEXTURES || path.endsWith('spritemap1.astc') #end)
+          if (assetPath.toString().endsWith('spritemap1.png') #if FEATURE_COMPRESSED_TEXTURES || assetPath.toString().endsWith('spritemap1.astc') #end)
           {
-            trace('Preloading FlxAnimate asset: ${path}');
-            openfl.Assets.getBitmapData(path, true);
+            trace('Preloading FlxAnimate asset: ${assetPath}');
+            funkin.assets.Assets.getBitmapData(assetPath);
           }
-          // return '${path} successfuly loaded.';
-          // }, true);
         }
 
-        for (sound in soundsToCache)
+        var seenSounds:Map<String, Bool> = [];
+        for (assetPath in soundsToCache)
         {
-          trace('Queueing $sound to preload.');
-          new Future<String>(function()
-          {
-            var path = Paths.sound(sound, "weekend1");
-            funkin.FunkinMemory.cacheSound(path);
-            return '${path} successfuly loaded.';
-          }, true);
+          if (assetPath == null || seenSounds.exists(assetPath.toString())) continue;
+          seenSounds.set(assetPath.toString(), true);
+          trace('Queueing ${assetPath.toString()} to preload.');
+          funkin.assets.Assets.cacheSound(assetPath);
         }
-      }
+      });
+
+      FlxG.signals.postStateSwitch.addOnce(() ->
+      {
+        // TODO: In loading screens, you should be caching BETWEEN these.
+        FunkinAssetCache.instance.purgeCache(#if ios funkin.util.DeviceUtil.iPhoneNumber > 12 #else true #end);
+      });
     }
 
     if (asSubState)
@@ -354,12 +471,12 @@ class LoadingState extends MusicBeatSubState
     }
     else
     {
-      // funkin.FunkinMemory.clearFreeplay();
-      FlxG.signals.preStateSwitch.addOnce(function()
+      FlxG.signals.preStateSwitch.addOnce(() ->
       {
-        funkin.FunkinMemory.clearFreeplay();
-        funkin.FunkinMemory.purgeCache(true);
+        funkin.memory.FunkinMemory.clearFreeplay();
       });
+      // TODO: FUCKING FIX THIS BULLSHIT I HATE YOU KILL EVERYONE IUNCLIDUGN YORUSLEF - TO MOON
+      // TODO: pretty please fix this gem i love you heal everyone inclidugn yoruslef <3 - to moon
       FlxG.switchState(playStateCtor);
     }
     #end
@@ -378,128 +495,48 @@ class LoadingState extends MusicBeatSubState
   #else
   static function preloadLevelAssets():Void
   {
-    // TODO: This section is a hack! Redo this later when we have a proper asset caching system.
-    // FunkinSprite.preparePurgeCache();
-    // funkin.FunkinMemory.purgeSoundCache();
+    // // TODO: For moon! replace this shit with the new restructured caching from Eric! Make that work with FunkinMemory! -Moon
+    // if (Paths.currentLevel == null || Paths.currentLevel == "shared" || Paths.currentLevel == "") return;
+    // var lib = openfl.Assets.getLibrary(Paths.currentLevel);
 
-    // List all image assets in the level's library.
-
-    // This is crude and I want to remove it when we have a proper asset caching system.
-    // TODO: Get rid of this junk!
-    // var library = PlayStatePlaylist.campaignId != null ? openfl.utils.Assets.getLibrary(PlayStatePlaylist.campaignId) : null;
-
-    // if (library == null) return; // We don't need to do anymore precaching.
-
-    // var assets = library.list(lime.utils.AssetType.IMAGE);
-    // trace('Got ${assets.length} assets: ${assets}');
-
-    // TODO: assets includes non-images! This is a bug with Polymod
-    // for (asset in assets)
+    // var ids = lib.list("IMAGE").concat(lib.list("SOUND"));
+    // for (id in ids)
     // {
-    //   // Exclude items of the wrong type.
-    //   var path = '${PlayStatePlaylist.campaignId}:${asset}';
-    //   // TODO DUMB HACK DUMB HACK why doesn't filtering by AssetType.IMAGE above work
-    //   // I will fix this properly later I swear -eric
-    //   if (!path.endsWith('.png')) continue;
-
-    //   new Future<String>(function() {
-    //     FunkinSprite.cacheTexture(path);
-    //     // Another dumb hack: FlxAnimate fetches from OpenFL's BitmapData cache directly and skips the FlxGraphic cache.
-    //     // Since FlxGraphic tells OpenFL to not cache it, we have to do it manually.
-    //     if (path.endsWith('spritemap1.png'))
+    //   if (id.endsWith('.ogg') || id.endsWith('.mp3') || id.endsWith('.wav'))
+    //   {
+    //     var path = Paths.sound(id, Paths.currentLevel);
+    //     new Future<String>(function()
     //     {
-    //       trace('Preloading FlxAnimate asset: ${path}');
-    //       openfl.Assets.getBitmapData(path, true);
-    //     }
-    //     return 'Done precaching ${path}';
-    //   }, true);
+    //       if (path != null)
+    //       {
+    //         funkin.assets.Assets.cacheSound(path);
+    //       }
+    //       return '${path} successfully loaded.';
+    //     }, true);
+    //   }
 
-    //   trace('Queued ${path} for precaching');
-    //   // FunkinSprite.cacheTexture(path);
+    //   if (id.endsWith('.png') || id.endsWith('.jpg') || id.endsWith('.jpeg'))
+    //   {
+    //     var path = Paths.image(id, Paths.currentLevel);
+    //     new Future<String>(function()
+    //     {
+    //       if (path != null)
+    //       {
+    //         funkin.assets.Assets.cacheFlxGraphic(path);
+    //       }
+    //       return '${path} successfully loaded.';
+    //     }, true);
+    //   }
     // }
-
-    // FunkinSprite.cacheAllNoteStyleTextures(noteStyle) // This will replace the stuff above!
-    // FunkinSprite.cacheAllCharacterTextures(player)
-    // FunkinSprite.cacheAllCharacterTextures(girlfriend)
-    // FunkinSprite.cacheAllCharacterTextures(opponent)
-    // FunkinSprite.cacheAllStageTextures(stage)
-    // FunkinSprite.cacheAllSongTextures(stage)
-
-    // FunkinSprite.purgeCache();
   }
   #end
 
   override function destroy():Void
   {
+    loadingDestroyed = true;
     super.destroy();
 
     callbacks = null;
-  }
-
-  static function initSongsManifest():Future<AssetLibrary>
-  {
-    var id = 'songs';
-    var promise = new Promise<AssetLibrary>();
-
-    var library = LimeAssets.getLibrary(id);
-
-    if (library != null)
-    {
-      return Future.withValue(library);
-    }
-
-    var path = id;
-    var rootPath = null;
-
-    @:privateAccess
-    var libraryPaths = LimeAssets.libraryPaths;
-    if (libraryPaths.exists(id))
-    {
-      path = libraryPaths[id] ?? path;
-      rootPath = Path.directory(path);
-    }
-    else
-    {
-      if (path.endsWith('.bundle'))
-      {
-        rootPath = path;
-        path += '/library.json';
-      }
-      else
-      {
-        rootPath = Path.directory(path);
-      }
-      @:privateAccess
-      path = LimeAssets.__cacheBreak(path);
-    }
-
-    AssetManifest.loadFromFile(path, rootPath).onComplete(function(manifest)
-    {
-      if (manifest == null)
-      {
-        promise.error('Cannot parse asset manifest for library \'' + id + '\'');
-        return;
-      }
-
-      var library = AssetLibrary.fromManifest(manifest);
-
-      if (library == null)
-      {
-        promise.error('Cannot open library \'' + id + '\'');
-      }
-      else
-      {
-        @:privateAccess
-        LimeAssets.libraries.set(id, library);
-        library.onChange.add(LimeAssets.onChange.dispatch);
-        promise.completeWith(Future.withValue(library));
-      }
-    }).onError(function(_)
-    {
-        promise.error('There is no asset library with an ID of \'' + id + '\'');
-    });
-
-    return promise.future;
   }
 
   public static function transitionToState(state:NextState, stopMusic:Bool = false):Void
@@ -568,13 +605,17 @@ class MultiCallback
    * @param transitionTex
    * @param time
    */
-  public static function coolSwitchState(state:NextState, transitionTex:String = "shaderTransitionStuff/coolDots", time:Float = 2)
+  public static function coolSwitchState(state:NextState,
+    transitionTex:String = "shaderTransitionStuff/coolDots",
+    time:Float = 2)
   {
-    var screenShit:FunkinSprite = FunkinSprite.create('shaderTransitionStuff/coolDots');
+    var screenShit:FunkinSprite = new FunkinSprite().loadTexture('shaderTransitionStuff/coolDots');
     var screenWipeShit:ScreenWipeShader = new ScreenWipeShader();
 
     screenWipeShit.funnyShit.input = screenShit.pixels;
-    FlxTween.tween(screenWipeShit, {daAlphaShit: 1}, time, {
+    FlxTween.tween(screenWipeShit, {
+      daAlphaShit: 1
+    }, time, {
       ease: FlxEase.quadInOut,
       onComplete: function(twn)
       {
@@ -582,8 +623,6 @@ class MultiCallback
         FlxG.switchState(state);
       }
     });
-    FlxG.camera.filters = [
-      new ShaderFilter(screenWipeShit)
-    ];
+    FlxG.camera.filters = [new ShaderFilter(screenWipeShit)];
   }
 }

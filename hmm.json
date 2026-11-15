@@ -179,8 +179,8 @@
       "name": "json2object",
       "type": "git",
       "dir": null,
-      "ref": "82a40a9823c33e0a5c9f598b6da986e43e02831e",
-      "url": "https://github.com/NovaFlare-Engine-haxelib/json2object-3.11.0"
+      "ref": "316eaefbbe6ea4aad9726611662a75605c2f6b20",
+      "url": "https://github.com/FunkinCrew/json2object"
     },
     {
       "name": "linc_luajit",
@@ -228,8 +228,8 @@
       "name": "polymod",
       "type": "git",
       "dir": null,
-      "ref": "e6147f3fb0aa0de86d0db6890b1ccf968a504612",
-      "url": "https://github.com/NovaFlare-Engine-haxelib/polymod-1.8.0.git"
+      "ref": "4740cb234311582c31f7bc7adb4dff47bb48bbee",
+      "url": "https://github.com/FunkinCrew/polymod"
     },
     {
       "name": "FlxPartialSound",
@@ -293,6 +293,12 @@
       "dir": null,
       "ref": "01c63babf2954addb8c2caacb5900b6cc7f4276f",
       "url": "https://github.com/NovaFlare-Engine-haxelib/flixel-animate-1.5.0"
+    },
+    {
+      "name": "haxe-concurrent",
+      "type": "git",
+      "ref": "3624fbd33e315b0684696bf310798a56d524a8f5",
+      "url": "https://github.com/FunkinCrew/haxe-concurrent"
     }
   ]
 }

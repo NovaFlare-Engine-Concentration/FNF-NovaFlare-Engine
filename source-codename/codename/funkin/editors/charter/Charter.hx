@@ -388,6 +388,11 @@ class Charter extends UIState {
 						keybind: [SPACE],
 						onSelect: _playback_play
 					},
+					{
+						label: translate("playback.snap"),
+						onSelect: _playback_snap,
+						icon: Options.charterPauseQuant ? 1 : 0
+					},
 					null,
 					{
 						label: translate("playback.speedRaise", ["25"]),
@@ -810,7 +815,10 @@ class Charter extends UIState {
 		if (Assets.exists(Paths.voices(__song, __diff, PlayState.SONG.meta.vocalsSuffix)))
 			vocals = FlxG.sound.load(Paths.voices(__song, __diff, PlayState.SONG.meta.vocalsSuffix));
 		else
-			vocals = new FlxSound();
+		{
+			vocals = FlxG.sound.list.recycle(FlxSound);
+			vocals.alive = vocals.exists = true;
+		}
 
 		vocals.muted = !PlayState.SONG.meta.needsVoices;
 		vocals.group = FlxG.sound.defaultMusicGroup;
@@ -2094,16 +2102,21 @@ class Charter extends UIState {
 		if (Conductor.songPosition >= FlxG.sound.music.getDefault(vocals).length - Conductor.songOffset) return;
 
 		if (FlxG.sound.music.playing) {
-			FlxG.sound.music.pause();
-			vocals.pause();
-			for (strumLine in strumLines.members) strumLine.vocals.pause();
-		} else {
-			FlxG.sound.music.play(true, Conductor.songPosition + Conductor.songOffset);
-			vocals.play(true, FlxG.sound.music.getActualTime());
-			for (strumLine in strumLines.members) {
-				strumLine.vocals.play(true, FlxG.sound.music.getActualTime());
-			}
+			final arr = [FlxG.sound.music, vocals];
+			for (strumLine in strumLines.members) arr.push(strumLine.vocals);
+			FlxSound.pauseSounds(arr);
+
+			if (Options.charterPauseQuant) Conductor.songPosition = Conductor.getTimeForStep(quantStep(Conductor.curStepFloat));
 		}
+		else {
+			final time = Conductor.songPosition + Conductor.songOffset;
+			final arr = [FlxG.sound.music.prepare(time), vocals.prepare(time)];
+			for (strumLine in strumLines.members) arr.push(strumLine.vocals.prepare(time));
+			FlxSound.playSounds(arr);
+		}
+	}
+	function _playback_snap(t) {
+		t.icon = (Options.charterPauseQuant = !Options.charterPauseQuant) ? 1 : 0;
 	}
 
 	function _playback_speed_raise(_) playBackSlider.value += .25;

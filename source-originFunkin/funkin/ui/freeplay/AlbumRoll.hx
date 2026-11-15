@@ -15,6 +15,17 @@ import funkin.util.SortUtil;
 @:nullSafety
 class AlbumRoll extends FlxSpriteGroup
 {
+  public static function queryAssets(type:funkin.assets.Assets.AssetType):Array<funkin.assets.Paths.AssetPath>
+  {
+    var results = funkin.data.freeplay.album.AlbumRegistry.instance.queryAllAssets(type);
+    return switch (type)
+    {
+      case IMAGE: results.concat(funkin.assets.Paths.animateAtlas('ui/freeplay/interface/freeplay-album').image());
+      case JSON: results.concat(funkin.assets.Paths.animateAtlas('ui/freeplay/interface/freeplay-album').json());
+      default: results;
+    }
+  }
+
   /**
    * The ID of the album to display.
    * Modify this value to automatically update the album art and title.
@@ -32,7 +43,7 @@ class AlbumRoll extends FlxSpriteGroup
     return value;
   }
 
-  final ALBUM_ART_SYMBOL:String = "album art placeholder";
+  final ALBUM_ART_SYMBOL:String = 'album art placeholder';
   var newAlbumArt:FunkinSprite;
   var albumTitle:Null<FunkinSprite> = null;
   var difficultyStars:DifficultyStars;
@@ -44,7 +55,11 @@ class AlbumRoll extends FlxSpriteGroup
   {
     super();
 
-    newAlbumArt = FunkinSprite.createTextureAtlas((FlxG.width + -360) - FullScreenScaleMode.gameNotchSize.x, 220, "freeplay/albumRoll/freeplayAlbum");
+    newAlbumArt = new FunkinSprite((FlxG.width + -360) - FullScreenScaleMode.gameNotchSize.x, 220).loadTextureAtlas('ui/freeplay/interface/freeplay-album');
+    newAlbumArt.anim.addByFrameLabel('intro', 'intro', 24, false);
+    newAlbumArt.anim.addByFrameLabel('idle', 'idle', 24);
+    newAlbumArt.anim.addByFrameLabel('switch', 'switch', 24, false);
+
     newAlbumArt.visible = false;
 
     difficultyStars = new DifficultyStars((FlxG.width - 330) - FullScreenScaleMode.gameNotchSize.x, 209);
@@ -53,19 +68,18 @@ class AlbumRoll extends FlxSpriteGroup
     add(newAlbumArt);
     add(difficultyStars);
 
-    buildAlbumTitle("freeplay/albumRoll/volume1-text");
+    buildAlbumTitle('ui/freeplay/albums/volume1-text');
     if (albumTitle != null) albumTitle.visible = false;
 
-    newAlbumArt.anim.onFinish.add(onAlbumFinish);
+    newAlbumArt.animation.onFinish.add(onAlbumFinish);
   }
 
   function onAlbumFinish(animName:String):Void
   {
     // Play the idle animation for the current album.
-    if (animName != "idle")
+    if (animName != 'idle')
     {
-      newAlbumArt.anim.play('idle', true);
-      newAlbumArt.anim.curAnim.looped = true;
+      newAlbumArt.animation.play('idle', true);
     }
   }
 
@@ -92,7 +106,7 @@ class AlbumRoll extends FlxSpriteGroup
     };
 
     // Update the album art.
-    var albumGraphic = Paths.image(albumData.getAlbumArtAssetKey());
+    var albumGraphic:String = Paths.image(albumData.getAlbumArtAssetKey());
     newAlbumArt.replaceSymbolGraphic(ALBUM_ART_SYMBOL, albumGraphic);
 
     buildAlbumTitle(albumData.getAlbumTitleAssetKey(), albumData.getAlbumTitleOffsets());
@@ -155,7 +169,7 @@ class AlbumRoll extends FlxSpriteGroup
 
     if (albumTitle != null) albumTitle.visible = false;
     newAlbumArt.visible = true;
-    newAlbumArt.anim.play('intro', true);
+    newAlbumArt.animation.play('intro', true);
 
     difficultyStars.visible = false;
     difficultyStars.flameCheck();
@@ -164,16 +178,16 @@ class AlbumRoll extends FlxSpriteGroup
     {
       showTitle();
       showStars();
-      if (albumTitle != null) albumTitle.animation.play('switch');
+      if (albumTitle != null && albumTitle.animation.exists('switch')) albumTitle.animation.play('switch');
     });
   }
 
   public function skipIntro():Void
   {
     this.visible = true;
-    // Weird workaround
-    newAlbumArt.anim.play('switch', true);
-    if (albumTitle != null) albumTitle.animation.play('switch');
+
+    newAlbumArt.animation.play('switch', true);
+    if (albumTitle != null && albumTitle.animation.exists('switch')) albumTitle.animation.play('switch');
   }
 
   public function showTitle():Void
@@ -194,17 +208,32 @@ class AlbumRoll extends FlxSpriteGroup
       titleOffsets = [0, 0];
     }
 
-    albumTitle = FunkinSprite.createSparrow((FlxG.width - 355) - FullScreenScaleMode.gameNotchSize.x, 500, assetKey);
+    // Historical albums may reference a missing title, or supply a static PNG
+    // without a Sparrow XML. Neither should prevent opening Freeplay.
+    if (!funkin.assets.Paths.image(assetKey, false).exists())
+    {
+      FlxG.log.warn('Album title image not found: $assetKey');
+      return;
+    }
+    var hasAtlas = funkin.assets.Paths.xml(assetKey, false).exists();
+    albumTitle = new FunkinSprite((FlxG.width - 355) - FullScreenScaleMode.gameNotchSize.x, 500);
+    if (hasAtlas)
+      albumTitle.loadSparrow(assetKey);
+    else
+      albumTitle.loadGraphic(Paths.image(assetKey));
     albumTitle.visible = this.visible && (albumTitle.frames != null && newAlbumArt.visible) && difficultyStars.visible;
-    albumTitle.animation.addByPrefix('idle', 'idle0', 24, true);
-    albumTitle.animation.addByPrefix('switch', 'switch0', 24, false);
+    if (hasAtlas)
+    {
+      albumTitle.animation.addByPrefix('idle', 'idle0', 24, true);
+      albumTitle.animation.addByPrefix('switch', 'switch0', 24, false);
+    }
     add(albumTitle);
 
     albumTitle.animation.onFinish.add(function(name)
     {
       if (name == 'switch' && albumTitle != null) albumTitle.animation.play('idle');
     });
-    albumTitle.animation.play('idle');
+    if (albumTitle.animation.exists('idle')) albumTitle.animation.play('idle');
 
     albumTitle.zIndex = 1000;
 

@@ -1,6 +1,7 @@
 package funkin.play.cutscene.dialogue;
 
 import flixel.FlxSprite;
+import funkin.graphics.FunkinSprite;
 import funkin.data.IRegistryEntry;
 import funkin.modding.events.ScriptEvent;
 import flixel.graphics.frames.FlxFramesCollection;
@@ -14,7 +15,7 @@ import funkin.data.dialogue.SpeakerRegistry;
  *
  * Most conversations have two speakers, with one being flipped.
  */
-class Speaker extends FlxSprite implements IDialogueScriptedClass implements IRegistryEntry<SpeakerData>
+class Speaker extends FunkinSprite implements IDialogueScriptedClass implements IRegistryEntry<SpeakerData>
 {
   /**
    * A readable name for this speaker.
@@ -47,7 +48,9 @@ class Speaker extends FlxSprite implements IDialogueScriptedClass implements IRe
     if (animOffsets == value) return value;
 
     this.x = globalOffsets[0] + originalPosition[0] + value[0];
+    this.localX = globalOffsets[0] + originalPosition[0] + value[0];
     this.y = globalOffsets[1] + originalPosition[1] + value[1];
+    this.localY = globalOffsets[1] + originalPosition[1] + value[1];
 
     return animOffsets = value;
   }
@@ -63,7 +66,9 @@ class Speaker extends FlxSprite implements IDialogueScriptedClass implements IRe
     if (globalOffsets == value) return value;
 
     this.x = value[0] + originalPosition[0] + animOffsets[0];
+    this.localX = this.x;
     this.y = value[1] + originalPosition[1] + animOffsets[1];
+    this.localY = this.y;
 
     return globalOffsets = value;
   }
@@ -78,6 +83,21 @@ class Speaker extends FlxSprite implements IDialogueScriptedClass implements IRe
     if (_data == null)
     {
       throw 'Could not parse speaker data for id: $id';
+    }
+  }
+
+  /** Query default resources without creating a live dialogue object. */
+  public static function queryAssets(type:funkin.assets.Assets.AssetType, entryId:String,
+    ?params:Dynamic):Array<funkin.assets.Paths.AssetPath>
+  {
+    var data = _fetchData(entryId);
+    if (data == null || data.assetPath == null || data.assetPath == '') return [];
+    return switch (type)
+    {
+      case IMAGE: [funkin.assets.Paths.image(data.assetPath)];
+      case XML:
+        [funkin.assets.Paths.xml(data.assetPath)];
+      default: [];
     }
   }
 
@@ -102,6 +122,10 @@ class Speaker extends FlxSprite implements IDialogueScriptedClass implements IRe
    */
   override public function kill():Void
   {
+    FlxG.bitmap.remove(graphic);
+    graphic = null;
+    frames = null;
+
     super.kill();
   }
 
@@ -110,7 +134,9 @@ class Speaker extends FlxSprite implements IDialogueScriptedClass implements IRe
     super.revive();
 
     this.x = 0;
+    this.localX = 0;
     this.y = 0;
+    this.localY = 0;
     this.globalOffsets = [0, 0];
     this.visible = true;
     this.alpha = 1.0;
@@ -150,18 +176,24 @@ class Speaker extends FlxSprite implements IDialogueScriptedClass implements IRe
     this.flipY = _data.flipY;
     this.globalOffsets = _data.offsets;
     this.setScale(_data.scale);
+    this.localX = this.x;
+    this.localY = this.y;
   }
 
   /**
    * Set the sprite scale to the appropriate value.
-   * @param scale
+   *
+   * @param scale The desired scale.
    */
   public function setScale(scale:Null<Float>):Void
   {
     if (scale == null) scale = 1.0;
 
     this.scale.x = scale;
+    this.localScale.x = scale;
     this.scale.y = scale;
+    this.localScale.y = scale;
+
     this.updateHitbox();
   }
 
@@ -235,13 +267,6 @@ class Speaker extends FlxSprite implements IDialogueScriptedClass implements IRe
     }
   }
 
-  public function hasAnimation(id:String):Bool
-  {
-    if (this.animation == null) return false;
-
-    return this.animation.getByName(id) != null;
-  }
-
   /**
    * Define the animation offsets for a specific animation.
    */
@@ -295,7 +320,9 @@ class Speaker extends FlxSprite implements IDialogueScriptedClass implements IRe
     frames = null;
 
     this.x = 0;
+    this.localX = 0;
     this.y = 0;
+    this.localY = 0;
     this.globalOffsets = [0, 0];
     this.alpha = 0;
 

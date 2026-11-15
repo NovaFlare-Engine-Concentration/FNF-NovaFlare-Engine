@@ -1,0 +1,102 @@
+package funkin.ui.debug.cameraeditor.commands;
+
+#if FEATURE_CAMERA_EDITOR
+import funkin.audio.FunkinSound;
+import funkin.data.song.SongData.SongEventData;
+import funkin.data.song.SongData.SongEventDataRaw;
+import funkin.ui.haxeui.components.editors.timeline.TimelineUtil;
+
+/**
+ * Represents a reversible action to move or resize a camera event, changing its song position and/or duration.
+ */
+@:access(funkin.ui.debug.cameraeditor.CameraEditorState)
+class MoveResizeEventCommand implements CameraEditorCommand
+{
+  var event:SongEventData;
+  var oldTime:Float;
+  var oldDuration:Float;
+  var oldLayerName:String;
+  var newTime:Float;
+  var newDuration:Float;
+  var newLayerName:String;
+
+  public function new(event:SongEventData, oldTime:Float, oldDuration:Float, oldLayerName:String, newTime:Float, newDuration:Float, newLayerName:String)
+  {
+    this.event = event;
+    this.oldTime = oldTime;
+    this.oldDuration = oldDuration;
+    this.oldLayerName = oldLayerName;
+    this.newTime = newTime;
+    this.newDuration = newDuration;
+    this.newLayerName = newLayerName;
+  }
+
+  /**
+   * Perform the action, moving and/or resizing the camera event.
+   *
+   * @param state The CameraEditorState to perform the command on.
+   */
+  public function execute(state:CameraEditorState):Void
+  {
+    event.time = newTime;
+    TimelineUtil.setEventDurationSteps(event, newDuration);
+    var raw:SongEventDataRaw = event;
+    raw.editorLayer = newLayerName == 'Default' ? null : newLayerName;
+
+    FunkinSound.playOnce(Paths.sound('ui/editors/chart-editor/charting-sounds/note-place'));
+
+    if (oldLayerName != newLayerName)
+    {
+      var block = state.timeline.viewport.findBlockByEvent(event);
+      if (block != null) state.timeline.viewport.syncEventBlockLayer(block, newLayerName);
+    }
+    state.timeline.viewport.refreshLayout();
+
+    state.saved = false;
+  }
+
+  /**
+   * Reverse the action, restoring the camera event to its original position and duration.
+   *
+   * @param state The CameraEditorState to perform the command on.
+   */
+  public function undo(state:CameraEditorState):Void
+  {
+    event.time = oldTime;
+    TimelineUtil.setEventDurationSteps(event, oldDuration);
+    var raw:SongEventDataRaw = event;
+    raw.editorLayer = oldLayerName == 'Default' ? null : oldLayerName;
+
+    if (oldLayerName != newLayerName)
+    {
+      var block = state.timeline.viewport.findBlockByEvent(event);
+      if (block != null) state.timeline.viewport.syncEventBlockLayer(block, oldLayerName);
+    }
+
+    FunkinSound.playOnce(Paths.sound('ui/editors/chart-editor/charting-sounds/undo'));
+
+    state.timeline.viewport.refreshLayout();
+    state.cachedEventIndex = 0;
+    state.completedEvents = [];
+
+    state.saved = false;
+  }
+
+  /**
+   * Whether the command should display in the undo/redo menu.
+   * This should be `false` if no real actions were actually performed.
+   *
+   * @param state The CameraEditorState to perform the command on.
+   * @return Whether the command should be added to the history.
+   */
+  public function shouldAddToHistory(state:CameraEditorState):Bool
+  {
+    return oldTime != newTime || oldDuration != newDuration || oldLayerName != newLayerName;
+  }
+
+  public function toString():String
+  {
+    return 'Move/Resize ${event.eventKind} Event';
+  }
+}
+#end

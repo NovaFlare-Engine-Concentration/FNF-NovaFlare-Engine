@@ -3,6 +3,7 @@ package funkin.ui.title;
 import flixel.group.FlxGroup;
 import flixel.input.gamepad.FlxGamepad;
 import funkin.ui.FullScreenScaleMode;
+import flixel.math.FlxPoint;
 import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
@@ -14,15 +15,20 @@ import funkin.graphics.FunkinSprite;
 import funkin.ui.MusicBeatState;
 import funkin.audio.FunkinSound;
 import funkin.ui.AtlasText;
-import openfl.Assets;
+// import openfl.Assets;
 import funkin.ui.mainmenu.MainMenuState;
 #if FEATURE_NEWGROUNDS
 import funkin.api.newgrounds.Medals;
 #end
-#if mobile
+#if FEATURE_TOUCH_CONTROLS
 import funkin.util.TouchUtil;
 import funkin.util.SwipeUtil;
 #end
+//
+// ~PATHS~
+//
+import funkin.assets.Assets as Assets;
+import funkin.assets.ValidatedPaths as Paths;
 
 class TitleState extends MusicBeatState
 {
@@ -45,7 +51,8 @@ class TitleState extends MusicBeatState
     swagShader = new ColorSwap();
 
     curWacky = FlxG.random.getObject(getIntroTextShit());
-    funkin.FunkinMemory.cacheSound(Paths.music('girlfriendsRingtone/girlfriendsRingtone'));
+
+    Assets.cacheSound(Paths.music('ui/title/girlfriends-ringtone').audio());
 
     // DEBUG BULLSHIT
 
@@ -76,14 +83,14 @@ class TitleState extends MusicBeatState
     add(bg);
 
     logoBl = new FunkinSprite(-150 + (FullScreenScaleMode.gameCutoutSize.x / 2.5), -100);
-    logoBl.frames = Paths.getSparrowAtlas('logoBumpin');
+    logoBl.frames = Assets.getSparrowAtlas(Paths.image('ui/title/logo-bumpin'));
     logoBl.animation.addByPrefix('bump', 'logo bumpin', 24);
     logoBl.animation.play('bump');
     logoBl.shader = swagShader.shader;
     logoBl.updateHitbox();
 
     gfDance = new FunkinSprite((FlxG.width * 0.4) + FullScreenScaleMode.gameCutoutSize.x / 2.5, FlxG.height * 0.07);
-    gfDance.frames = Paths.getSparrowAtlas('gfDanceTitle');
+    gfDance.frames = Assets.getSparrowAtlas(Paths.image('ui/title/gf-dance-title'));
     gfDance.animation.addByIndices('danceLeft', 'gfDance', [
       30,
       0,
@@ -125,10 +132,13 @@ class TitleState extends MusicBeatState
     add(logoBl);
     add(gfDance);
 
-    var titleTextPath:String = 'title-screen-text' #if mobile + '-mobile' #end;
+    var titleTextPath:String = 'ui/title/title-screen-text' #if mobile + '-mobile' #end;
 
     // On mobile, the text is shifted more to the left to center it properly.
-    titleText = FunkinSprite.createTextureAtlas(#if mobile 50 #else 100 #end + (FullScreenScaleMode.gameCutoutSize.x / 2), FlxG.height * 0.8, titleTextPath, {
+    titleText = new FunkinSprite(
+      #if mobile 50 #else 100 #end + (FullScreenScaleMode.gameCutoutSize.x / 2),
+      FlxG.height * 0.8
+    ).loadTextureAtlas(titleTextPath, {
       cacheOnLoad: true
     });
     titleText.anim.addByFrameLabel('idle', "Idle", 24);
@@ -153,11 +163,11 @@ class TitleState extends MusicBeatState
 
     if (FlxG.random.bool(1))
     {
-      ngSpr.loadGraphic(Paths.image('newgrounds_logo_classic'));
+      ngSpr.loadGraphic(Paths.image('ui/title/newgrounds-logo-classic').toFlxGraphicAsset());
     }
     else if (FlxG.random.bool(30))
     {
-      ngSpr.loadGraphic(Paths.image('newgrounds_logo_animated'), true, 600);
+      ngSpr.loadGraphic(Paths.image('ui/title/newgrounds-logo-animated').toFlxGraphicAsset(), true, 600);
       ngSpr.animation.add('idle', [0, 1], 4);
       ngSpr.animation.play('idle');
       ngSpr.setGraphicSize(Std.int(ngSpr.width * 0.55));
@@ -165,7 +175,7 @@ class TitleState extends MusicBeatState
     }
     else
     {
-      ngSpr.loadGraphic(Paths.image('newgrounds_logo'));
+      ngSpr.loadGraphic(Paths.image('ui/title/newgrounds-logo').toFlxGraphicAsset());
       ngSpr.setGraphicSize(Std.int(ngSpr.width * 0.8));
     }
 
@@ -182,9 +192,14 @@ class TitleState extends MusicBeatState
 
     FlxG.mouse.visible = false;
 
-    if (initialized) skipIntro();
+    if (initialized)
+    {
+      skipIntro();
+    }
     else
+    {
       initialized = true;
+    }
 
     #if FEATURE_VIDEO_PLAYBACK
     trace('Opening Attract state in ${Constants.TITLE_ATTRACT_DELAY} seconds...');
@@ -208,7 +223,7 @@ class TitleState extends MusicBeatState
   {
     var shouldFadeIn:Bool = (FlxG.sound.music == null);
     // Load music. Includes logic to handle BPM changes.
-    FunkinSound.playMusic('freakyMenu', {
+    FunkinSound.playMusic('ui/main-menu/freaky-menu/freaky-menu', {
       startingVolume: 0.0,
       overrideExisting: true,
       restartTrack: false,
@@ -221,7 +236,7 @@ class TitleState extends MusicBeatState
 
   function getIntroTextShit():Array<Array<String>>
   {
-    var fullText:String = Assets.getText(Paths.txt('introText'));
+    var fullText:String = Assets.getText(Paths.txt('ui/title/intro-text'));
 
     // Split into lines and remove empty lines
     var firstArray:Array<String> = fullText.split('\n').filter(function(s:String) return s != '');
@@ -236,6 +251,11 @@ class TitleState extends MusicBeatState
   }
 
   var transitioning:Bool = false;
+
+  static final WINDOW_MOVE_INTERVAL:Float = 1.0 / 60.0;
+
+  var windowWobblePosition:FlxPoint;
+  var windowMoveTimer:Float = 0;
 
   override function update(elapsed:Float):Void
   {
@@ -257,15 +277,37 @@ class TitleState extends MusicBeatState
 
     if (FlxG.keys.justPressed.Y)
     {
-      FlxTween.cancelTweensOf(FlxG.stage.window, ['x', 'y']);
-      FlxTween.tween(FlxG.stage.window, {x: FlxG.stage.window.x + 300}, 1.4, {ease: FlxEase.quadInOut, type: PINGPONG, startDelay: 0.35});
-      FlxTween.tween(FlxG.stage.window, {y: FlxG.stage.window.y + 100}, 0.7, {ease: FlxEase.quadInOut, type: PINGPONG});
+      if (windowWobblePosition == null) windowWobblePosition = FlxPoint.get();
+      windowWobblePosition.set(FlxG.stage.window.x, FlxG.stage.window.y);
+      FlxTween.cancelTweensOf(windowWobblePosition);
+      windowMoveTimer = 0;
+
+      FlxTween.tween(windowWobblePosition, {x: windowWobblePosition.x + 300}, 1.4, {
+        ease: FlxEase.quadInOut,
+        type: PINGPONG,
+        startDelay: 0.35
+      });
+      FlxTween.tween(windowWobblePosition, {y: windowWobblePosition.y + 100}, 0.7, {
+        ease: FlxEase.quadInOut,
+        type: PINGPONG
+      });
+    }
+
+    if (windowWobblePosition != null)
+    {
+      windowMoveTimer += elapsed;
+      while (windowMoveTimer >= WINDOW_MOVE_INTERVAL)
+      {
+        windowMoveTimer -= WINDOW_MOVE_INTERVAL;
+        FlxG.stage.window.x = Std.int(windowWobblePosition.x);
+        FlxG.stage.window.y = Std.int(windowWobblePosition.y);
+      }
     }
 
     if (FlxG.sound.music != null) Conductor.instance.update(FlxG.sound.music.time);
 
     // do controls.PAUSE | controls.ACCEPT instead?
-    var pressedEnter:Bool = FlxG.keys.justPressed.ENTER #if mobile || (TouchUtil.justReleased && !SwipeUtil.justSwipedAny) #end;
+    var pressedEnter:Bool = FlxG.keys.justPressed.ENTER #if FEATURE_TOUCH_CONTROLS || (TouchUtil.justReleased && !SwipeUtil.justSwipedAny) #end;
 
     var gamepad:FlxGamepad = FlxG.gamepads.lastActive;
 
@@ -285,7 +327,7 @@ class TitleState extends MusicBeatState
       if (FlxG.sound.music != null) FlxG.sound.music.onComplete = null;
       titleText.animation.play('press');
       FlxG.camera.flash(FlxColor.WHITE, 1);
-      FunkinSound.playOnce(Paths.sound('confirmMenu'), 0.7);
+      FunkinSound.playOnce(Paths.sound('ui/main-menu/confirm-menu').toString(), 0.7);
       transitioning = true;
 
       #if FEATURE_HAPTICS
@@ -311,8 +353,8 @@ class TitleState extends MusicBeatState
     }
 
     // TODO: Maybe use the dxdy method for swiping instead.
-    if (controls.UI_LEFT #if mobile || SwipeUtil.justSwipedLeft #end) swagShader.update(-elapsed * 0.1);
-    if (controls.UI_RIGHT #if mobile || SwipeUtil.justSwipedRight #end) swagShader.update(elapsed * 0.1);
+    if (controls.UI_LEFT #if FEATURE_TOUCH_CONTROLS || SwipeUtil.justSwipedLeft #end) swagShader.update(-elapsed * 0.1);
+    if (controls.UI_RIGHT #if FEATURE_TOUCH_CONTROLS || SwipeUtil.justSwipedRight #end) swagShader.update(elapsed * 0.1);
     if (!cheatActive && skippedIntro) cheatCodeShit();
     super.update(elapsed);
   }
@@ -327,7 +369,6 @@ class TitleState extends MusicBeatState
     }
     #end
 
-    funkin.FunkinMemory.purgeCache();
     FlxG.switchState(() -> new MainMenuState());
   }
 
@@ -372,7 +413,7 @@ class TitleState extends MusicBeatState
   {
     cheatActive = true;
 
-    FunkinSound.playMusic('girlfriendsRingtone', {
+    FunkinSound.playMusic('ui/title/girlfriends-ringtone/girlfriends-ringtone', {
       startingVolume: 0.0,
       overrideExisting: true,
       restartTrack: true
@@ -381,7 +422,7 @@ class TitleState extends MusicBeatState
     FlxG.sound.music.fadeIn(4.0, 0.0, 1.0);
 
     FlxG.camera.flash(FlxColor.WHITE, 1);
-    FunkinSound.playOnce(Paths.sound('confirmMenu'), 0.7);
+    FunkinSound.playOnce(Paths.sound('ui/main-menu/confirm-menu').toString(), 0.7);
 
     #if FEATURE_VIDEO_PLAYBACK
     // Stop the attract timer so you can listen to the whole song!

@@ -19,9 +19,6 @@ class ConversationDebugState extends MusicBeatState
   public function new()
   {
     super();
-
-    // TODO: Fix this BS
-    Paths.setCurrentLevel('week6');
   }
 
   override public function create():Void
@@ -42,8 +39,9 @@ class ConversationDebugState extends MusicBeatState
     add(conversation);
     refresh();
 
-    var event:ScriptEvent = new ScriptEvent(CREATE, false);
+    var event:ScriptEvent = ScriptEvent.get(CREATE, false);
     ScriptEventDispatcher.callEvent(conversation, event);
+    event.finish();
   }
 
   function onConversationComplete():Void
@@ -52,10 +50,12 @@ class ConversationDebugState extends MusicBeatState
     conversation = null;
   }
 
-  override public function dispatchEvent(event:ScriptEvent):Void
+  override public function dispatchEvent(event:ScriptEvent, finish:Bool = true):Void
   {
     // Dispatch event to conversation script.
     ScriptEventDispatcher.callEvent(conversation, event);
+
+    if (finish) event.finish();
   }
 
   override public function update(elapsed:Float):Void

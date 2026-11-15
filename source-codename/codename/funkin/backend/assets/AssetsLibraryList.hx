@@ -42,6 +42,11 @@ class AssetsLibraryList extends AssetLibrary {
 	private var cacheDirectoryTimes:Map<String, Float> = [];
 	public var cacheGeneration(default, null):Int = 0;
 
+	// Retain NF's six-second default while honoring upstream's 0 (disabled)
+	// and null (until explicit invalidation) cache lifetime settings.
+	private inline function getCacheLifetime():Float
+		return Flags.PATHS_CACHE_LIFETIME == null ? Math.POSITIVE_INFINITY : Flags.PATHS_CACHE_LIFETIME;
+
 	private inline function getCacheTypeKey(type:Null<String>, source:AssetSource):String
 		return '${type == null ? "<null>" : type}|${source.toString()}';
 	private inline function getCachePathKey(id:String, source:AssetSource):String
@@ -102,7 +107,7 @@ class AssetsLibraryList extends AssetLibrary {
 
 		// Prevent massive lags on repetitive usage. The NF integration includes
 		// the source selector in the key so SOURCE, MODS and BOTH cannot collide.
-		final sec = haxe.Timer.stamp();
+		final sec = (lime.system.System.getTimer() * 0.001);
 		final cacheTypeKey = getCacheTypeKey(type, source);
 
 		var cacheLibraryPaths:Map<String, AssetLibrary> = cacheLibraryTypePaths.get(cacheTypeKey);
@@ -113,7 +118,7 @@ class AssetsLibraryList extends AssetLibrary {
 		}
 
 		if (cacheTimePaths.exists(id)) {
-			final cacheSafetime = cacheTimePaths.get(id) + 6;
+			final cacheSafetime = cacheTimePaths.get(id) + getCacheLifetime();
 			if (cacheLibraryPaths.exists(id)) {
 				if (sec < cacheSafetime) {
 					rememberLastLibrary(id, source, cacheLibraryPaths.get(id), sec);
@@ -149,11 +154,20 @@ class AssetsLibraryList extends AssetLibrary {
 	public override inline function exists(id:String, type:String):Bool
 		return existsSpecific(id, type, BOTH);
 
+	/** Resolve through NF's priority-aware cache, including cached misses. */
+	public function getAssetPathLibrary(id:String, ?type:String, source:AssetSource = BOTH):Null<AssetLibrary> {
+		if (!existsSpecific(id, type, source)) return null;
+		var paths = cacheLibraryTypePaths.get(getCacheTypeKey(type, source));
+		if (paths == null) return null;
+		if (paths.exists(id)) return paths.get(id);
+		return paths.get('assets/$id');
+	}
+
 	public function getSpecificPath(id:String, source:AssetSource = BOTH) {
 		var cacheKey = getCachePathKey(id, source);
 		var cachedLibrary = cacheLastLibraryPaths.get(cacheKey);
 		var cachedAt = cacheLastLibraryTimes.get(cacheKey);
-		if (cachedLibrary != null && cachedAt != null && haxe.Timer.stamp() < cachedAt + 6 && !shouldSkipLib(cachedLibrary, source)) {
+		if (cachedLibrary != null && cachedAt != null && (lime.system.System.getTimer() * 0.001) < cachedAt + getCacheLifetime() && !shouldSkipLib(cachedLibrary, source)) {
 			var cachedPath = cachedLibrary.getPath(id);
 			if (cachedPath != null)
 				return cachedPath;
@@ -179,8 +193,8 @@ class AssetsLibraryList extends AssetLibrary {
 
 	public function getFiles(folder:String, source:AssetSource = BOTH):Array<String> {
 		var cacheKey = getDirectoryCacheKey("files", folder, source);
-		var now = haxe.Timer.stamp();
-		if (cacheDirectoryTimes.exists(cacheKey) && now < cacheDirectoryTimes.get(cacheKey) + 6) {
+		var now = (lime.system.System.getTimer() * 0.001);
+		if (cacheDirectoryTimes.exists(cacheKey) && now < cacheDirectoryTimes.get(cacheKey) + getCacheLifetime()) {
 			var cached = cacheDirectoryEntries.get(cacheKey);
 			if (cached != null) return cached.copy();
 		}
@@ -207,8 +221,8 @@ class AssetsLibraryList extends AssetLibrary {
 
 	public function getFolders(folder:String, source:AssetSource = BOTH):Array<String> {
 		var cacheKey = getDirectoryCacheKey("folders", folder, source);
-		var now = haxe.Timer.stamp();
-		if (cacheDirectoryTimes.exists(cacheKey) && now < cacheDirectoryTimes.get(cacheKey) + 6) {
+		var now = (lime.system.System.getTimer() * 0.001);
+		if (cacheDirectoryTimes.exists(cacheKey) && now < cacheDirectoryTimes.get(cacheKey) + getCacheLifetime()) {
 			var cached = cacheDirectoryEntries.get(cacheKey);
 			if (cached != null) return cached.copy();
 		}
@@ -245,7 +259,7 @@ class AssetsLibraryList extends AssetLibrary {
 			var cacheLibraryPaths = cacheLibraryTypePaths.get(cacheTypeKey);
 			var cacheTimePaths = cacheTimeTypePaths.get(cacheTypeKey);
 			if (cacheLibraryPaths != null && cacheTimePaths != null && cacheLibraryPaths.exists(id)
-				&& cacheTimePaths.exists(id) && haxe.Timer.stamp() < cacheTimePaths.get(id) + 6) {
+				&& cacheTimePaths.exists(id) && (lime.system.System.getTimer() * 0.001) < cacheTimePaths.get(id) + getCacheLifetime()) {
 				var cachedLibrary = cacheLibraryPaths.get(id);
 				if (cachedLibrary != null && !shouldSkipLib(cachedLibrary, source)) {
 					var cachedAsset = cachedLibrary.getAsset(id, type);

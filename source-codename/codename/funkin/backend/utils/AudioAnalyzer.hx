@@ -2,6 +2,7 @@ package codename.funkin.backend.utils;
 
 import flixel.sound.FlxSound;
 import lime.media.AudioBuffer;
+import sys.thread.Mutex;
 import lime.utils.ArrayBufferView.ArrayBufferIO;
 import lime.utils.ArrayBuffer;
 
@@ -15,6 +16,7 @@ import sys.thread.Mutex;
 #end
 
 typedef AudioAnalyzerCallback = Int->Int->Void;
+typedef WindowFunction = Float->Float;
 
 /**
  * An utility that analyze FlxSounds,
@@ -22,7 +24,242 @@ typedef AudioAnalyzerCallback = Int->Int->Void;
  * 
  * FlxSound.amplitude works so if any case if your only checking for peak of current time, use that instead.
  */
+@:allow(codename.funkin.backend.utils.AudioAnalyzer)
+final class WindowFunctions {
+	static inline final TWO_PI:Float = 6.283185307179586;
+	static inline final FOUR_PI:Float = 12.566370614359172;
+	static inline final SIX_PI:Float = 18.84955592153876;
+	static inline final EIGHT_PI:Float = 25.132741228718345;
+
+	public static inline function triangular(x:Float):Float
+		return 1.0 - Math.abs(x - 0.5) * 2.0;
+
+	public static inline function hann(x:Float):Float
+		return 0.5 - 0.5 * Math.cos(TWO_PI * x);
+
+	public static inline function hamming(x:Float):Float
+		return 0.53836 - 0.46164 * Math.cos(TWO_PI * x);
+
+	public static inline function blackmanNuttall(x:Float):Float
+		return 0.3635819 - 0.4891775 * Math.cos(TWO_PI * x) + 0.1365995 * Math.cos(FOUR_PI * x)
+			- 0.0106411 * Math.cos(SIX_PI * x);
+
+	public static inline function blackmanHarris(x:Float):Float
+		return 0.4243801 - 0.4973406 * Math.cos(TWO_PI * x) + 0.0782793 * Math.cos(FOUR_PI * x);
+
+	public static inline function flatTop(x:Float):Float
+		return 0.21557895 - 0.41663158 * Math.cos(TWO_PI * x) + 0.277263158 * Math.cos(FOUR_PI * x)
+			+ 0.083578947 * Math.cos(SIX_PI * x) + 0.006947368 * Math.cos(EIGHT_PI * x);
+}
+
+enum abstract TimeUnit(Int) from Int to Int {
+	var MILLISECOND = 0;
+	var SECOND = 1;
+	var SAMPLE = 2;
+}
+
+/**
+ * An utility that analyze FlxSound,
+ * can be used to make waveform or real-time audio visualizer.
+ */
+
 final class AudioAnalyzer {
+	static final _permutations:Map<Int, Array<Int>> = [];
+	static final _twiddleReals:Map<Int, Array<Float>> = [];
+	static final _twiddleImags:Map<Int, Array<Float>> = [];
+	static final _reals:Array<Array<Float>> = [];
+	static final _imags:Array<Array<Float>> = [];
+	static var _freqCalculating:Int = 0;
+	static final _mutex = new Mutex();
+
+	public static function calculateFrequencies(samples:Array<Float>, ?window:WindowFunction, ?frequencies:Array<Float>, ?fftN:Int):Array<Float> {
+		if (fftN == null) fftN = samples.length;
+
+		var bits = 0;
+		while ((fftN >>= 1) > 0) bits++;
+		if (bits == 0) throw "AudioAnalyzer.calculateFrequencies: Cannot insert a sample length or fftN of 1";
+
+		fftN = 1 << bits;
+		var fftN2 = fftN >> 1, scale = 1.0 / fftN;
+
+		var permutation:Array<Int>, twiddleReal:Array<Float>, twiddleImag:Array<Float>;
+		_mutex.acquire();
+
+		var real:Array<Float> = _reals[_freqCalculating], imag:Array<Float> = _imags[_freqCalculating];
+		if (real == null) {
+			_reals.push(real = []);
+			_imags.push(imag = []);
+		}
+		_freqCalculating++;
+
+		if (_permutations.exists(bits)) {
+			permutation = _permutations.get(bits);
+			twiddleReal = _twiddleReals.get(bits);
+			twiddleImag = _twiddleImags.get(bits);
+		}
+		else {
+			(permutation = []).resize(fftN);
+			(twiddleReal = []).resize(fftN2);
+			(twiddleImag = []).resize(fftN2);
+
+			var ang:Float;
+			for (i in 0...fftN) {
+				permutation[i] = _bitReverse(i, bits);
+				if (i < fftN2) {
+					twiddleReal[i] = Math.cos((ang = -6.283185307179586 * i / fftN));
+					twiddleImag[i] = Math.sin(ang);
+				}
+			}
+
+			_permutations.set(bits, permutation);
+			_twiddleReals.set(bits, twiddleReal);
+			_twiddleImags.set(bits, twiddleImag);
+		}
+
+		_mutex.release();
+
+		if (fftN > real.length) {
+			real.resize(fftN);
+			imag.resize(fftN);
+		}
+
+		if (frequencies == null) frequencies = [];
+		if (frequencies.length < fftN2) frequencies.resize(fftN2);
+
+		var g = samples.length, tr:Float;
+		for (i in 0...fftN) {
+			if (i < g) {
+				tr = samples[i];
+				if (window != null) tr *= window(i * scale);
+			}
+			else tr = 0.0;
+
+			real[permutation[i]] = tr;
+			imag[i] = 0;
+		}
+
+		var half = 1, b:Int, r:Int, i0:Int, i1:Int, ti:Float;
+		bits = fftN2;
+		while (bits > 0) {
+			g = 0;
+			while (g < fftN) {
+				b = r = 0;
+				while (b < half) {
+					i1 = (i0 = g + b) + half;
+					tr = real[i1] * twiddleReal[r] - imag[i1] * twiddleImag[r];
+					ti = real[i1] * twiddleImag[r] + imag[i1] * twiddleReal[r];
+					real[i1] = real[i0] - tr;
+					imag[i1] = imag[i0] - ti;
+					real[i0] += tr;
+					imag[i0] += ti;
+					b++;
+					r += bits;
+				}
+				g += half << 1;
+			}
+			half <<= 1;
+			bits >>= 1;
+		}
+
+		frequencies[0] = Math.sqrt(real[0] * real[0] + imag[0] * imag[0]) * scale;
+		for (i in 1...fftN2) frequencies[i] = 2 * Math.sqrt(real[i] * real[i] + imag[i] * imag[i]) * scale;
+
+		_mutex.acquire();
+		_freqCalculating--;
+		_mutex.release();
+
+		return frequencies;
+	}
+	static function _bitReverse(x:Int, bits:Int):Int {
+		var y = 0, i = bits;
+		while (i > 0) {
+			y = (y << 1) | (x & 1);
+			x >>= 1;
+			i--;
+		}
+		return y;
+	}
+	public static function getSpectrumFromFrequencies(frequencies:Array<Float>, sampleRate:Int, barCount:Int, ?spectrum:Array<Float>, ratio = 0.0, minDb = -63.0, maxDb = -10.0, minFreq = 20.0, maxFreq = 20000.0, logScale = true):Array<Float> {
+		if (spectrum == null) spectrum = [];
+		if (spectrum.length < barCount) spectrum.resize(barCount);
+
+		var n = frequencies.length - 1;
+
+		var base = logScale ? Math.log(minFreq) : minFreq;
+		var span = (logScale ? Math.log(maxFreq) : maxFreq) - base;
+
+		var dbRangeRate = 1.0 / (maxDb - minDb), rate = frequencies.length * 2.0 / sampleRate;
+
+		inline function calculateScale(i:Int) {
+			var t = base + span * i / (barCount + 1);
+			return CoolUtil.bound((logScale ? Math.exp(t) : t) * rate, 0, n);
+		}
+
+		var s1 = calculateScale(0), s2;
+		var i1 = Math.floor(s1), i2;
+		var v, range;
+		for (i in 0...barCount) {
+			if ((range = (s2 = calculateScale(i + 1)) - s1) < 1.0) {
+				var c = (s1 + s2) * 0.5;
+			    var s = Math.floor(c);
+			    var e = s + 1;
+			    if (e > n) e = n;
+			    v = frequencies[s] + (frequencies[e] - frequencies[s]) * (c - s);
+			}
+			else {
+				v = frequencies[i1] * (Math.ceil(s1) - s1);
+				if (i1 != (i2 = Math.floor(s2))) {
+					while (++i1 < i2) v += frequencies[i1];
+					v += frequencies[i2] * (s2 - Math.floor(s2));
+				}
+			}
+			i1 = Math.floor(s1 = s2);
+
+			v = CoolUtil.bound((Math.log(v) * 8.685889638065035/*20 / 2.302585092994046*/ - minDb) * dbRangeRate, 0, 1);
+			if (ratio > 0 && ratio < 1 && v < spectrum[i]) spectrum[i] -= (spectrum[i] - v) * ratio;
+			else spectrum[i] = v;
+		}
+
+		return spectrum;
+	}
+	public function getRMSFromSamples(samples:Array<Float>, sampleRate:Int, ?window:WindowFunction, ?minDb:Float = -63.0, ?maxDb:Float = -10.0, ?minFreq:Float = 20.0, ?maxFreq:Float = 22000.0):Float {
+		final aLP = Math.min(1, WindowFunctions.TWO_PI * maxFreq / sampleRate);
+		final aHP = 1 / (1 + WindowFunctions.TWO_PI * minFreq / sampleRate);
+		final hasLP = aLP < 1, hasHP = aHP > 0;
+
+		var sum = 0.0, lp = 0.0, hp = 0.0, x = 0.0, xPrev = 0.0;
+		for (i in 0...fftN) {
+			x = samples[i];
+			if (hasHP) {
+				hp = aHP * (hp + x - xPrev);
+				xPrev = x;
+				x = hp;
+			}
+			if (hasLP) lp += aLP * (x - lp);
+			else lp = x;
+			sum += lp * lp;
+		}
+
+		final rms = Math.sqrt(sum / fftN);
+		return CoolUtil.bound((Math.log(rms) * 8.685889638065035/*20 / 2.302585092994046*/ - minDb) / (maxDb - minDb), 0, 1);
+	}
+	public function getRMS(?pos:Float, ?timeUnit:TimeUnit, gain:Float = 1.0, ?window:WindowFunction, minDb:Float = -63.0, maxDb:Float = -10.0, minFreq:Float = 20.0, maxFreq:Float = 22000.0):Float {
+		if (buffer == null || sound == null) return 0;
+		if (pos == null) pos = sound.time;
+		else if (timeUnit == SECOND) pos *= 1000;
+		else if (timeUnit == SAMPLE) pos = pos * 1000 / buffer.sampleRate;
+		return getRMSFromSamples(getSamples(pos, fftN, true, -1, gain), buffer.sampleRate, window, minDb, maxDb, minFreq, maxFreq);
+	}
+	public function getSpectrum(?pos:Float, ?timeUnit:TimeUnit, gain:Float = 1.0, ?window:WindowFunction, barCount:Int, ?spectrum:Array<Float>, ratio:Float = 0.0, minDb:Float = -63.0, maxDb:Float = -10.0, minFreq:Float = 20.0, maxFreq:Float = 20000.0, logScale:Bool = true):Array<Float> {
+		if (buffer == null || sound == null) return [];
+		if (pos == null) pos = sound.time;
+		else if (timeUnit == SECOND) pos *= 1000;
+		else if (timeUnit == SAMPLE) pos = pos * 1000 / buffer.sampleRate;
+		var samples = getSamples(pos, fftN, true, -1, gain);
+		var frequencies = calculateFrequencies(samples, window, null, fftN);
+		return getSpectrumFromFrequencies(frequencies, buffer.sampleRate, barCount, spectrum, ratio, minDb, maxDb, minFreq, maxFreq, logScale);
+	}
+
 	/**
 	 * Get bytes from an audio buffer with specified position and wordSize
 	 * @param buffer The audio buffer to get byte from.
@@ -54,40 +291,8 @@ final class AudioAnalyzer {
 	 * @param maxFreq The maximum frequency to cap (Optional, default 22000.0, Above 23000.0 is not recommended).
 	 * @return Output of levels/bars that ranges from 0 to 1.
 	 */
-	public static function getLevelsFromFrequencies(frequencies:Array<Float>, sampleRate:Int, barCount:Int, ?levels:Array<Float>, ratio = 0.0, minDb = -63.0, maxDb = -10.0, minFreq = 20.0, maxFreq = 22000.0):Array<Float> {
-		if (levels == null) levels = [];
-		levels.resize(barCount);
-
-		var logMin = Math.log(minFreq), logMax = Math.log(maxFreq);
-		var logRange = logMax - logMin, dbRange = maxDb - minDb, n = frequencies.length;
-		inline function calculateScale(i:Int)
-			return CoolUtil.bound(Math.exp(logMin + (logRange * i / (barCount + 1))) * n * 2 / sampleRate, 0, n - 1);
-
-		var s1 = calculateScale(0), s2;
-		var i1 = Math.floor(s1), i2;
-		var v, range;
-		for (i in 0...barCount) {
-			if ((range = (s2 = calculateScale(i + 1)) - s1) < 1) {
-				i2 = Math.ceil(s2);
-				if (i2 == i1) v = frequencies[i1] * range;
-				else v = (frequencies[i1] + (frequencies[i2] - frequencies[i1]) * (s1 - i1)) * range;
-			}
-			else {
-				v = frequencies[i1] * (Math.ceil(s1) - i1);
-				if (i1 != (i2 = Math.floor(s2))) {
-					while (++i1 < i2) v += frequencies[i1];
-					v += frequencies[i2] * (s2 - Math.floor(s2));
-				}
-			}
-			i1 = Math.floor(s1 = s2);
-
-			v = CoolUtil.bound(((20 * Math.log(v) / 2.302585092994046) - minDb) / dbRange, 0, 1);
-			if (ratio > 0 && ratio < 1 && v < levels[i]) levels[i] -= (levels[i] - v) * ratio;
-			else levels[i] = v;
-		}
-
-		return levels;
-	}
+	public static function getLevelsFromFrequencies(frequencies:Array<Float>, sampleRate:Int, barCount:Int, ?levels:Array<Float>, ratio = 0.0, minDb = -63.0, maxDb = -10.0, minFreq = 20.0, maxFreq = 22000.0):Array<Float>
+		return inline getSpectrumFromFrequencies(frequencies, sampleRate, barCount, levels, ratio, minDb, maxDb, minFreq, maxFreq);
 
 	static var __reverseIndices:Array<Array<Int>> = [];
 	static var __windows:Array<Array<Float>> = [];
@@ -109,106 +314,7 @@ final class AudioAnalyzer {
 	 * @return Output of frequencies.
 	 */
 	public static function getFrequenciesFromSamples(samples:Array<Float>, fftN = 2048, useWindowing = false, ?frequencies:Array<Float>):Array<Float> {
-		var log = Math.floor(Math.log(fftN) / 0.6931471805599453);
-		if (log == 0) throw "AudioAnalyzer.getFrequenciesFromSamples: Cannot insert a fftN of 1";
-
-		var i = log - 1;
-		fftN = 1 << log;
-
-		#if (target.threaded) __mutex.acquire(); #end
-		var reals:Array<Float> = __freqReals[__freqCalculating], imags:Array<Float> = __freqImags[__freqCalculating];
-		if (reals == null) {
-			__freqReals.push(reals = []);
-			__freqImags.push(imags = []);
-		}
-		__freqCalculating++;
-
-		var reverseIndices:Array<Int> = __reverseIndices[i];
-		var windows:Array<Float> = __windows[i];
-		var twiddleReals:Array<Float> = __twiddleReals[i];
-		var twiddleImags:Array<Float> = __twiddleImags[i];
-
-		if (reverseIndices == null) {
-			__reverseIndices.resize(log);
-			__windows.resize(log);
-			__twiddleReals.resize(log);
-			__twiddleImags.resize(log);
-
-			(reverseIndices = []).resize(fftN);
-			(windows = []).resize(fftN);
-			(twiddleReals = []).resize(fftN);
-			(twiddleImags = []).resize(fftN);
-
-			var f;
-			for (i in 0...fftN) {
-				f = 2 * Math.PI * (i / fftN);
-				windows[i] = 0.42 - 0.5 * Math.cos(f) + 0.08 * Math.cos(2 * f);
-				reverseIndices[i] = __bitReverse(i, log);
-				twiddleReals[i] = Math.cos(-f);
-				twiddleImags[i] = Math.sin(-f);
-			}
-
-			__reverseIndices[i] = reverseIndices;
-			__windows[i] = windows;
-			__twiddleReals[i] = twiddleReals;
-			__twiddleImags[i] = twiddleImags;
-		}
-
-		#if (target.threaded) __mutex.release(); #end
-
-		if (fftN > reals.length) {
-			reals.resize(fftN);
-			imags.resize(fftN);
-		}
-
-		if (frequencies == null) frequencies = [];
-		frequencies.resize(1 << i);
-
-		i = samples.length;
-		while (i > 0) {
-			i--;
-			if (useWindowing) reals[reverseIndices[i]] = samples[i] * windows[i];
-			else reals[reverseIndices[i]] = samples[i];
-			imags[i] = 0;
-		}
-
-		var size = 1, n = fftN, half = 1, k, i0, i1, t, tr:Float, ti:Float;
-		while ((size <<= 1) < fftN) {
-			n >>= 1;
-			i = 0;
-			while (i < fftN) {
-				k = 0;
-				while (k < half) {
-					i1 = (i0 = i + k) + half;
-					t = (k * n) % fftN;
-
-					tr = reals[i1] * twiddleReals[t] - imags[i1] * twiddleImags[t];
-					ti = reals[i1] * twiddleImags[t] + imags[i1] * twiddleReals[t];
-					reals[i1] = reals[i0] - tr;
-					imags[i1] = imags[i0] - ti;
-					reals[i0] += tr;
-					imags[i0] += ti;
-
-					k++;
-				}
-				i += size;
-			}
-			half = size;
-		}
-
-		tr = 1.0 / fftN;
-		i = 1 << (log - 1);
-		while (i > 1) {
-			i--;
-			frequencies[i] = 2 * Math.sqrt(reals[i] * reals[i] + imags[i] * imags[i]) * tr;
-		}
-		frequencies[0] = Math.sqrt(reals[0] * reals[0] + imags[0] * imags[0]) * tr;
-
-		#if (target.threaded) __mutex.acquire(); #end
-		__freqCalculating--;
-		#if (target.threaded) __mutex.release(); #end
-
-		return frequencies;
+		return calculateFrequencies(samples, useWindowing ? WindowFunctions.blackmanNuttall : null, frequencies, fftN);
 	}
 
 	static function __bitReverse(x:Int, log:Int):Int {
@@ -388,14 +494,16 @@ final class AudioAnalyzer {
 	 * @return Output of samples.
 	 */
 	public function getSamples(startPos:Float, length:Int, mono = true, channel = -1, volume = 1.0, ?output:Array<Float>, ?outputMerge = false):Array<Float> {
+		__check();
 		((!mono && (__sampleChannel = channel) == -1) ? (__sampleOutputLength = length * buffer.channels) : (__sampleOutputLength = length));
 		((output == null) ? (__sampleOutput = output = []) : (__sampleOutput = output)).resize(__sampleOutputLength);
-		((mono) ? (__sampleToValue = volume / (byteSize * buffer.channels)) : (__sampleToValue = 1.0 / byteSize));
+		if (!outputMerge) for (i in 0...__sampleOutputLength) output[i] = 0;
+		((mono) ? (__sampleToValue = volume / (byteSize * buffer.channels)) : (__sampleToValue = volume / byteSize));
 		__sampleOutputMerge = outputMerge;
-		__sampleIndex = 0;
+		var leadingSamples = Std.int(Math.min(length, Math.max(0, Math.ceil(-startPos * buffer.sampleRate / 1000))));
+		__sampleIndex = leadingSamples * (!mono && channel == -1 ? buffer.channels : 1);
 
-		__check();
-		__read(startPos, startPos + (length / __toBits * buffer.channels), mono ? __getSamplesCallbackMono : (channel == -1 ? __getSamplesCallback : __getSamplesCallbackChannel));
+		__read(Math.max(0, startPos), startPos + length * 1000 / buffer.sampleRate, mono ? __getSamplesCallbackMono : (channel == -1 ? __getSamplesCallback : __getSamplesCallbackChannel));
 
 		__sampleOutput = null;
 		return output;
@@ -406,12 +514,9 @@ final class AudioAnalyzer {
 			if (__sampleOutputMerge) __sampleOutput[__sampleIndex] += b * __sampleToValue;
 			else __sampleOutput[__sampleIndex] = b * __sampleToValue;
 		}
-		else if (c == buffer.channels) {
-			__sampleOutput[__sampleIndex] += b * __sampleToValue;
-			__sampleIndex++;
-		}
 		else
 			__sampleOutput[__sampleIndex] += b * __sampleToValue;
+		if (c == buffer.channels - 1) __sampleIndex++;
 	}
 
 	function __getSamplesCallbackChannel(b:Int, c:Int):Void if (__sampleIndex < __sampleOutputLength) {
@@ -456,7 +561,7 @@ final class AudioAnalyzer {
 
 		while (pos < end) {
 			callback(getByte(buffer.data.buffer, pos, __wordSize), c);
-			if (++c > buffer.channels) c = 0;
+			if (++c >= buffer.channels) c = 0;
 			pos += __wordSize;
 		}
 	}

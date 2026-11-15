@@ -9,7 +9,7 @@ import haxe.io.Bytes;
 import haxe.ui.notifications.NotificationType;
 import haxe.ui.notifications.NotificationManager;
 
-@:build(haxe.ui.macros.ComponentMacros.build('assets/exclude/data/ui/stage-editor/dialogs/new-object.xml'))
+@:build(originfunkin.macro.OriginEditorMacro.build('assets/exclude/ui/editors/stage-editor/dialogs/new-object.xml'))
 class NewObjDialog extends Dialog
 {
   public var bitmapName:Null<String> = null;
@@ -41,9 +41,7 @@ class NewObjDialog extends Dialog
 
     if (button == '{{Create}}')
     {
-      var objNames:Array<String> = [
-        for (obj in stageEditorState.spriteArray) obj.name
-      ];
+      var objNames:Array<String> = [for (obj in stageEditorState.spriteArray) obj.name];
 
       if (field.text == '' || field.text == null || objNames.contains(field.text))
       {

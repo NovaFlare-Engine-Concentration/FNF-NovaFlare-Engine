@@ -31,11 +31,17 @@ class StrumlineNote extends FunkinSprite
    */
   public var yOffset:Float = 0.0;
 
+  /** Initial frame used to interpret the note style's original width contract. */
+  public var styleFrameWidth(default, null):Int = 0;
+
   /**
    * Set this flag to `true` to disable performance optimizations that cause
    * the Strumline note sprite to ignore `velocity` and `acceleration`.
    */
   public var forceActive:Bool = false;
+
+  /** Keep legacy static receptors on the first frame unless explicitly forced active. */
+  var legacyStaticReceptor:Bool = false;
 
   /**
    * How long to continue the hold note animation after a note is pressed.
@@ -60,8 +66,9 @@ class StrumlineNote extends FunkinSprite
     this.animation.onFrameChange.add(onAnimationFrame);
     this.animation.onFinish.add(onAnimationFinished);
 
-    // Must be true for animations to play.
-    this.active = true;
+    // Preserve the original startup behavior for current styles. Legacy static
+    // receptors intentionally remain inactive after setup until played.
+    if (!legacyStaticReceptor) this.active = true;
   }
 
   function onAnimationFrame(name:String, frameNumber:Int, frameIndex:Int):Void
@@ -107,10 +114,12 @@ class StrumlineNote extends FunkinSprite
       throw "FATAL ERROR: Attempted to initialize PlayState with an invalid NoteStyle.";
     }
 
+    legacyStaticReceptor = noteStyle._data.legacyStaticReceptor == true;
     noteStyle.applyStrumlineFrames(this);
     noteStyle.applyStrumlineAnimations(this, this.direction);
 
-    var scale = noteStyle.getStrumlineScale();
+    styleFrameWidth = frameWidth;
+    var scale = noteStyle.getStrumlineScaleForFrame(styleFrameWidth);
     this.scale.set(scale, scale);
     this.updateHitbox();
     noteStyle.applyStrumlineOffsets(this);
@@ -128,7 +137,7 @@ class StrumlineNote extends FunkinSprite
 
   public function playStatic():Void
   {
-    this.active = (forceActive || isAnimationDynamic('static'));
+    this.active = forceActive || (!legacyStaticReceptor && isAnimationDynamic('static'));
     this.playAnimation('static', true);
   }
 
@@ -166,7 +175,9 @@ class StrumlineNote extends FunkinSprite
       if (isAnimationFinished())
       {
         this.confirmHoldTimer = -1;
-        this.playAnimation('confirm-hold', false, false);
+        // Older or incomplete styles may not provide a hold animation.
+        // Leave the finished confirm frame in place instead of retrying it.
+        if (hasAnimation('confirm-hold')) this.playAnimation('confirm-hold', false, false);
       }
     }
     else

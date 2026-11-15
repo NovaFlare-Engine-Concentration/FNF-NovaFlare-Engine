@@ -23,8 +23,7 @@ typedef ModuleParams =
  * You may have the module active at all times, or only when another script enables it.
  */
 @:nullSafety
-class Module implements IPlayStateScriptedClass implements IStateChangingScriptedClass implements IFreeplayScriptedClass
-    implements ICharacterSelectScriptedClass
+class Module implements IPlayStateScriptedClass implements IStateChangingScriptedClass implements IFreeplayScriptedClass implements ICharacterSelectScriptedClass
 {
   /**
    * Whether the module is currently active.
@@ -173,6 +172,10 @@ class Module implements IPlayStateScriptedClass implements IStateChangingScripte
   {
   }
 
+  public function onNoteHoldHit(event:HoldNoteScriptEvent)
+  {
+  }
+
   public function onNoteHoldDrop(event:HoldNoteScriptEvent)
   {
   }
@@ -202,6 +205,15 @@ class Module implements IPlayStateScriptedClass implements IStateChangingScripte
    * Called when a song event is triggered.
    */
   public function onSongEvent(event:SongEventScriptEvent)
+  {
+  }
+
+  public function onCustomEvent(event:CustomEventScriptEvent)
+  {
+  }
+
+  /** Compatibility hook for mods that call super.onTurnChange(). */
+  public function onTurnChange(event:ScriptEvent):Void
   {
   }
 
@@ -344,6 +356,27 @@ class Module implements IPlayStateScriptedClass implements IStateChangingScripte
    * Called when Freeplay is closed.
    */
   public function onFreeplayClose(event:FreeplayScriptEvent):Void
+  {
+  }
+
+  /**
+   * Called when a capsule receives a new rank.
+   */
+  public function onCapsuleNewRank(event:CapsuleScriptEvent):Void
+  {
+  }
+
+  /**
+   * Called when the rank letter slams down on a freeplay capsule.
+   */
+  public function onRankSlam(event:CapsuleScriptEvent):Void
+  {
+  }
+
+  /**
+   * Called when the entire capsule slams down, after a new rank has been applied.
+   */
+  public function onCapsuleSlam(event:CapsuleScriptEvent):Void
   {
   }
 

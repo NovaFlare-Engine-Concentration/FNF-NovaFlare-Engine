@@ -1,0 +1,83 @@
+package funkin.ui.haxeui.components.editors.timeline;
+
+#if FEATURE_CAMERA_EDITOR
+import funkin.data.song.SongData.SongEventData;
+import funkin.ui.haxeui.components.editors.timeline.TimelineLayerData;
+import haxe.ui.events.EventType;
+import haxe.ui.events.UIEvent;
+
+typedef EventMoveDelta =
+{
+  event:SongEventData,
+  oldTime:Float,
+  newTime:Float,
+  oldDuration:Float,
+  newDuration:Float,
+  oldLayerName:String,
+  newLayerName:String
+};
+
+class TimelineEvent extends UIEvent
+{
+  public static inline var EVENT_MOVED:EventType<TimelineEvent> = "timelineEventMoved";
+  public static inline var EVENTS_MOVED:EventType<TimelineEvent> = "timelineEventsMoved";
+  public static inline var EVENT_RESIZED:EventType<TimelineEvent> = "timelineEventResized";
+
+  /** Reserved for future use — not currently dispatched. */
+  public static inline var EVENT_LAYER_CHANGED:EventType<TimelineEvent> = "timelineEventLayerChanged";
+
+  public static inline var EVENT_SELECTED:EventType<TimelineEvent> = "timelineEventSelected";
+  public static inline var SEEK:EventType<TimelineEvent> = "timelineSeek";
+  public static inline var ZOOM_CHANGED:EventType<TimelineEvent> = "timelineZoomChanged";
+  public static inline var ADD_EVENT_REQUESTED:EventType<TimelineEvent> = "timelineAddEventRequested";
+  public static inline var LAYER_ADDED:EventType<TimelineEvent> = "timelineLayerAdded";
+  public static inline var LAYER_REMOVED:EventType<TimelineEvent> = "timelineLayerRemoved";
+  public static inline var LAYER_RENAMED:EventType<TimelineEvent> = "timelineLayerRenamed";
+  public static inline var DEFAULT_LAYER_PROTECTED:EventType<TimelineEvent> = "timelineDefaultLayerProtected";
+  public static inline var LAYER_NAME_INVALID:EventType<TimelineEvent> = "timelineLayerNameInvalid";
+
+  public var eventData:Null<SongEventData>;
+  public var eventsData:Array<SongEventData> = [];
+  public var moveDeltas:Array<EventMoveDelta> = [];
+  public var layerData:Null<TimelineLayerData>;
+  public var layerIndex:Int = 0;
+  public var oldTime:Float = 0;
+  public var newTime:Float = 0;
+  public var oldDuration:Float = 0;
+  public var newDuration:Float = 0;
+  public var oldLayerName:Null<String>;
+  public var newLayerName:Null<String>;
+  public var seekPositionMs:Float = 0;
+  public var message:Null<String>;
+
+  public function new(type:String)
+  {
+    super(type);
+  }
+
+  override public function clone():TimelineEvent
+  {
+    var c:TimelineEvent = new TimelineEvent(type);
+    c.type = type;
+    c.bubble = bubble;
+    c.target = target;
+    c.data = data;
+    c.canceled = canceled;
+    c.eventData = eventData;
+    c.eventsData = eventsData.copy();
+    c.moveDeltas = moveDeltas.copy();
+    c.oldTime = oldTime;
+    c.newTime = newTime;
+    c.oldDuration = oldDuration;
+    c.newDuration = newDuration;
+    c.oldLayerName = oldLayerName;
+    c.newLayerName = newLayerName;
+    c.seekPositionMs = seekPositionMs;
+    c.layerData = layerData;
+    c.layerIndex = layerIndex;
+    c.message = message;
+    postClone(c);
+    return c;
+  }
+}
+#end

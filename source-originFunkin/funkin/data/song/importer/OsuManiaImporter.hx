@@ -72,8 +72,12 @@ class OsuManiaImporter
   {
     trace('Migrating song metadata from Osu!Mania.');
 
-    var songMetadata:SongMetadata = new SongMetadata('Import', songData.Metadata.ArtistUnicode ?? songData.Metadata.Artist ?? Constants.DEFAULT_ARTIST,
-      songData.Metadata.Creator ?? Constants.DEFAULT_CHARTER, Constants.DEFAULT_VARIATION);
+    var songMetadata:SongMetadata = new SongMetadata(
+      'Import',
+      songData.Metadata.ArtistUnicode ?? songData.Metadata.Artist ?? Constants.DEFAULT_ARTIST,
+      songData.Metadata.Creator ?? Constants.DEFAULT_CHARTER,
+      Constants.DEFAULT_VARIATION
+    );
 
     // Set generatedBy string for debugging.
     songMetadata.generatedBy = 'Chart Editor Import (Osu!Mania)';
@@ -106,7 +110,7 @@ class OsuManiaImporter
       {
         var bpmPoint:TimingPoint = bpmPoints[i];
 
-        result.push(new SongTimeChange(bpmPoint.time, bpmPoint.bpm ?? Constants.DEFAULT_BPM));
+        result.push(new SongTimeChange(bpmPoint.time, bpmPoint.bpm ?? Constants.DEFAULT_BPM, bpmPoint.meter ?? 4));
       }
     }
 

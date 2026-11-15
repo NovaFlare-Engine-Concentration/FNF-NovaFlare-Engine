@@ -19,6 +19,36 @@ import codename.funkin.backend.system.Controls;
 class StrumLine extends FlxTypedGroup<Strum> {
 	private var __skinPrefixFrames:ObjectMap<FlxFramesCollection, Map<String, Array<Int>>> = new ObjectMap();
 
+	/** Preserve press/release state when an older atlas has only its idle frame. */
+	public static function addPressedAnimation(sprite:FlxSprite, direction:String):Void {
+		var prefix = direction + " press";
+		var found = false;
+		if (sprite.frames != null) {
+			for (frame in sprite.frames.frames) {
+				if (frame.name != null && StringTools.startsWith(frame.name, prefix)) {
+					found = true;
+					break;
+				}
+			}
+		}
+		if (found) {
+			sprite.animation.addByPrefix("pressed", prefix, 24, false);
+			return;
+		}
+		var idle = sprite.animation.getByName("static");
+		if (idle == null || idle.frames == null || idle.frames.length == 0) {
+			// Preserve the existing diagnostic when neither animation exists.
+			sprite.animation.addByPrefix("pressed", prefix, 24, false);
+			return;
+		}
+		sprite.animation.add("pressed", idle.frames.copy(), 24, false);
+		#if CODENAME_ENGINE_COMPAT
+		var fallback = sprite.animation.getByName("pressed");
+		if (fallback != null) fallback.prefix = idle.prefix;
+		#end
+	}
+
+
 	@:allow(codename.funkin.game.Note)
 	private function addCachedSkinAnimation(sprite:FlxSprite, name:String, prefix:String,
 		frameRate:Float = 30, looped:Bool = true, flipX:Bool = false, flipY:Bool = false):Bool {
@@ -163,8 +193,13 @@ class StrumLine extends FlxTypedGroup<Strum> {
 		this.notes = new NoteGroup();
 
 		var v = Paths.voices(PlayState.SONG.meta.name, PlayState.difficulty, vocalPrefix);
-		vocals = vocalPrefix != "" ? FlxG.sound.load(Options.streamedVocals ? Assets.getMusic(v) : v) : new FlxSound();
-		vocals.persist = false;
+		if (vocalPrefix != "")
+			vocals = FlxG.sound.load(Options.streamedVocals ? v : flixel.sound.FlxSoundData.fromAssetKey(v, false));
+		else
+		{
+			vocals = FlxG.sound.list.recycle(FlxSound);
+			vocals.alive = vocals.exists = true;
+		}
 	}
 
 	/**
@@ -411,8 +446,8 @@ class StrumLine extends FlxTypedGroup<Strum> {
 
 	override function destroy() {
 		super.destroy();
-		if(startingPos != null)
-			startingPos.put();
+		vocals?.destroy();
+		if (startingPos != null) startingPos.put();
 		notes = FlxDestroyUtil.destroy(notes);
 	}
 
@@ -449,7 +484,7 @@ class StrumLine extends FlxTypedGroup<Strum> {
 			babyArrow.setGraphicSize(Std.int((babyArrow.width * Flags.DEFAULT_NOTE_SCALE) * strumScale));
 
 			babyArrow.animation.addByPrefix('static', 'arrow${event.animPrefix.toUpperCase()}');
-			babyArrow.animation.addByPrefix('pressed', '${event.animPrefix} press', 24, false);
+			addPressedAnimation(babyArrow, event.animPrefix);
 			babyArrow.animation.addByPrefix('confirm', '${event.animPrefix} confirm', 24, false);
 		}
 

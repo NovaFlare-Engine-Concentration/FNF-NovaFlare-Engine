@@ -14,7 +14,7 @@ import flixel.util.FlxColor;
 import funkin.input.Cursor;
 import funkin.play.character.BaseCharacter;
 import funkin.data.character.CharacterData;
-import funkin.data.character.CharacterData.CharacterDataParser;
+import funkin.data.character.CharacterRegistry;
 import funkin.ui.mainmenu.MainMenuState;
 import funkin.util.MouseUtil;
 import funkin.util.SerializerUtil;
@@ -64,12 +64,11 @@ class DebugBoundingState extends FlxState
 
   override function create():Void
   {
-    Paths.setCurrentLevel('week1');
-    
+    general.objects.screen.MouseEffect.enterEditor();
     FlxG.sound.music?.stop();
 
     Cursor.show();
-    FunkinSound.playMusic('chartEditorLoop', {
+    FunkinSound.playMusic('ui/editors/chart-editor/artistic-expression/artistic-expression', {
       startingVolume: 0.0
     });
     FlxG.sound.music.fadeIn(10, 0, 1);
@@ -85,8 +84,10 @@ class DebugBoundingState extends FlxState
     // we are setting this as the default draw camera only temporarily, to trick haxeui
     FlxG.cameras.add(hudCam);
 
-    var str = Paths.xml('ui/animation-editor/offset-editor-view');
+    var str = Paths.xml('ui/editors/animation-editor/offset-editor-view');
     offsetEditorDialog = cast RuntimeComponentBuilder.fromAsset(str);
+
+    if (offsetEditorDialog == null) throw "Could not build editor UI, check the layout file.";
 
     // offsetEditorDialog.findComponent("btnViewSpriteSheet").onClick = _ -> curView = SPRITESHEET;
     var viewDropdown:DropDown = offsetEditorDialog.findComponent("swapper", DropDown);
@@ -127,7 +128,7 @@ class DebugBoundingState extends FlxState
     spriteSheetView = new FlxGroup();
     add(spriteSheetView);
 
-    var tex = Paths.getSparrowAtlas('characters/BOYFRIEND');
+    var tex = Paths.getSparrowAtlas('gameplay/characters/bf-pixel/bf-pixel');
     // tex.frames[0].uv
 
     bf = new FlxSprite();
@@ -157,7 +158,10 @@ class DebugBoundingState extends FlxState
 
     for (i in frameShit)
     {
-      var lineStyle:LineStyle = {color: FlxColor.RED, thickness: 2};
+      var lineStyle:LineStyle = {
+        color: FlxColor.RED,
+        thickness: 2
+      };
 
       var uvW:Float = (i.uv.right * i.parent.width) - (i.uv.left * i.parent.width);
       var uvH:Float = (i.uv.bottom * i.parent.height) - (i.uv.top * i.parent.height);
@@ -200,18 +204,20 @@ class DebugBoundingState extends FlxState
     add(offsetView);
 
     txtOffsetShit = new FlxText(20, 20, 0, "", 20);
-    txtOffsetShit.setFormat(Paths.font("vcr.ttf"), 26, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+    txtOffsetShit.setFormat(funkin.assets.Paths.font('ui/fonts/VCR OSD Mono'), 26, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
     txtOffsetShit.cameras = [hudCam];
     txtOffsetShit.y = FlxG.height - 20 - txtOffsetShit.height;
     offsetView.add(txtOffsetShit);
 
-    var characters:Array<String> = CharacterDataParser.listCharacterIds();
+    var characters:Array<String> = CharacterRegistry.instance.listEntryIds();
     characters.sort(SortUtil.alphabetically);
 
     var charDropdown:DropDown = offsetEditorDialog.findComponent('characterDropdown', DropDown);
     for (char in characters)
     {
-      charDropdown.dataSource.add({text: char});
+      charDropdown.dataSource.add({
+        text: char
+      });
     }
 
     charDropdown.onChange = function(e:UIEvent)
@@ -264,7 +270,7 @@ class DebugBoundingState extends FlxState
   function addInfo(str:String, value:Dynamic)
   {
     var swagText:FlxText = new FlxText(10, FlxG.height - 32);
-    swagText.setFormat(Paths.font("vcr.ttf"), 26, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+    swagText.setFormat(funkin.assets.Paths.font('ui/fonts/VCR OSD Mono'), 26, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
     swagText.scrollFactor.set();
 
     for (text in txtGrp.members)
@@ -326,11 +332,11 @@ class DebugBoundingState extends FlxState
       FlxG.switchState(() -> new MainMenuState());
     }
 
-    if (FlxG.mouse.justPressed || FlxG.mouse.justPressedMiddle) FunkinSound.playOnce(Paths.sound("chartingSounds/ClickDown"));
-    if (FlxG.mouse.justReleased || FlxG.mouse.justReleasedMiddle) FunkinSound.playOnce(Paths.sound("chartingSounds/ClickUp"));
+    if (FlxG.mouse.justPressed || FlxG.mouse.justPressedMiddle) FunkinSound.playOnce(Paths.sound('ui/editors/chart-editor/charting-sounds/click-down'));
+    if (FlxG.mouse.justReleased || FlxG.mouse.justReleasedMiddle) FunkinSound.playOnce(Paths.sound('ui/editors/chart-editor/charting-sounds/click-up'));
 
     MouseUtil.mouseCamDrag();
-    if (!haxeUIFocused) MouseUtil.mouseWheelZoom();
+    if (!haxeUIFocused) handleTrackpadScroll();
 
     // bg.scale.x = FlxG.camera.zoom;
     // bg.scale.y = FlxG.camera.zoom;
@@ -340,6 +346,30 @@ class DebugBoundingState extends FlxState
     super.update(elapsed);
   }
 
+  static final TRACKPAD_PAN_SCALE:Float = 25.0;
+
+  function handleTrackpadScroll():Void
+  {
+    var dx:Float = FlxG.mouse.deltaWheel.x;
+    var dy:Float = FlxG.mouse.deltaWheel.y;
+    if (dx == 0 && dy == 0) return;
+
+    if (FlxG.keys.pressed.CONTROL)
+    {
+      if (dy == 0) return;
+      var scaledDelta:Float = dy * 10.0;
+      var rawScale:Float = Math.exp(scaledDelta / 100.0);
+      rawScale = Math.min(1.25, Math.max(0.75, rawScale));
+      FlxG.camera.zoom *= rawScale;
+      if (FlxG.camera.zoom < 0.1) FlxG.camera.zoom = 0.1;
+      if (FlxG.camera.zoom > 10.0) FlxG.camera.zoom = 10.0;
+      return;
+    }
+
+    FlxG.camera.scroll.x -= (-dx * TRACKPAD_PAN_SCALE) / FlxG.camera.zoom;
+    FlxG.camera.scroll.y -= (dy * TRACKPAD_PAN_SCALE) / FlxG.camera.zoom;
+  }
+
   function resetWindowTitle():Void
   {
     WindowUtil.setWindowTitle('Friday Night Funkin\'');
@@ -347,6 +377,7 @@ class DebugBoundingState extends FlxState
 
   override function destroy()
   {
+    general.objects.screen.MouseEffect.leaveEditor();
     super.destroy();
 
     // Hide the mouse cursor on other states.
@@ -416,7 +447,10 @@ class DebugBoundingState extends FlxState
 
       if (targetLabel != currentAnimationName)
       {
-        offsetAnimationDropdown.value = {id: targetLabel, text: targetLabel};
+        offsetAnimationDropdown.value = {
+          id: targetLabel,
+          text: targetLabel
+        };
 
         // Play the new animation if the IDs are different.
         // Override the onion skin.
@@ -445,9 +479,15 @@ class DebugBoundingState extends FlxState
     // Plays the idle animation
     if (FlxG.keys.justPressed.SPACE)
     {
-      if (swagChar?.hasAnimation('danceLeft')) offsetAnimationDropdown.value = {id: 'danceLeft', text: 'danceLeft'};
+      if (swagChar?.hasAnimation('danceLeft')) offsetAnimationDropdown.value = {
+        id: 'danceLeft',
+        text: 'danceLeft'
+      };
       else
-        offsetAnimationDropdown.value = {id: 'idle', text: 'idle'};
+        offsetAnimationDropdown.value = {
+          id: 'idle',
+          text: 'idle'
+        };
 
       playCharacterAnimation(currentAnimationName, true);
     }
@@ -502,10 +542,47 @@ class DebugBoundingState extends FlxState
   {
     var charData:CharacterData = Reflect.copy(swagChar._data);
 
+    if (charData.renderType == CharacterData.DEFAULT_RENDERTYPE) Reflect.deleteField(charData, "renderType");
+    if (charData.offsets == CharacterData.DEFAULT_OFFSETS) Reflect.deleteField(charData, "offsets");
+    if (charData.cameraOffsets == CharacterData.DEFAULT_OFFSETS) Reflect.deleteField(charData, "cameraOffsets");
+
+    if (charData.healthIcon.id == swagChar.characterId) Reflect.deleteField(charData.healthIcon, "id");
+    if (charData.healthIcon.scale == CharacterData.DEFAULT_SCALE) Reflect.deleteField(charData.healthIcon, "scale");
+    if (charData.healthIcon.flipX == CharacterData.DEFAULT_FLIPX) Reflect.deleteField(charData.healthIcon, "flipX");
+    if (charData.healthIcon.isPixel == CharacterData.DEFAULT_ISPIXEL) Reflect.deleteField(charData.healthIcon, "isPixel");
+    if (charData.healthIcon.offsets == CharacterData.DEFAULT_OFFSETS) Reflect.deleteField(charData.healthIcon, "offsets");
+
+    if (
+      charData.healthIcon.id == null
+      && charData.healthIcon.scale == null
+      && charData.healthIcon.flipX == null
+      && charData.healthIcon.isPixel == null
+      && charData.healthIcon.offsets == null
+    )
+    {
+      Reflect.deleteField(charData, "healthIcon");
+    }
+
+    if (charData.startingAnimation == CharacterData.DEFAULT_STARTINGANIM) Reflect.deleteField(charData, "startingAnimation");
+    if (charData.scale == CharacterData.DEFAULT_SCALE) Reflect.deleteField(charData, "scale");
+    if (charData.isPixel == CharacterData.DEFAULT_ISPIXEL) Reflect.deleteField(charData, "isPixel");
+    if (charData.danceEvery == CharacterData.DEFAULT_DANCEEVERY) Reflect.deleteField(charData, "danceEvery");
+    if (charData.singTime == CharacterData.DEFAULT_SINGTIME) Reflect.deleteField(charData, "singTime");
+    if (charData.flipX == CharacterData.DEFAULT_FLIPX) Reflect.deleteField(charData, "flipX");
+    if (charData.applyStageMatrix == CharacterData.DEFAULT_APPLYSTAGEMATRIX) Reflect.deleteField(charData, "applyStageMatrix");
+    if (charData.atlasSettings == CharacterData.DEFAULT_ATLASSETTINGS) Reflect.deleteField(charData, "atlasSettings");
+
     for (charDataAnim in charData.animations)
     {
       var animName:String = charDataAnim.name;
       charDataAnim.offsets = swagChar.animationOffsets.get(animName);
+
+      if (charDataAnim.animType == CharacterData.DEFAULT_ANIMTYPE) Reflect.deleteField(charDataAnim, "animType");
+      if (charDataAnim.frameRate == CharacterData.DEFAULT_FRAMERATE) Reflect.deleteField(charDataAnim, "frameRate");
+      if (charDataAnim.offsets[0] == 0 && charDataAnim.offsets[1] == 0) Reflect.deleteField(charDataAnim, "offsets");
+      if (charDataAnim.looped == CharacterData.DEFAULT_LOOP) Reflect.deleteField(charDataAnim, "looped");
+      if (charDataAnim.flipX == CharacterData.DEFAULT_FLIPX) Reflect.deleteField(charDataAnim, "flipX");
+      if (charDataAnim.flipY == CharacterData.DEFAULT_FLIPY) Reflect.deleteField(charDataAnim, "flipY");
     }
 
     return SerializerUtil.toJSON(charData, true);
@@ -530,11 +607,15 @@ class DebugBoundingState extends FlxState
       onionSkinChar.destroy();
     }
 
-    swagChar = CharacterDataParser.fetchCharacter(char, true);
+    swagChar = CharacterRegistry.instance.fetchEntry(char, {
+      debug: true
+    });
     swagChar.x = 100;
     swagChar.y = 100;
 
-    onionSkinChar = CharacterDataParser.fetchCharacter(char, true);
+    onionSkinChar = CharacterRegistry.instance.fetchEntry(char, {
+      debug: true
+    });
     onionSkinChar.x = swagChar.x;
     onionSkinChar.y = swagChar.y;
 
@@ -570,7 +651,10 @@ class DebugBoundingState extends FlxState
 
     for (charAnim in characterAnimNames)
     {
-      offsetAnimationDropdown.dataSource.add({id: charAnim, text: charAnim});
+      offsetAnimationDropdown.dataSource.add({
+        id: charAnim,
+        text: charAnim
+      });
     }
 
     offsetAnimationDropdown.selectedIndex = 0;

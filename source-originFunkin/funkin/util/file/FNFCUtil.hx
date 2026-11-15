@@ -11,93 +11,76 @@ import funkin.audio.VoicesGroup;
 import funkin.data.song.SongData.SongMetadata;
 import funkin.play.song.Song;
 import thx.semver.Version as SemverVersion;
+import haxe.io.Bytes;
 
 /**
- * Utility functions for interacting with .FNFC files.
+ * Utility functions for interacting with `.fnfc` files.
  */
 @:nullSafety
 class FNFCUtil
 {
   /**
-   * Loads a song from
-   * @param fnfcPath The absolute file path to the .FNFC file to load.
-   */
-  public static function loadSongFromFNFCPath(fnfcPath:String):Song
-  {
-    var fileBytes = sys.io.File.getBytes(fnfcPath);
-    var fileEntries:Array<haxe.zip.Entry> = FileUtil.readZIPFromBytes(fileBytes);
-    var mappedFileEntries:Map<String, haxe.zip.Entry> = FileUtil.mapZIPEntriesByName(fileEntries);
-
-    var manifest:ChartManifestData = loadChartManifestFromFNFCZipEntries(mappedFileEntries);
-
-    return loadSongFromFNFCZipEntries(mappedFileEntries, manifest);
-  }
-
-  /**
-   * Open a song's chart from a .FNFC file and play it in the Play State.
-   * @param fnfcPath The absolute file path to the .FNFC file to load.
+   * Open a song's chart from a `.fnfc` file and play it in the Play State.
+   *
+   * @param fnfcPath The absolute file path to the `.fnfc` file to load.
    * @param difficulty The difficulty level to play.
    * @param variation The variation of the song to play, such as "default", "erect", or "pico".
    */
   public static function playSongFromFNFCPath(fnfcPath:String, difficulty:String, variation:String):Void
   {
-    var fileBytes = sys.io.File.getBytes(fnfcPath);
-    var fileEntries:Array<haxe.zip.Entry> = FileUtil.readZIPFromBytes(fileBytes);
-    var mappedFileEntries:Map<String, haxe.zip.Entry> = FileUtil.mapZIPEntriesByName(fileEntries);
+    var fnfcData:FNFCData = loadDataFromFNFCPath(fnfcPath);
+    var targetSong:Song = loadSongFromFNFCData(fnfcData);
 
-    var manifest:ChartManifestData = loadChartManifestFromFNFCZipEntries(mappedFileEntries);
-
-    var targetSong:Song = loadSongFromFNFCZipEntries(mappedFileEntries, manifest);
     var targetDifficulty:Null<SongDifficulty> = targetSong.getDifficulty(difficulty, variation);
-
     if (targetDifficulty == null) throw 'Could not find chart: $difficulty-$variation';
 
+    // Instrumental audio
     var audioInstTrack:Null<FunkinSound> = null;
+    var instBytes:Null<Bytes> = fnfcData.instrumentals.get(variation);
+    if (instBytes == null) throw 'Could not find instrumental: $variation';
+    audioInstTrack = SoundUtil.buildSoundFromBytes(instBytes);
+    if (audioInstTrack == null) throw 'Could not load instrumental: $variation';
+
     var audioVocalTrackGroup = new VoicesGroup();
 
-    var instId:String = targetDifficulty.characters.instrumental ?? '';
-    var audioInstTrackName:String = manifest.getInstFileName(instId);
-    try
-    {
-      audioInstTrack = loadSoundFromFNFCZipEntries(mappedFileEntries, audioInstTrackName);
-    }
-    catch (e)
-    {
-      throw 'Could not load instrumental: $audioInstTrackName';
-    }
-
-    if (audioInstTrack == null) throw 'Could not load instrumental: $audioInstTrackName';
-
-    // Load the player vocals.
+    // Player vocal audio
     var playerVocalList:Array<String> = targetDifficulty.characters.playerVocals ?? [];
-    for (playerVocalId in playerVocalList)
+    for (vocalId in playerVocalList)
     {
-      var audioVocalTrackName:String = manifest.getVocalsFileName(playerVocalId, variation);
-      var audioVocalTrack = loadSoundFromFNFCZipEntries(mappedFileEntries, audioVocalTrackName);
-      try
+      var vocalBytes:Null<Bytes> = fnfcData.vocals.get(vocalId);
+      if (vocalBytes == null) throw 'Could not find vocals: $vocalId';
+      var audioVocalTrack:Null<FunkinSound> = SoundUtil.buildSoundFromBytes(vocalBytes);
+      if (audioVocalTrack == null) throw 'Could not load vocals: $vocalId';
+
+      audioVocalTrackGroup.addPlayerVoice(audioVocalTrack);
+    }
+
+    // Opponent vocal audio
+    var opponentVocalList:Array<String> = targetDifficulty.characters.opponentVocals ?? [];
+    for (vocalId in opponentVocalList)
+    {
+      var vocalBytes:Null<Bytes> = fnfcData.vocals.get(vocalId);
+      if (vocalBytes == null) throw 'Could not find vocals: $vocalId';
+      var audioVocalTrack:Null<FunkinSound> = SoundUtil.buildSoundFromBytes(vocalBytes);
+      if (audioVocalTrack == null) throw 'Could not load vocals: $vocalId';
+
+      audioVocalTrackGroup.addOpponentVoice(audioVocalTrack);
+    }
+
+    if (audioVocalTrackGroup.members.length == 0)
+    {
+      var vocalBytes:Null<Bytes> = fnfcData.vocals.get('');
+      var audioVocalTrack:Null<FunkinSound> = SoundUtil.buildSoundFromBytes(vocalBytes);
+      if (audioVocalTrack != null)
       {
         audioVocalTrackGroup.addPlayerVoice(audioVocalTrack);
       }
-      catch (e)
-      {
-        throw 'Could not load vocals: $audioVocalTrackName';
-      }
     }
 
-    // Load the opponent vocals.
-    var opponentVocalList:Array<String> = targetDifficulty.characters.opponentVocals ?? [];
-    for (opponentVocalId in opponentVocalList)
+    if (audioVocalTrackGroup.members.length == 1) // It's legacy'ing somewhere and i can prove it
     {
-      var audioVocalTrackName:String = manifest.getVocalsFileName(opponentVocalId, variation);
-      var audioVocalTrack = loadSoundFromFNFCZipEntries(mappedFileEntries, audioVocalTrackName);
-      try
-      {
-        audioVocalTrackGroup.addOpponentVoice(audioVocalTrack);
-      }
-      catch (e)
-      {
-        throw 'Could not load vocals: $audioVocalTrackName';
-      }
+      audioVocalTrackGroup.legacyVoiceSystem = true;
+      audioVocalTrackGroup.legacyVoiceUsesPlayer = audioVocalTrackGroup.getPlayerVoice(0) != null;
     }
 
     // Transition to the play state.
@@ -121,83 +104,587 @@ class FNFCUtil
     });
   }
 
-  static function loadSoundFromFNFCZipEntries(mappedFileEntries:Map<String, haxe.zip.Entry>, soundName:String):FunkinSound
+  /**
+   * Load a song's data from an `.fnfc` file's zip entries.
+   * This can be used to open the chart in the Chart Editor or Camera Editor.
+   *
+   * @param fnfcPath The absolute file path to the `.fnfc` file to load.
+   * @param loadAudio Whether to additionally load the audio tracks from the `.fnfc` file.
+   * @throws error If a critical error occurred that prevents loading a valid chart. Non-critical errors are placed in the `issues` list in the FNFCData.
+   * @return An object containing the data from the `.fnfc` file, ready to be opened in a debug editor.
+   */
+  public static function loadDataFromFNFCPath(fnfcPath:String, loadAudio:Bool = true):FNFCData
   {
-    var soundData:Null<haxe.zip.Entry> = mappedFileEntries.get(soundName);
-    if (soundData == null) throw 'Could not locate sound: $soundName';
-
-    var vocalTrack:Null<FunkinSound> = SoundUtil.buildSoundFromBytes(soundData.data);
-    if (vocalTrack == null) throw 'Could not parse sound: $soundName';
-
-    return vocalTrack;
+    return loadDataFromFNFCBytes(FileUtil.readBytesFromPath(fnfcPath), loadAudio);
   }
 
+  /**
+   * Load a song's data from an `.fnfc` file's zip entries.
+   *
+   * @param fnfcBytes The byte data of the `.fnfc` file to load.
+   * @param loadAudio Whether to additionally load the audio tracks from the `.fnfc` file.
+   * @throws error If a critical error occurred that prevents loading a valid chart. Non-critical errors are placed in the `issues` list in the FNFCData.
+   * @return An object containing the data from the `.fnfc` file, ready to be opened in a debug editor.
+   */
+  public static function loadDataFromFNFCBytes(fnfcBytes:Bytes, loadAudio:Bool = true):FNFCData
+  {
+    var mappedFileEntries:Map<String, haxe.zip.Entry> = FileUtil.mapZIPEntriesByName(FileUtil.readZIPFromBytes(fnfcBytes));
+
+    var issues:Array<String> = [];
+    var manifest:ChartManifestData = loadChartManifestFromFNFCZipEntries(mappedFileEntries);
+
+    var songId:String = manifest.songId;
+
+    var songMetadatas:Map<String, SongMetadata> = [];
+    var songChartDatas:Map<String, SongChartData> = [];
+
+    // Default variation metadata (errors here are critical, since it's required to parse the rest of the file)
+    var baseMetadata = loadSongMetadataFromFNFCZipEntries(mappedFileEntries, manifest, Constants.DEFAULT_VARIATION);
+    songMetadatas.set(Constants.DEFAULT_VARIATION, baseMetadata);
+
+    // Default variation chart data (errors here are critical, since it's required to parse the rest of the file)
+    var baseChartData = loadSongChartDataFromFNFCZipEntries(mappedFileEntries, manifest, Constants.DEFAULT_VARIATION);
+    songChartDatas.set(Constants.DEFAULT_VARIATION, baseChartData);
+
+    // Additional variation metadata and chart data
+    // Errors here are non-critical and placed in the issues list.
+    var variationList:Array<String> = baseMetadata.playData.songVariations;
+    for (variation in variationList)
+    {
+      try
+      {
+        var metadata = loadSongMetadataFromFNFCZipEntries(mappedFileEntries, manifest, variation);
+        songMetadatas.set(variation, metadata);
+      }
+      catch (e)
+      {
+        issues.push('Failed loading variation metadata "$variation": $e');
+      }
+
+      try
+      {
+        var chartData = loadSongChartDataFromFNFCZipEntries(mappedFileEntries, manifest, variation);
+        songChartDatas.set(variation, chartData);
+      }
+      catch (e)
+      {
+        issues.push('Failed loading variation chart data "$variation": $e');
+      }
+    }
+
+    // Instrumental and vocal audio data
+    var instrumentals:Map<String, Bytes> = [];
+    var vocals:Map<String, Bytes> = [];
+
+    // Default variation instrumental and vocal audio data
+    if (loadAudio)
+    {
+      var metadata:Null<SongMetadata> = songMetadatas.get(Constants.DEFAULT_VARIATION);
+      if (metadata == null) throw 'Could not locate default variation metadata for audio loading.';
+
+      try
+      {
+        var instBytes:Bytes = loadInstBytesFromFNFCZipEntries(mappedFileEntries, manifest, metadata);
+        instrumentals.set(Constants.DEFAULT_VARIATION, instBytes);
+      }
+      catch (e)
+      {
+        issues.push('Failed loading instrumental for default variation: $e');
+      }
+
+      try
+      {
+        var vocalsBytes:Map<String, Bytes> = loadVocalBytesFromFNFCZipEntries(mappedFileEntries, manifest, metadata);
+        vocals.append(vocalsBytes);
+      }
+      catch (e)
+      {
+        issues.push('Failed loading vocals for default variation: $e');
+      }
+    }
+
+    // Alternate variation instrumental and vocal audio data
+    if (loadAudio)
+    {
+      for (variation in variationList)
+      {
+        var metadata:Null<SongMetadata> = songMetadatas.get(variation);
+        // A missing alternate variation was already reported above; keep loading the rest.
+        if (metadata == null) continue;
+
+        try
+        {
+          var instBytes:Bytes = loadInstBytesFromFNFCZipEntries(mappedFileEntries, manifest, metadata);
+          instrumentals.set(variation, instBytes);
+        }
+        catch (e)
+        {
+          issues.push('Failed loading instrumental for variation "$variation": $e');
+        }
+
+        try
+        {
+          var vocalsBytes:Map<String, Bytes> = loadVocalBytesFromFNFCZipEntries(mappedFileEntries, manifest, metadata);
+          vocals.append(vocalsBytes);
+        }
+        catch (e)
+        {
+          issues.push('Failed loading vocals for variation "$variation": $e');
+        }
+      }
+    }
+
+    return {
+      manifest: manifest,
+
+      songMetadatas: songMetadatas,
+      songChartDatas: songChartDatas,
+
+      instrumentals: instrumentals,
+      vocals: vocals,
+
+      issues: issues
+    }
+  }
+
+  /**
+   * Build the song data from an FNFC file into a Song object that can be played in the Play State.
+   *
+   * @param data The parsed data from an FNFC file.
+   * @return A Song object that can be played in the Play State, that includes parsed metadata and chart data.
+   */
+  public static function loadSongFromFNFCData(data:FNFCData):Song
+  {
+    var songId:String = data.manifest.songId;
+    var songMetadata:Array<SongMetadata> = data.songMetadatas.values();
+    var songVariation:String = Constants.DEFAULT_VARIATION;
+    var songChartDatas:Map<String, SongChartData> = data.songChartDatas;
+
+    var includeScript:Bool = false;
+    var validScore:Bool = false;
+
+    return Song.buildRaw(songId, songMetadata, songVariation, songChartDatas, includeScript, validScore);
+  }
+
+  /**
+   * Loads a song from an `.fnfc` file at the given path.
+   *
+   * @param fnfcPath The absolute file path to the `.fnfc` file to load.
+   * @return A Song object containing the data from the `.fnfc` file, ready to be played in the Play State.
+   */
+  public static function loadSongFromFNFCPath(fnfcPath:String):Song
+  {
+    return loadSongFromFNFCData(loadDataFromFNFCPath(fnfcPath));
+  }
+
+  /**
+   * Build the song data for a song from the game's assets folder into a song that can be parsed by one of the game's debug editors.
+   * Useful for testing, or quickly getting started from an existing song's chart.
+   *
+   * @param songId The ID of the song to load.
+   * @param loadAudio Whether to also load the audio tracks for the song.
+   * @return An object containing the data for the chart, ready to save to an `.fnfc` file, or open in a debug editor.
+   */
+  public static function buildFNFCDataFromTemplate(songId:String, loadAudio:Bool = true):FNFCData
+  {
+    var song:Null<Song> = SongRegistry.instance.fetchEntry(songId);
+
+    if (song == null) throw 'Could not find song with ID: $songId';
+
+    var songManifest:ChartManifestData = new ChartManifestData(songId);
+    var songMetadatas:Map<String, SongMetadata> = [];
+    var songChartDatas:Map<String, SongChartData> = [];
+    var instrumentals:Map<String, Bytes> = [];
+    var vocals:Map<String, Bytes> = [];
+    var issues:Array<String> = [];
+
+    var rawSongMetadata:Array<SongMetadata> = song.getRawMetadata();
+
+    // Load the song metadata and chart data
+    for (metadata in rawSongMetadata)
+    {
+      if (metadata == null) continue;
+      var variation:String = metadata.variation.isBlank() ? Constants.DEFAULT_VARIATION : metadata.variation;
+
+      // Clone the metadata to prevent modifying the original in-place.
+      var metadataClone:SongMetadata = metadata.clone();
+      metadataClone.variation = variation;
+      if (metadataClone != null) songMetadatas.set(variation, metadataClone);
+
+      // Freshly parsed chart data.
+      var chartData:Null<SongChartData> = SongRegistry.instance.parseEntryChartData(songId, metadata.variation);
+      if (chartData != null) songChartDatas.set(variation, chartData);
+    }
+
+    // Load instrumental and vocal audio data
+    if (loadAudio)
+    {
+      for (variation => metadata in songMetadatas)
+      {
+        if (metadata == null) continue;
+
+        try
+        {
+          var instBytes:Bytes = loadInstBytesFromTemplate(songId, metadata);
+          instrumentals.set(variation, instBytes);
+        }
+        catch (e)
+        {
+          issues.push('Failed loading instrumental for variation "$variation": $e');
+        }
+
+        try
+        {
+          var vocalsBytes:Map<String, Bytes> = loadVocalBytesFromTemplate(songId, metadata);
+          vocals.append(vocalsBytes);
+        }
+        catch (e)
+        {
+          issues.push('Failed loading vocals for variation "$variation": $e');
+        }
+      }
+    }
+
+    return {
+      manifest: songManifest,
+
+      songMetadatas: songMetadatas,
+      songChartDatas: songChartDatas,
+
+      instrumentals: instrumentals,
+      vocals: vocals,
+
+      issues: issues
+    }
+  }
+
+  static function loadInstBytesFromFNFCZipEntries(mappedFileEntries:Map<String, haxe.zip.Entry>,
+    manifest:ChartManifestData,
+    metadata:SongMetadata):Bytes
+  {
+    var instId:String = metadata?.playData?.characters?.instrumental ?? '';
+    var instFileName:String = manifest.getInstFileName(instId);
+    var instBytes:Bytes = loadBytesFromFNFCZipEntries(mappedFileEntries, instFileName);
+    return instBytes;
+  }
+
+  static function loadInstBytesFromTemplate(songId:String, metadata:SongMetadata):Bytes
+  {
+    var instId:String = metadata?.playData?.characters?.instrumental ?? '';
+    var instFileName:String = funkin.Paths.inst(songId, instId == '' ? '' : '-$instId');
+
+    var instBytes:Null<Bytes> = Assets.getBytes(instFileName);
+    if (instBytes == null) throw 'Could not load instrumental: $instFileName';
+
+    return instBytes;
+  }
+
+  static function loadVocalBytesFromFNFCZipEntries(mappedFileEntries:Map<String, haxe.zip.Entry>,
+    manifest:ChartManifestData,
+    metadata:SongMetadata):Map<String, Bytes>
+  {
+    var vocals:Map<String, Bytes> = [];
+
+    var variation:String = metadata.variation.isBlank() ? Constants.DEFAULT_VARIATION : metadata.variation;
+
+    // Get the player vocal list and opponent vocal list
+    // If either are null, default to the player and opponent characters
+    // If either are empty, don't load vocals for them
+    var playerVoiceList:Array<String> = metadata.playData.characters.playerVocals ?? [metadata.playData.characters.player ?? Constants.DEFAULT_CHARACTER];
+    var opponentVoiceList:Array<String> = metadata.playData.characters.opponentVocals ?? [metadata.playData.characters.opponent ?? 'dad'];
+    var voicesList:Array<String> = playerVoiceList.concat(opponentVoiceList);
+
+    for (voiceId in voicesList)
+    {
+      var trackKeySuffix:String = (variation.isBlank() || variation == Constants.DEFAULT_VARIATION) ? '' : '-${variation}';
+      var trackKey:String = '$voiceId$trackKeySuffix';
+      // For example, for voice ID "bf" on variation "pico", the file name would be "Voices-bf-pico.ogg"
+
+      var voiceFileName:String = manifest.getVocalsFileName(voiceId, metadata.variation);
+      if (mappedFileEntries.exists(voiceFileName))
+      {
+        var voiceBytes:Bytes = loadBytesFromFNFCZipEntries(mappedFileEntries, voiceFileName);
+        vocals.set(trackKey, voiceBytes);
+      }
+    }
+
+    var legacyFilePath = 'Voices.${Constants.EXT_SOUND}';
+    if (vocals.size() == 0 && mappedFileEntries.exists(legacyFilePath))
+    {
+      var voiceBytes:Bytes = loadBytesFromFNFCZipEntries(mappedFileEntries, legacyFilePath);
+      vocals.set('', voiceBytes);
+    }
+
+    return vocals;
+  }
+
+  static function loadVocalBytesFromTemplate(songId:String, metadata:SongMetadata):Map<String, Bytes>
+  {
+    var vocals:Map<String, Bytes> = [];
+
+    var variation:String = metadata.variation.isBlank() ? Constants.DEFAULT_VARIATION : metadata.variation;
+
+    // Get the player vocal list and opponent vocal list
+    // If either are null, default to the player and opponent characters
+    // If either are empty, don't load vocals for them
+    var playerVoiceList:Array<String> = metadata.playData.characters.playerVocals ?? [metadata.playData.characters.player ?? Constants.DEFAULT_CHARACTER];
+    var opponentVoiceList:Array<String> = metadata.playData.characters.opponentVocals ?? [metadata.playData.characters.opponent ?? 'dad'];
+    var voicesList:Array<String> = playerVoiceList.concat(opponentVoiceList);
+
+    for (voiceId in voicesList)
+    {
+      var trackKeySuffix:String = (variation.isBlank() || variation == Constants.DEFAULT_VARIATION) ? '' : '-${variation}';
+      var trackKey:String = '$voiceId$trackKeySuffix';
+      // For example, for voice ID "bf" on variation "pico", the file name would be "Voices-bf-pico.ogg"
+
+      // CUE AWFUL SUFFIX-STRIPPING LOGIC
+      // TODO: Merge this with the logic in Song.buildPlayerVoiceList()
+
+      var originalVoiceId:String = voiceId;
+      var voicePath:Null<String> = funkin.Paths.voices(songId, '-$voiceId$trackKeySuffix');
+
+      while (voicePath != null && !Assets.exists(voicePath))
+      {
+        // Continously strip the suffix (leaving the variation) until we find a valid voice file.
+        // For example if "Voices-bf-car-pico.ogg" doesn't exist, try "Voices-bf-pico.ogg"
+        voiceId = voiceId.split('-').slice(0, -1).join('-');
+        voicePath = voiceId == '' ? null : funkin.Paths.voices(songId, '-$voiceId$trackKeySuffix');
+      }
+      if (voicePath == null)
+      {
+        voiceId = originalVoiceId;
+        voicePath = funkin.Paths.voices(songId, '-$voiceId');
+        while (voicePath != null && !Assets.exists(voicePath))
+        {
+          // Continously strip the suffix (omitting the variation) until we find a valid voice file.
+          // For example if "Voices-bf-car.ogg" doesn't exist, try "Voices-bf.ogg"
+          voiceId = voiceId.split('-').slice(0, -1).join('-');
+          voicePath = voiceId == '' ? null : funkin.Paths.voices(songId, '-$voiceId');
+        }
+      }
+
+      if (voicePath == null)
+      {
+        var originalVoicePath:String = funkin.Paths.voices(songId, '-$originalVoiceId$trackKeySuffix');
+        throw 'Could not locate vocal track: $originalVoicePath';
+      }
+
+      var voiceBytes:Null<Bytes> = Assets.getBytes(voicePath);
+      if (voiceBytes == null) throw 'Could not load vocals: $voicePath';
+      vocals.set(trackKey, voiceBytes);
+    }
+
+    return vocals;
+  }
+
+  /**
+   * Load the chart manifest from an FNFC file's zip entries.
+   *
+   * @param mappedFileEntries The zip entries from an FNFC file.
+   * @throws error If the manifest could not be loaded.
+   * @return The parsed ChartManifestData object.
+   */
   static function loadChartManifestFromFNFCZipEntries(mappedFileEntries:Map<String, haxe.zip.Entry>):ChartManifestData
   {
-    var manifestData:Null<haxe.zip.Entry> = mappedFileEntries.get('manifest.json');
-    if (manifestData == null) throw 'Could not locate manifest.';
+    var manifestStr:Null<String> = loadStringFromFNFCZipEntries(mappedFileEntries, 'manifest.json');
 
-    var manifestString:Null<String> = manifestData?.data?.toString();
-    if (manifestString == null) throw 'Could not read manifest.';
-
-    var manifest:ChartManifestData = ChartManifestData.deserialize(manifestString) ?? throw 'Could not parse manifest.';
+    var manifest:ChartManifestData = ChartManifestData.deserialize(manifestStr) ?? throw 'Could not parse manifest.';
 
     return manifest;
   }
 
-  static function loadSongFromFNFCZipEntries(mappedFileEntries:Map<String, haxe.zip.Entry>, manifest:ChartManifestData):Song
+  /**
+   * Load the metadata for a song variation from an FNFC file's zip entries.
+   *
+   * @param mappedFileEntries The zip entries from an FNFC file.
+   * @param manifest The chart manifest data, usually parsed from that FNFC file.
+   * @param variation The name of the song variation to load.
+   * @return The metadata for that song variation.
+   */
+  static function loadSongMetadataFromFNFCZipEntries(mappedFileEntries:Map<String, haxe.zip.Entry>,
+    manifest:ChartManifestData,
+    variation:String):SongMetadata
   {
-    var songId:String = manifest.songId;
+    var metadataPath:String = manifest.getMetadataFileName(variation);
 
-    // id-metadata.json
+    var metadataStr:String = loadStringFromFNFCZipEntries(mappedFileEntries, metadataPath);
 
-    var baseMetadataPath:String = manifest.getMetadataFileName();
-    var baseMetadataString:String = mappedFileEntries.get(baseMetadataPath)?.data?.toString() ?? throw 'Could not locate metadata (default).';
-    var baseMetadataVersion:SemverVersion = VersionUtil.getVersionFromJSON(baseMetadataString) ?? throw 'Could not read metadata version (default).';
-    var baseMetadata:SongMetadata = SongRegistry.instance.parseEntryMetadataRawWithMigration(baseMetadataString, baseMetadataPath,
-      baseMetadataVersion) ?? throw 'Could not read metadata (default).';
+    var metadataVersion:Null<SemverVersion> = VersionUtil.getVersionFromJSON(metadataStr);
+    if (metadataVersion == null) throw 'Could not parse metadata version ($variation).';
 
-    var songMetadatas:Map<String, SongMetadata> = [];
-    songMetadatas.set(Constants.DEFAULT_VARIATION, baseMetadata);
+    var metadata:Null<SongMetadata> = SongRegistry.instance.parseEntryMetadataRawWithMigration(metadataStr, metadataPath, metadataVersion, variation);
+    if (metadata == null) throw 'Could not parse metadata ($variation).';
 
-    // id-chart.json
+    return metadata;
+  }
 
-    var baseChartDataPath:String = manifest.getChartDataFileName();
-    var baseChartDataString:String = mappedFileEntries.get(baseChartDataPath)?.data?.toString() ?? throw 'Could not locate chart data (default).';
-    var baseChartDataVersion:SemverVersion = VersionUtil.getVersionFromJSON(baseChartDataString) ?? throw 'Could not read chart data version (default).';
-    var baseChartData:SongChartData = SongRegistry.instance.parseEntryChartDataRawWithMigration(baseChartDataString, baseChartDataPath,
-      baseChartDataVersion) ?? throw 'Could not read chart data (default).';
+  /**
+   * Load the chart data for a song variation from an FNFC file's zip entries.
+   *
+   * @param mappedFileEntries The zip entries from an FNFC file.
+   * @param manifest The chart manifest data, usually parsed from that FNFC file.
+   * @param variation The name of the song variation to load.
+   * @return The chart data for that song variation.
+   */
+  static function loadSongChartDataFromFNFCZipEntries(mappedFileEntries:Map<String, haxe.zip.Entry>,
+    manifest:ChartManifestData,
+    variation:String):SongChartData
+  {
+    var chartDataPath:String = manifest.getChartDataFileName(variation);
 
-    var songChartDatas:Map<String, SongChartData> = [];
-    songChartDatas.set(Constants.DEFAULT_VARIATION, baseChartData);
+    var chartDataStr:String = loadStringFromFNFCZipEntries(mappedFileEntries, chartDataPath);
 
-    // Variation metadata and chart data
+    var chartDataVersion:Null<SemverVersion> = VersionUtil.getVersionFromJSON(chartDataStr);
+    if (chartDataVersion == null) throw 'Could not read chart data version (default).';
 
-    var variationList:Array<String> = baseMetadata.playData.songVariations;
+    var chartData:Null<SongChartData> = SongRegistry.instance.parseEntryChartDataRawWithMigration(chartDataStr, chartDataPath, chartDataVersion, variation);
+    if (chartData == null) throw 'Could not read chart data (default).';
 
-    for (variation in variationList)
+    return chartData;
+  }
+
+  /**
+   * Read the string data of a file from an FNFC file's zip entries.
+   *
+   * @param mappedFileEntries The zip entries from an FNFC file.
+   * @param fileName The name of the file to load.
+   * @return The string data of the file.
+   */
+  static function loadStringFromFNFCZipEntries(mappedFileEntries:Map<String, haxe.zip.Entry>,
+    fileName:String):String
+  {
+    return loadBytesFromFNFCZipEntries(mappedFileEntries, fileName).toString();
+  }
+
+  /**
+   * Read the byte data of a file from an FNFC file's zip entries.
+   *
+   * @param mappedFileEntries The zip entries from an FNFC file.
+   * @param fileName The name of the file to load.
+   * @return The byte data of the file.
+   */
+  static function loadBytesFromFNFCZipEntries(mappedFileEntries:Map<String, haxe.zip.Entry>,
+    fileName:String):Bytes
+  {
+    var data:Null<haxe.zip.Entry> = mappedFileEntries.get(fileName);
+    if (data == null || data.data == null) throw 'Could not locate file: $fileName';
+
+    return data.data;
+  }
+
+  /**
+   * Scan an FNFC file's zip entries for a file with the given name.
+   *
+   * @param mappedFileEntries The zip entries from an FNFC file.
+   * @param fileName The name of the file to look for.
+   * @return Whether a file with that name exists, and has data.
+   */
+  static function hasFileInFNFCZipEntries(mappedFileEntries:Map<String, haxe.zip.Entry>,
+    fileName:String):Bool
+  {
+    var data:Null<haxe.zip.Entry> = mappedFileEntries.get(fileName);
+    return data != null && data.data != null;
+  }
+
+  /**
+   * Construct a list of ZIP file entries from the data of a chart, so that it can be written as an `.fnfc` file.
+   *
+   * @param data The data of the chart to write.
+   * @return A list of ZIP file entries that can be written to disk.
+   */
+  public static function buildZIPEntriesFromFNFCData(data:FNFCData):Array<haxe.zip.Entry>
+  {
+    var zipEntries:Array<haxe.zip.Entry> = [];
+
+    var songId:String = data.manifest.songId;
+
+    zipEntries.push(FileUtil.makeZIPEntry('manifest.json', data.manifest.serialize()));
+
+    for (variation => metadata in data.songMetadatas)
     {
-      var variMetadataPath:String = manifest.getMetadataFileName(variation);
-      var variMetadataString:String = mappedFileEntries.get(variMetadataPath)?.data?.toString() ?? throw 'Could not locate metadata ($variation).';
-      var variMetadataVersion:SemverVersion = VersionUtil.getVersionFromJSON(variMetadataString) ?? throw 'Could not read metadata ($variation) version.';
-      var variMetadata:SongMetadata = SongRegistry.instance.parseEntryMetadataRawWithMigration(variMetadataString, variMetadataPath, variMetadataVersion,
-        variation) ?? throw 'Could not read metadata ($variation).';
+      var chartData:Null<SongChartData> = data.songChartDatas.get(variation);
+      if (chartData == null) throw 'Could not find chart data for variation: $variation';
 
-      songMetadatas.set(variation, variMetadata);
+      metadata.version = funkin.data.song.SongRegistry.SONG_METADATA_VERSION;
+      metadata.generatedBy = funkin.data.song.SongRegistry.DEFAULT_GENERATEDBY;
 
-      var variChartDataPath:String = manifest.getChartDataFileName(variation);
-      var variChartDataString:String = mappedFileEntries.get(variChartDataPath)?.data?.toString() ?? throw 'Could not locate chart data ($variation).';
-      var variChartDataVersion:SemverVersion = VersionUtil.getVersionFromJSON(variChartDataString) ?? throw 'Could not read chart data version ($variation).';
-      var variChartData:SongChartData = SongRegistry.instance.parseEntryChartDataRawWithMigration(variChartDataString, variChartDataPath,
-        variChartDataVersion) ?? throw 'Could not read chart data ($variation).';
+      chartData.version = funkin.data.song.SongRegistry.SONG_CHART_DATA_VERSION;
+      chartData.generatedBy = funkin.data.song.SongRegistry.DEFAULT_GENERATEDBY;
 
-      songChartDatas.set(variation, variChartData);
+      if (variation == Constants.DEFAULT_VARIATION)
+      {
+        zipEntries.push(FileUtil.makeZIPEntry('${songId}-metadata.json', metadata.serialize()));
+        zipEntries.push(FileUtil.makeZIPEntry('${songId}-chart.json', chartData.serialize()));
+      }
+      else
+      {
+        zipEntries.push(FileUtil.makeZIPEntry('${songId}-metadata-${variation}.json', metadata.serialize()));
+        zipEntries.push(FileUtil.makeZIPEntry('${songId}-chart-${variation}.json', chartData.serialize()));
+      }
     }
 
-    // Combine into a Song object that can be played in PlayState.
-    var song = Song.buildRaw(songId, songMetadatas.values(), Constants.DEFAULT_VARIATION, songChartDatas, false, false);
+    zipEntries.append(buildZIPEntriesFromInstrumentals(songId, data.instrumentals));
+    zipEntries.append(buildZIPEntriesFromVocals(songId, data.vocals));
 
-    return song;
+    return zipEntries;
   }
+
+  static function buildZIPEntriesFromInstrumentals(songId:String,
+    instrumentals:Map<String, Bytes>):Array<haxe.zip.Entry>
+  {
+    var zipEntries:Array<haxe.zip.Entry> = [];
+
+    for (key => data in instrumentals)
+    {
+      if (key == Constants.DEFAULT_VARIATION)
+      {
+        zipEntries.push(FileUtil.makeZIPEntryFromBytes('Inst.ogg', data));
+      }
+      else
+      {
+        zipEntries.push(FileUtil.makeZIPEntryFromBytes('Inst-${key}.ogg', data));
+      }
+    }
+
+    return zipEntries;
+  }
+
+  static function buildZIPEntriesFromVocals(songId:String, vocals:Map<String, Bytes>):Array<haxe.zip.Entry>
+  {
+    var zipEntries:Array<haxe.zip.Entry> = [];
+
+    for (key => data in vocals)
+    {
+      if (key == '')
+      {
+        zipEntries.push(FileUtil.makeZIPEntryFromBytes('Voices.ogg', data));
+      }
+      else
+      {
+        zipEntries.push(FileUtil.makeZIPEntryFromBytes('Voices-${key}.ogg', data));
+      }
+    }
+
+    return zipEntries;
+  }
+}
+
+/**
+ * The data contained in an FNFC file.
+ */
+typedef FNFCData =
+{
+  // A central `manifest` file, containing data used to parse the rest of the file.
+  var manifest:ChartManifestData;
+  // JSON metadata for each variation
+  var songMetadatas:Map<String, SongMetadata>;
+  // JSON chart data for each variation
+  var songChartDatas:Map<String, SongChartData>;
+  // Instrumental audio tracks
+  var instrumentals:Map<String, Bytes>;
+  // Vocal audio tracks
+  var vocals:Map<String, Bytes>;
+  // A list of non-breaking issues encountered when loading the FNFC file.
+  var ?issues:Array<String>;
 }
 #end

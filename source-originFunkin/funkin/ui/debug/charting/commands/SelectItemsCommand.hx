@@ -6,10 +6,11 @@ import funkin.data.song.SongData.SongEventData;
 import funkin.data.song.SongDataUtils;
 
 /**
- * Appends one or more items to the selection in the chart editor.
- * This does not deselect any items that are already selected, if any.
+ * Represents a reversible action to append a list of notes and events to the current selection.
+ * Use `SetItemSelectionCommand` to replace the current selection rather than appending to it.
  */
-@:nullSafety @:access(funkin.ui.debug.charting.ChartEditorState)
+@:nullSafety
+@:access(funkin.ui.debug.charting.ChartEditorState)
 class SelectItemsCommand implements ChartEditorCommand
 {
   var notes:Array<SongNoteData>;
@@ -17,20 +18,25 @@ class SelectItemsCommand implements ChartEditorCommand
 
   public function new(?notes:Array<SongNoteData>, ?events:Array<SongEventData>)
   {
-    this.notes = notes ?? [];
-    this.events = events ?? [];
+    this.notes = notes == null ? [] : [for (note in notes) if (note != null) note];
+    this.events = events == null ? [] : [for (event in events) if (event != null) event];
   }
 
+  /**
+   * Perform the action, adding the notes and events to the current selection.
+   *
+   * @param state The ChartEditorState to perform the command on.
+   */
   public function execute(state:ChartEditorState):Void
   {
     for (note in this.notes)
     {
-      state.currentNoteSelection.push(note);
+      state.currentNoteSelection.pushUnique(note);
     }
 
     for (event in this.events)
     {
-      state.currentEventSelection.push(event);
+      state.currentEventSelection.pushUnique(event);
     }
 
     // If we just selected one or more events (and no notes), then we should make the event data toolbox display the event data for the selected event.
@@ -40,19 +46,7 @@ class SelectItemsCommand implements ChartEditorCommand
 
       state.eventKindToPlace = eventSelected.eventKind;
 
-      // This code is here to parse event data that's not built as a struct for some reason.
-      // TODO: Clean this up or get rid of it.
-      var eventSchema = eventSelected.getSchema();
-      var defaultKey = null;
-      if (eventSchema == null)
-      {
-        trace(' WARNING '.bg_yellow().bold() + ' Event schema not found for event ${eventSelected.eventKind}.');
-      }
-      else
-      {
-        defaultKey = eventSchema.getFirstField()?.name;
-      }
-      var eventData = eventSelected.valueAsStruct(defaultKey);
+      var eventData = eventSelected.valueAsStruct();
 
       state.eventDataToPlace = eventData;
 
@@ -75,6 +69,11 @@ class SelectItemsCommand implements ChartEditorCommand
     state.editButtonsDirty = true;
   }
 
+  /**
+   * Reverse the action, deselecting the notes and events that were selected.
+   *
+   * @param state The ChartEditorState to perform the command on.
+   */
   public function undo(state:ChartEditorState):Void
   {
     state.currentNoteSelection = SongDataUtils.subtractNotes(state.currentNoteSelection, this.notes);
@@ -85,12 +84,23 @@ class SelectItemsCommand implements ChartEditorCommand
     state.editButtonsDirty = true;
   }
 
+  /**
+   * Whether the command should display in the undo/redo menu.
+   * This should be `false` if no real actions were actually performed.
+   *
+   * @param state The ChartEditorState to perform the command on.
+   * @return Whether the command should be added to the history.
+   */
   public function shouldAddToHistory(state:ChartEditorState):Bool
   {
     // This command is undoable. Add to the history if we actually performed an action.
     return (notes.length > 0 || events.length > 0);
   }
 
+  /**
+   * Convert the action to a string. Used to display the action in the undo/redo history.
+   * @return This command, as a readable string.
+   */
   public function toString():String
   {
     var len:Int = notes.length + events.length;

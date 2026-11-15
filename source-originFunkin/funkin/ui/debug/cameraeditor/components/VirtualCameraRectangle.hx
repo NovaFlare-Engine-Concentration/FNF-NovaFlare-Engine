@@ -1,0 +1,871 @@
+package funkin.ui.debug.cameraeditor.components;
+
+import funkin.graphics.FunkinSprite;
+import flixel.util.FlxColor;
+import funkin.play.event.SongEvent;
+import funkin.data.song.SongData.SongEventData;
+import funkin.play.stage.Stage;
+import flixel.tweens.FlxEase;
+import flixel.math.FlxMath;
+import flixel.math.FlxPoint;
+import flixel.FlxObject;
+import flixel.group.FlxSpriteGroup;
+import flixel.math.FlxRect;
+import funkin.graphics.FunkinSliceSprite;
+import funkin.ui.FullScreenScaleMode;
+import flixel.FlxCamera;
+
+/**
+ * The sprite which displays the current visible area of the camera during previews.
+ */
+class VirtualCameraRectangle extends FlxSpriteGroup
+{
+  /**
+   * The zoom level of the virtual camera. Setting this will adjust the scale of the rectangle accordingly.
+   */
+  @:isVar
+  public var zoom(get, set):Float = 1;
+
+  /**
+   * When in relative mode, this is used in the passepartout scaling computation.
+   */
+  public var relativeZoom:Float = 1;
+
+  /**
+   * The current position of the virtual camera in world space.
+   */
+  public var vcamPoint:FlxPoint = new FlxPoint();
+
+  /**
+   * Reference to the current stage, used to access character positions for camera focus events.
+   */
+  public var currentStage:Stage;
+
+  var defaultHUDCameraZoom:Float = FlxCamera.defaultZoom;
+
+  public var cameraZoomRate:Float = Constants.DEFAULT_ZOOM_RATE;
+  public var cameraZoomRateOffset:Float = Constants.DEFAULT_ZOOM_OFFSET;
+  public var cameraBopIntensity:Float = Constants.DEFAULT_BOP_INTENSITY;
+  public var hudCameraZoomIntensity:Float = 0.015 * 2.0;
+  public var conductorElapsed:Float = 0;
+  public var doBopping:Bool = false;
+
+  /**
+   * The default position of the camera in the stage.
+   */
+  public var defaultPosition(get, never):FlxPoint;
+
+  function get_defaultPosition():FlxPoint
+  {
+    if (currentStage != null && currentStage.getDad() != null)
+    {
+      var dad = currentStage.getDad();
+
+      return FlxPoint.get(dad.cameraFocusPoint.x, dad.cameraFocusPoint.y);
+    }
+
+    return FlxPoint.get();
+  }
+
+  public var isRelative:Bool = false;
+  public var hudZoom(default, set):Float = 1;
+
+  var isClassicEase:Bool = false;
+  var isClassicZoom:Bool = false;
+  var cameraFollowPoint:FlxObject = new FlxObject();
+  var cameraFollowTween:Float = 0;
+  var cameraFollowStart:FlxPoint = new FlxPoint();
+  var cameraFollowDuration:Float = 0;
+  var cameraFollowEase:Null<Float->Float> = null;
+  var cameraZoomTween:Float = 0;
+  var cameraZoomEnd:Float = 0;
+  var cameraZoomStart:Float = 0;
+  var cameraZoomDuration:Float = 0;
+  var cameraZoomEase:Null<Float->Float> = null;
+  var scrollTarget:FlxPoint = new FlxPoint();
+
+  function resize():Void
+  {
+    if (!isRelative)
+    {
+      mainView.setGraphicSize(FlxG.width / zoom, FlxG.height / zoom);
+    }
+    else
+    {
+      mainView.setGraphicSize(FlxG.width, FlxG.height);
+    }
+    mainView.updateHitbox();
+    camSlice.width = mainView.width;
+    camSlice.height = mainView.height;
+  }
+
+  function set_zoom(value:Float):Float
+  {
+    zoom = value;
+
+    resize();
+    return zoom;
+  }
+
+  function get_zoom():Float
+  {
+    if (!doBopping) return zoom;
+    return zoom + (hudZoom - 1);
+  }
+
+  function set_hudZoom(value:Float):Float
+  {
+    hudZoom = value;
+
+    resize();
+    return hudZoom;
+  }
+
+  /**
+   * Whether to show the widescreen extended bounds of the camera.
+   */
+  public var showExtendedBounds(default, set):Bool = false;
+
+  function set_showExtendedBounds(val:Bool):Bool
+  {
+    showExtendedBounds = val;
+
+    for (obj in [
+      leftExt,
+      rightExt,
+      cornerTLSmall,
+      cornerBRSmall,
+      cornerTRSmall,
+      cornerBLSmall,
+      lineLSmall,
+      lineRSmall
+    ])
+    {
+      obj.visible = val;
+    }
+
+    return val;
+  }
+
+  /**
+   * Whether to display a Passepartout around the camera,
+   * darkening the area outside the camera's view.
+   */
+  public var showPassepartout(default, set):Bool = false;
+
+  /**
+   * The current opacity of the passepartout.
+   */
+  public var passepartoutTransparency(default, set):Float = 0;
+
+  function set_showPassepartout(val:Bool):Bool
+  {
+    showPassepartout = val;
+    for (obj in [passeT, passeB, passeL, passeR])
+    {
+      obj.visible = val;
+    }
+    for (obj in [camSliceOverlay])
+    {
+      obj.visible = !val;
+    }
+    for (obj in [
+      cornerTLSmall,
+      cornerBRSmall,
+      cornerTRSmall,
+      cornerBLSmall,
+      lineLSmall,
+      lineRSmall,
+      cornerTL,
+      cornerBR,
+      cornerTR,
+      cornerBL,
+      lineT,
+      lineL,
+      lineR,
+      lineB
+    ])
+    {
+      obj.color = val ? 0xFFFFFFFF : 0xFF000000;
+    }
+
+    leftExt.loadGraphic(
+      val ? Paths.image('ui/editors/camera-editor/vcam/vcam_slice_cutout_left') : Paths.image('ui/editors/camera-editor/vcam/vcam_slice_left')
+    );
+    rightExt.loadGraphic(
+      val ? Paths.image('ui/editors/camera-editor/vcam/vcam_slice_cutout_right') : Paths.image('ui/editors/camera-editor/vcam/vcam_slice_right')
+    );
+    camSlice.loadGraphic(val ? Paths.image('ui/editors/camera-editor/vcam/vcam_slice_cutout') : Paths.image('ui/editors/camera-editor/vcam/vcam_slice'));
+
+    // make extended bounds visible again if needed
+    showExtendedBounds = showExtendedBounds;
+
+    return val;
+  }
+
+  function set_passepartoutTransparency(val:Float):Float
+  {
+    passepartoutTransparency = val;
+    for (obj in [passeT, passeB, passeL, passeR])
+    {
+      obj.alpha = val;
+    }
+    return val;
+  }
+
+  /**
+   * Cancels the current camera follow tween if it's active.
+   */
+  public function cancelCameraFollowTween():Void
+  {
+    cameraFollowTween = 0;
+    cameraFollowDuration = 0;
+    cameraFollowEase = null;
+    isClassicEase = false;
+  }
+
+  /**
+   * Cancels the current camera zoom tween if it's active.
+   */
+  public function cancelCameraZoomTween():Void
+  {
+    cameraZoomTween = 0;
+    cameraZoomDuration = 0;
+    cameraZoomEase = null;
+    isClassicZoom = false;
+  }
+
+  /**
+   * Cancels all active camera tweens (both follow and zoom).
+   */
+  public function cancelAllTweens():Void
+  {
+    cancelCameraFollowTween();
+    cancelCameraZoomTween();
+  }
+
+  /**
+   * Starts a CLASSIC-style exponential follow toward the current follow point.
+   */
+  function startClassicFollow():Void
+  {
+    cancelCameraFollowTween();
+
+    isClassicEase = true;
+    cameraFollowTween = Conductor.instance.songPosition;
+    cameraFollowStart.copyFrom(vcamPoint);
+    cameraFollowDuration = 0;
+    cameraFollowEase = null;
+  }
+
+  /**
+   * Starts a CLASSIC-style exponential zoom toward the target zoom.
+   * Used for INSTANT / zero-duration zoom events.
+   */
+  function startClassicZoom(targetZoom:Float):Void
+  {
+    cancelCameraZoomTween();
+
+    isClassicZoom = true;
+    cameraZoomTween = Conductor.instance.songPosition;
+    cameraZoomStart = doBopping ? (zoom - (hudZoom - 1)) : zoom;
+    cameraZoomEnd = targetZoom;
+    cameraZoomDuration = 0;
+    cameraZoomEase = null;
+  }
+
+  /**
+   * Resets the camera to follow the current cameraFollowPoint.
+   * @param resetZoom Whether to reset the zoom level to 1. Default is true.
+   * @param cancelTweens Whether to cancel any active camera follow tweens. Default is true.
+   * @param snap Whether to snap the camera to the follow point immediately. Default is true.
+   */
+  public function resetCamera(resetZoom:Bool = true, cancelTweens:Bool = true, snap:Bool = true):Void
+  {
+    if (cancelTweens) cancelCameraFollowTween();
+    setFocusPoint(cameraFollowPoint.x, cameraFollowPoint.y, snap);
+  }
+
+  /**
+   * Tweens the camera to the current cameraFollowPoint over the specified duration using the specified easing function.
+   * @param duration Duration of the tween in seconds. If 0, the camera smoothly glides to the follow point.
+   * @param ease Easing function to use for the tween. If null, the default easing will be used.
+   */
+  public function tweenCameraToFollowPoint(duration:Float = 0, ?ease:Null<Float->Float>):Void
+  {
+    // Cancel the current tween if it's active.
+    cancelCameraFollowTween();
+
+    if (duration == 0)
+    {
+      startClassicFollow();
+    }
+    else
+    {
+      cameraFollowTween = Conductor.instance.songPosition;
+      cameraFollowStart.copyFrom(vcamPoint);
+      cameraFollowDuration = duration;
+      cameraFollowEase = ease;
+    }
+  }
+
+  /**
+   * Tweens the camera zoom to the specified level over the specified duration using the specified easing function.
+   * @param stageZoom The stage's default zoom level.
+   * @param z The target zoom level.
+   * @param duration Duration of the tween in seconds. If 0, the zoom smoothly glides to the target.
+   * @param direct Whether the zoom level is absolute (true) or relative to the stage's default zoom (false).
+   * @param ease Easing function to use for the tween. If null, the default easing will be used.
+   */
+  public function tweenCameraZoom(stageZoom:Float, z:Float = 1, duration:Float = 0, direct:Bool = false, ?ease:Null<Float->Float>):Void
+  {
+    cancelCameraZoomTween();
+
+    var targetZoom:Float = z;
+    if (!direct) targetZoom *= stageZoom;
+
+    // ZoomCamera should tween the base camera zoom only, not the effective zoom that includes HUD bop.
+    var currentBaseZoom:Float = zoom - (hudZoom - 1);
+
+    if (!doBopping) currentBaseZoom = zoom;
+
+    if (duration == 0)
+    {
+      startClassicZoom(targetZoom);
+    }
+    else
+    {
+      cameraZoomTween = Conductor.instance.songPosition;
+      cameraZoomStart = currentBaseZoom;
+      cameraZoomEnd = targetZoom;
+      cameraZoomDuration = duration;
+      cameraZoomEase = ease;
+    }
+  }
+
+  var forceNextFocus:Bool = false;
+
+  /**
+   * Sets the camera follow point to the specified coordinates. If force is true, the camera will immediately snap to the new follow point.
+   * @param x The x-coordinate of the new camera follow point.
+   * @param y The y-coordinate of the new camera follow point.
+   * @param force Whether to immediately snap the camera to the new follow point. Default is false.
+   */
+  public function setFocusPoint(x:Float, y:Float, force:Bool = false):Void
+  {
+    cameraFollowPoint.x = x;
+    cameraFollowPoint.y = y;
+    if (force)
+    {
+      forceNextFocus = true;
+    }
+  }
+
+  /**
+   * Handles a camera focus event, updating the camera follow point based on the event data.
+   * @param eventData The event data containing the focus information. Expected fields:
+   */
+  public function handleFocusCamera(eventData:SongEventData):Void
+  {
+    var x:Null<Float> = eventData.getFloat('x');
+    var y:Null<Float> = eventData.getFloat('y');
+    var char:Null<Int> = eventData.getInt('char');
+    var offsetX:Float = 0;
+    var offsetY:Float = 0;
+    if (x != null) offsetX = x;
+    if (y != null) offsetY = y;
+
+    if (char == null) char = cast eventData.value;
+
+    if (char != null)
+    {
+      if (char == -1)
+      {
+        setFocusPoint(offsetX, offsetY);
+      }
+      else
+      {
+        switch (char)
+        {
+          case 0:
+            var bf = currentStage.getBoyfriend();
+            if (bf != null)
+            {
+              setFocusPoint(bf.cameraFocusPoint.x + offsetX, bf.cameraFocusPoint.y + offsetY);
+            }
+          case 1:
+            var dad = currentStage.getDad();
+            if (dad != null)
+            {
+              setFocusPoint(dad.cameraFocusPoint.x + offsetX, dad.cameraFocusPoint.y + offsetY);
+            }
+          case 2:
+            var gf = currentStage.getGirlfriend();
+            if (gf != null)
+            {
+              setFocusPoint(gf.cameraFocusPoint.x + offsetX, gf.cameraFocusPoint.y + offsetY);
+            }
+        }
+      }
+    }
+
+    var duration:Null<Float> = eventData.getFloat('duration');
+    if (duration == null) duration = 4.0;
+    var ease:Null<String> = eventData.getString('ease');
+    if (ease == null) ease = 'CLASSIC';
+
+    if (ease == 'CLASSIC')
+    {
+      startClassicFollow();
+      return;
+    }
+
+    switch (ease)
+    {
+      case 'INSTANT':
+        resetCamera(false, true, true);
+      default:
+        var easeDir:String = eventData.getString('easeDir') ?? SongEvent.DEFAULT_EASE_DIR;
+        if (SongEvent.EASE_TYPE_DIR_REGEX.match(ease) || ease == 'linear') easeDir = '';
+
+        var durSeconds = Conductor.instance.stepLengthMs * duration / 1000;
+        var easeFunctionName = '$ease$easeDir';
+        var easeFunction:Null<Float->Float> = Reflect.field(FlxEase, easeFunctionName);
+        if (easeFunction == null)
+        {
+          trace('Invalid ease function: $easeFunctionName');
+          startClassicFollow();
+          return;
+        }
+
+        tweenCameraToFollowPoint(durSeconds, easeFunction);
+    }
+  }
+
+  /**
+   * Handles a camera zoom event, updating the camera zoom level based on the event data.
+   *
+   * @param stageZoom The current zoom level of the stage.
+   * @param eventData The event data containing the zoom information.
+   */
+  public function handleZoomCamera(stageZoom:Float, eventData:SongEventData):Void
+  {
+    var zoom:Float = eventData.getFloat('zoom') ?? 1.0;
+
+    var duration:Float = eventData.getFloat('duration') ?? 4.0;
+
+    var mode:String = eventData.getString('mode') ?? 'direct';
+    var isDirectMode:Bool = mode == 'direct';
+
+    var ease:String = eventData.getString('ease') ?? SongEvent.DEFAULT_EASE;
+    var easeDir:String = eventData.getString('easeDir') ?? SongEvent.DEFAULT_EASE_DIR;
+
+    if (SongEvent.EASE_TYPE_DIR_REGEX.match(ease) || ease == 'linear') easeDir = '';
+
+    // If it's a string, check the value.
+    switch (ease)
+    {
+      case 'INSTANT':
+        cancelCameraZoomTween();
+        var targetZoom:Float = zoom;
+        if (!isDirectMode) targetZoom *= stageZoom;
+        this.zoom = targetZoom;
+      default:
+        var durSeconds = Conductor.instance.stepLengthMs * duration / 1000;
+        var easeFunctionName = '$ease$easeDir';
+        var easeFunction:Null<Float->Float> = Reflect.field(FlxEase, easeFunctionName);
+        if (easeFunction == null)
+        {
+          trace('Invalid ease function: $easeFunctionName');
+          tweenCameraZoom(stageZoom, zoom, 0, isDirectMode);
+          return;
+        }
+
+        tweenCameraZoom(stageZoom, zoom, durSeconds, isDirectMode, easeFunction);
+    }
+  }
+
+  // the underlying sprite that makes up the view
+  var mainView:FunkinSprite;
+  // the visual slice sprites that show the camera bounds
+  var camSlice:FunkinSliceSprite;
+  var camSliceOverlay:FunkinSliceSprite;
+  var cornerTL:FunkinSprite;
+  var cornerBR:FunkinSprite;
+  var cornerTR:FunkinSprite;
+  var cornerBL:FunkinSprite;
+  var lineT:FunkinSprite;
+  var lineL:FunkinSprite;
+  var lineR:FunkinSprite;
+  var lineB:FunkinSprite;
+  var cornerTLSmall:FunkinSprite;
+  var cornerBRSmall:FunkinSprite;
+  var cornerTRSmall:FunkinSprite;
+  var cornerBLSmall:FunkinSprite;
+  var lineLSmall:FunkinSprite;
+  var lineRSmall:FunkinSprite;
+  var middle:FunkinSprite;
+  // extension pieces for when showExtendedBounds is true
+  var leftExt:FunkinSliceSprite;
+  var rightExt:FunkinSliceSprite;
+  var pieceSize:Float = 0;
+  var passeT:FunkinSprite;
+  var passeB:FunkinSprite;
+  var passeL:FunkinSprite;
+  var passeR:FunkinSprite;
+
+  public function new(x:Float, y:Float)
+  {
+    super(x, y);
+    passeT = new FunkinSprite(0, 0);
+    passeB = new FunkinSprite(0, 0);
+    passeL = new FunkinSprite(0, 0);
+    passeR = new FunkinSprite(0, 0);
+
+    for (obj in [passeT, passeB, passeL, passeR])
+    {
+      obj.vcamPoint = vcamPoint;
+      obj.makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
+      obj.zIndex = 10_000;
+      obj.updateHitbox();
+      add(obj);
+    }
+
+    mainView = new FunkinSprite(0, 0);
+    mainView.vcamPoint = vcamPoint;
+    mainView.makeGraphic(FlxG.width, FlxG.height, FlxColor.BLUE);
+    mainView.updateHitbox();
+    mainView.visible = false;
+
+    add(mainView);
+
+    pieceSize = ((FlxG.width / 16 * FullScreenScaleMode.maxAspectRatio.x) - FlxG.width) / 2;
+
+    leftExt = new FunkinSliceSprite(Paths.image('ui/editors/camera-editor/vcam/vcam_slice_left'), new FlxRect(30, 30, 30, 30), 0, 0);
+    leftExt.vcamPoint = vcamPoint;
+    leftExt.alpha = 0.3;
+    leftExt.zIndex = 5999;
+    leftExt.updateHitbox();
+
+    add(leftExt);
+
+    // flipping x doesnt work.... i HAVE to use another image.... ewwwwwww
+    rightExt = new FunkinSliceSprite(Paths.image('ui/editors/camera-editor/vcam/vcam_slice_right'), new FlxRect(30, 30, 30, 30), 0, 0);
+    rightExt.vcamPoint = vcamPoint;
+    rightExt.alpha = 0.3;
+    rightExt.zIndex = 5999;
+    rightExt.updateHitbox();
+
+    add(rightExt);
+
+    camSliceOverlay = new FunkinSliceSprite(Paths.image('ui/editors/camera-editor/vcam/vcam_slice_solid'), new FlxRect(30, 30, 30, 30), 0, 0);
+    camSliceOverlay.vcamPoint = vcamPoint;
+    camSliceOverlay.blend = OVERLAY;
+    camSliceOverlay.alpha = 0.2;
+    camSliceOverlay.zIndex = 6000;
+    camSliceOverlay.updateHitbox();
+
+    add(camSliceOverlay);
+
+    camSlice = new FunkinSliceSprite(Paths.image('ui/editors/camera-editor/vcam/vcam_slice'), new FlxRect(30, 30, 30, 30), 0, 0);
+    camSlice.vcamPoint = vcamPoint;
+    camSlice.alpha = 0.5;
+    camSlice.zIndex = 6001;
+    camSlice.updateHitbox();
+
+    add(camSlice);
+
+    middle = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_center');
+    middle.vcamPoint = vcamPoint;
+    middle.zIndex = 6002;
+    add(middle);
+
+    cornerTR = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_corner');
+    cornerBR = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_corner');
+    cornerTL = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_corner');
+    cornerBL = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_corner');
+
+    cornerTRSmall = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_corner_small');
+    cornerBRSmall = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_corner_small');
+    cornerTLSmall = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_corner_small');
+    cornerBLSmall = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_corner_small');
+
+    lineT = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_line_horizontal');
+    lineB = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_line_horizontal');
+
+    lineL = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_line_vertical');
+    lineR = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_line_vertical');
+
+    lineLSmall = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_line_small');
+    lineRSmall = new FunkinSprite().loadTexture('ui/editors/camera-editor/vcam/vcam_line_small');
+
+    // no fucking way im doing this manually
+    for (obj in [
+      cornerTR,
+      cornerBR,
+      cornerTL,
+      cornerBL,
+      cornerTLSmall,
+      cornerBRSmall,
+      cornerTRSmall,
+      cornerBLSmall,
+      lineT,
+      lineB,
+      lineL,
+      lineR,
+      lineLSmall,
+      lineRSmall
+    ])
+    {
+      obj.vcamPoint = vcamPoint;
+      obj.color = 0xFF000000;
+      obj.zIndex = 6002;
+      add(obj);
+    }
+
+    cornerTR.flipX = true;
+    cornerBR.flipX = true;
+    cornerBR.flipY = true;
+    cornerBL.flipY = true;
+
+    cornerTRSmall.flipX = true;
+    cornerBRSmall.flipX = true;
+    cornerBRSmall.flipY = true;
+    cornerBLSmall.flipY = true;
+
+    cornerTRSmall.alpha = 0.7;
+    cornerBRSmall.alpha = 0.7;
+    cornerTLSmall.alpha = 0.7;
+    cornerBLSmall.alpha = 0.7;
+    lineLSmall.alpha = 0.7;
+    lineRSmall.alpha = 0.7;
+
+    // just cause a little variation is cute
+    lineB.flipX = true;
+    lineR.flipY = true;
+    lineRSmall.flipY = true;
+
+    camSliceOverlay.color = 0xFF7ABFBC;
+    camSlice.color = 0xFF7ABFBC;
+
+    leftExt.color = 0xFF7ABF9B;
+    rightExt.color = 0xFF7ABF9B;
+
+    // just so the editor doesnt freak out at first
+    camSlice.width = mainView.width;
+    camSlice.height = mainView.height;
+
+    showExtendedBounds = false;
+    showPassepartout = false;
+    passepartoutTransparency = 0.5;
+  }
+
+  public function replayBop():Void
+  {
+    var zoomStep:Float = cameraZoomRate * Constants.STEPS_PER_BEAT;
+    var pastStep:Float = Conductor.instance.currentStep - (Conductor.instance.currentStep % zoomStep);
+    _hitTime = pastStep * Conductor.instance.stepLengthMs;
+    _lastBopTriggerStep = Std.int(Math.floor(pastStep));
+    _hitHudZoom = getHitHudZoom();
+    hudZoom = _hitHudZoom;
+  }
+
+  function getHitHudZoom():Float
+  {
+    return defaultHUDCameraZoom + (hudCameraZoomIntensity * defaultHUDCameraZoom);
+  }
+
+  public function setCameraBop(rate:Float, offset:Float, intensity:Float, preserveCurrentState:Bool = true):Void
+  {
+    cameraZoomRate = rate;
+    cameraZoomRateOffset = offset;
+    cameraBopIntensity = (Constants.DEFAULT_BOP_INTENSITY - 1.0) * intensity + 1.0;
+    hudCameraZoomIntensity = (Constants.DEFAULT_BOP_INTENSITY - 1.0) * intensity * 2.0;
+
+    _lastBopTriggerStep = Std.int(Math.floor(Conductor.instance.currentStep));
+  }
+
+  var _hitTime:Float = 0;
+  var _hitHudZoom:Float = FlxCamera.defaultZoom;
+  var _lastBopTriggerStep:Int = -1;
+
+  function isBopStep(step:Float, zoomStep:Float, zoomOffsetStep:Float):Bool
+  {
+    if (zoomStep <= 0) return false;
+
+    var cyclePos:Float = (step + zoomOffsetStep) % zoomStep;
+    return Math.abs(cyclePos) < 0.0001 || Math.abs(cyclePos - zoomStep) < 0.0001;
+  }
+
+  override public function update(elapsed:Float):Void
+  {
+    super.update(elapsed);
+
+    var currentStep:Float = Conductor.instance.currentStep;
+    var currentStepInt:Int = Std.int(Math.floor(currentStep));
+    var zoomStep:Float = cameraZoomRate * Constants.STEPS_PER_BEAT;
+    var zoomOffsetStep:Float = cameraZoomRateOffset * Constants.STEPS_PER_BEAT;
+
+    if (isBopStep(currentStep, zoomStep, zoomOffsetStep) && currentStepInt != _lastBopTriggerStep)
+    {
+      _lastBopTriggerStep = currentStepInt;
+      _hitTime = Conductor.instance.songPosition;
+      _hitHudZoom = getHitHudZoom();
+      hudZoom = _hitHudZoom;
+    }
+
+    if (cameraZoomRate > 0)
+    {
+      var decayRate:Float = 0.98;
+      var hitElapsedMs:Float = Math.max(0, Conductor.instance.songPosition - _hitTime);
+      var dt:Float = hitElapsedMs / 1000 * 60;
+      var decayFactor:Float = Math.pow(decayRate, dt);
+
+      hudZoom = FlxMath.lerp(defaultHUDCameraZoom, _hitHudZoom, decayFactor);
+    }
+
+    scrollTarget.set(cameraFollowPoint.x - (FlxG.width / 2), cameraFollowPoint.y - (FlxG.height / 2));
+
+    if (forceNextFocus)
+    {
+      vcamPoint.copyFrom(scrollTarget);
+      forceNextFocus = false;
+    }
+
+    if (isClassicEase)
+    {
+      var cameraFollowElapsed = Math.max(0, Conductor.instance.songPosition - cameraFollowTween);
+
+      // Apply CLASSIC ease: 1.0 - Math.pow(1.0 - Constants.DEFAULT_CAMERA_FOLLOW_RATE, elapsed * 60)
+      var adjustedProgressElapsed = cameraFollowElapsed / 1000 * 60;
+      var easeProgress = (1.0 - Math.pow(1.0 - Constants.DEFAULT_CAMERA_FOLLOW_RATE, adjustedProgressElapsed)).clamp(0, 1);
+
+      vcamPoint.x = FlxMath.lerp(cameraFollowStart.x, scrollTarget.x, easeProgress);
+      vcamPoint.y = FlxMath.lerp(cameraFollowStart.y, scrollTarget.y, easeProgress);
+
+      if (easeProgress >= 0.9999)
+      {
+        vcamPoint.copyFrom(scrollTarget);
+        isClassicEase = false;
+      }
+    }
+    else if (cameraFollowEase != null)
+    {
+      // Handle regular easing
+      var cameraFollowElapsed = Conductor.instance.songPosition - cameraFollowTween;
+      vcamPoint.x = FlxMath.lerp(cameraFollowStart.x, scrollTarget.x, cameraFollowEase((cameraFollowElapsed / (cameraFollowDuration * 1000)).clamp(0, 1)));
+      vcamPoint.y = FlxMath.lerp(cameraFollowStart.y, scrollTarget.y, cameraFollowEase((cameraFollowElapsed / (cameraFollowDuration * 1000)).clamp(0, 1)));
+
+      if (cameraFollowElapsed >= cameraFollowDuration * 1000)
+      {
+        cameraFollowEase = null;
+        vcamPoint.copyFrom(scrollTarget);
+      }
+    }
+    // Handle camera zoom tweening
+    if (isClassicZoom)
+    {
+      var cameraZoomElapsed = Math.max(0, Conductor.instance.songPosition - cameraZoomTween);
+      var adjustedZoomElapsed = cameraZoomElapsed / 1000 * 60;
+      var zoomProgress = (1.0 - Math.pow(1.0 - Constants.DEFAULT_CAMERA_FOLLOW_RATE, adjustedZoomElapsed)).clamp(0, 1);
+
+      zoom = FlxMath.lerp(cameraZoomStart, cameraZoomEnd, zoomProgress);
+
+      if (zoomProgress >= 0.9999)
+      {
+        zoom = cameraZoomEnd;
+        isClassicZoom = false;
+      }
+    }
+    else if (cameraZoomEase != null)
+    {
+      var cameraZoomElapsed = Conductor.instance.songPosition - cameraZoomTween;
+      zoom = FlxMath.lerp(cameraZoomStart, cameraZoomEnd, cameraZoomEase((cameraZoomElapsed / (cameraZoomDuration * 1000)).clamp(0, 1)));
+
+      if (cameraZoomElapsed >= cameraZoomDuration * 1000)
+      {
+        cameraZoomEase = null;
+        zoom = cameraZoomEnd;
+      }
+    }
+
+    updateVisuals();
+  }
+
+  function updateVisuals():Void
+  {
+    mainView.x = (vcamPoint.x + (FlxG.width / 2)) - mainView.width / 2;
+    mainView.y = (vcamPoint.y + (FlxG.height / 2)) - mainView.height / 2;
+
+    camSlice.x = (vcamPoint.x + (FlxG.width / 2)) - camSlice.width / 2;
+    camSlice.y = (vcamPoint.y + (FlxG.height / 2)) - camSlice.height / 2;
+
+    cornerTL.setPosition(mainView.x, mainView.y);
+    cornerBR.setPosition(mainView.x + mainView.width - cornerBR.width, mainView.y + mainView.height - cornerBR.height);
+
+    cornerTR.setPosition(mainView.x + mainView.width - cornerTR.width, mainView.y);
+    cornerBL.setPosition(mainView.x, mainView.y + mainView.height - cornerBR.height);
+
+    lineT.setPosition(mainView.x + (mainView.width / 2) - lineT.width / 2, mainView.y);
+    lineB.setPosition(mainView.x + (mainView.width / 2) - lineT.width / 2, mainView.y + mainView.height - lineB.height);
+
+    lineL.setPosition(mainView.x, mainView.y + (mainView.height / 2) - lineL.height / 2);
+    lineR.setPosition(mainView.x + mainView.width - lineR.width, mainView.y + (mainView.height / 2) - lineL.height / 2);
+
+    middle.setPosition(mainView.x + (mainView.width / 2) - middle.width / 2, mainView.y + (mainView.height / 2) - middle.height / 2);
+
+    camSliceOverlay.width = camSlice.width;
+    camSliceOverlay.height = camSlice.height;
+    camSliceOverlay.setPosition(camSlice.x, camSlice.y);
+
+    leftExt.width = pieceSize / zoom;
+    if (isRelative) leftExt.width = pieceSize;
+    leftExt.height = camSlice.height;
+    leftExt.setPosition(camSlice.x - leftExt.width, camSlice.y);
+
+    rightExt.width = pieceSize / zoom;
+    if (isRelative) rightExt.width = pieceSize;
+    rightExt.height = camSlice.height;
+    rightExt.setPosition(camSlice.x + camSlice.width, camSlice.y);
+
+    cornerTLSmall.setPosition(leftExt.x, leftExt.y);
+    cornerBLSmall.setPosition(leftExt.x, leftExt.y + leftExt.height - cornerBRSmall.height);
+
+    cornerBRSmall.setPosition(rightExt.x + rightExt.width - cornerBRSmall.width, rightExt.y + rightExt.height - cornerBRSmall.height);
+    cornerTRSmall.setPosition(rightExt.x + rightExt.width - cornerTRSmall.width, rightExt.y);
+
+    lineLSmall.setPosition(leftExt.x, leftExt.y + (leftExt.height / 2) - lineLSmall.height / 2);
+
+    lineRSmall.setPosition(rightExt.x + rightExt.width - lineRSmall.width, rightExt.y + (rightExt.height / 2) - lineLSmall.height / 2);
+
+    if (!showPassepartout) return;
+
+    var scaleAmt:Float = ((Math.abs(FlxG.camera.scroll.x - vcamPoint.x) * 2) + FlxG.width) / FlxG.camera.zoom;
+    var extraSize:Float = showExtendedBounds ? pieceSize / zoom : 0;
+
+    if (isRelative)
+    {
+      var safeRelativeZoom:Float = (relativeZoom != 0) ? relativeZoom : 1.0;
+      var zoomFactor:Float = FlxG.camera.zoom / safeRelativeZoom;
+      var compensatedScrollX:Float = FlxG.camera.scroll.x * zoomFactor;
+
+      scaleAmt = ((Math.abs(compensatedScrollX - vcamPoint.x) * 2) + FlxG.width) / safeRelativeZoom;
+      extraSize = showExtendedBounds ? pieceSize : 0;
+    }
+
+    passeT.setGraphicSize(scaleAmt, scaleAmt);
+    passeB.setGraphicSize(scaleAmt, scaleAmt);
+    passeL.setGraphicSize(scaleAmt, mainView.height);
+    passeR.setGraphicSize(scaleAmt, mainView.height);
+
+    passeT.updateHitbox();
+    passeB.updateHitbox();
+    passeL.updateHitbox();
+    passeR.updateHitbox();
+
+    passeT.setPosition(mainView.x + (mainView.width / 2) - passeT.width / 2, mainView.y - passeT.height);
+    passeB.setPosition(mainView.x + (mainView.width / 2) - passeT.width / 2, mainView.y + mainView.height);
+    passeL.setPosition((mainView.x - passeL.width) - extraSize, mainView.y + (mainView.height / 2) - passeL.height / 2);
+    passeR.setPosition(mainView.x + mainView.width + extraSize, mainView.y + (mainView.height / 2) - passeL.height / 2);
+  }
+}

@@ -1,0 +1,67 @@
+--- a/polymod/hscript/_internal/Expr.hx
++++ b/polymod/hscript/_internal/Expr.hx
+@@ -328,6 +328,7 @@
+    * Whether this import is a wildcard and we need to validate it for later.
+    */
+   var ?wildcard:Bool;
++  var ?isDefault:Bool;
+ }
+ 
+ typedef EnumDecl =
+--- a/polymod/hscript/_internal/Interp.hx
++++ b/polymod/hscript/_internal/Interp.hx
+@@ -3991,6 +3991,7 @@
+           pkg: splitPath.slice(0, splitPath.length - 1),
+           fullPath: importPath,
+           cls: PolymodScriptClass.defaultImports.get(importPath),
++          isDefault: true,
+         });
+       }
+     }
+@@ -4034,11 +4035,14 @@
+               {
+                 Polymod.error(SCRIPTED_CLASS_BLACKLISTED_MODULE, 'Scripted class ${clsName} is blacklisted and cannot be used in scripts.', SCRIPT_RUNTIME);
+               }
+-              else
++              else if (imports.get(clsName).fullPath == path.join('.'))
+               {
++                // An explicit repeat of a default import still outranks import.hx.
++                imports.get(clsName).isDefault = false;
+                 Polymod.warning(SCRIPTED_CLASS_REDUNDANT_IMPORT, 'Scripted class ${clsName} has already been imported.', SCRIPT_RUNTIME);
++                continue;
+               }
+-              continue;
++              if (imports.get(clsName) == null) continue;
+             }
+ 
+             var importedClass:ClassImport =
+@@ -4563,10 +4567,10 @@
+           {
+             for (name => clsImport in importWildcard(inter.imports, imp))
+             {
+-              inter.imports.set(name, clsImport);
+-            }
+-          }
+-          else
++              if (!inter.imports.exists(name) || inter.imports.get(name)?.isDefault) inter.imports.set(name, clsImport);
++            }
++          }
++          else if (!inter.imports.exists(imp.name) || inter.imports.get(imp.name)?.isDefault)
+             inter.imports.set(imp.name, imp);
+         }
+       }
+@@ -4737,10 +4741,10 @@
+           {
+             for (name => clsImport in importWildcard(cls.imports, imp))
+             {
+-              cls.imports.set(name, clsImport);
+-            }
+-          }
+-          else
++              if (!cls.imports.exists(name) || cls.imports.get(name)?.isDefault) cls.imports.set(name, clsImport);
++            }
++          }
++          else if (!cls.imports.exists(imp.name) || cls.imports.get(imp.name)?.isDefault)
+             tryImport(cls, imp);
+         }
+       }

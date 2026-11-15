@@ -6,6 +6,7 @@ import funkin.ui.debug.charting.dialogs.ChartEditorBaseDialog.DialogDropTarget;
 import funkin.ui.debug.charting.dialogs.ChartEditorBaseDialog.DialogParams;
 import funkin.util.FileUtil;
 import funkin.data.character.CharacterData;
+import funkin.data.character.CharacterRegistry;
 import haxe.io.Path;
 import haxe.ui.components.Button;
 import haxe.ui.components.Label;
@@ -17,7 +18,8 @@ import haxe.ui.core.Component;
 
 // @:nullSafety // TODO: Fix null safety when used with HaxeUI build macros.
 
-@:build(haxe.ui.ComponentBuilder.build('assets/exclude/data/ui/chart-editor/dialogs/upload-vocals.xml')) @:access(funkin.ui.debug.charting.ChartEditorState)
+@:build(originfunkin.macro.OriginEditorMacro.build('assets/exclude/ui/editors/chart-editor/dialogs/upload-vocals.xml'))
+@:access(funkin.ui.debug.charting.ChartEditorState)
 class ChartEditorUploadVocalsDialog extends ChartEditorBaseDialog
 {
   var dropHandlers:Array<DialogDropTarget> = [];
@@ -25,15 +27,17 @@ class ChartEditorUploadVocalsDialog extends ChartEditorBaseDialog
   var dialogCancel:Button;
   var dialogNoVocals:Button;
   var dialogContinue:Button;
-  var charIds:Array<String>;
+  var playerCharId:String;
+  var opponentCharId:String;
   var instId:String;
   var hasClearedVocals:Bool = false;
 
-  public function new(state2:ChartEditorState, charIds:Array<String>, params2:DialogParams)
+  public function new(state2:ChartEditorState, playerCharId:String, opponentCharId:String, params2:DialogParams)
   {
     super(state2, params2);
 
-    this.charIds = charIds;
+    this.playerCharId = playerCharId;
+    this.opponentCharId = opponentCharId;
     this.instId = chartEditorState.currentInstrumentalId;
 
     dialogCancel.onClick = function(_)
@@ -59,16 +63,22 @@ class ChartEditorUploadVocalsDialog extends ChartEditorBaseDialog
 
   function buildDropHandlers():Void
   {
+    var charIds:Array<String> = [playerCharId, opponentCharId];
     for (charKey in charIds)
     {
+      var isPlayer:Bool = charKey == playerCharId;
+
       trace('Adding vocal upload for character ${charKey}');
 
-      var charMetadata:Null<CharacterData> = CharacterDataParser.fetchCharacterData(charKey);
+      var charMetadata:Null<CharacterData> = CharacterRegistry.instance.fetchCharacterData(charKey);
       var charName:String = charMetadata?.name ?? charKey;
 
       var vocalsEntry = new ChartEditorUploadVocalsEntry(charName);
 
-      var dropHandler:DialogDropTarget = {component: vocalsEntry, handler: null};
+      var dropHandler:DialogDropTarget = {
+        component: vocalsEntry,
+        handler: null
+      };
 
       var onDropFile:String->Void = function(pathStr:String)
       {
@@ -77,6 +87,15 @@ class ChartEditorUploadVocalsDialog extends ChartEditorBaseDialog
 
         if (chartEditorState.loadVocalsFromPath(path, charKey, this.instId, !this.hasClearedVocals))
         {
+          if (isPlayer)
+          {
+            chartEditorState.currentSongMetadata.playData.characters.playerVocals = [playerCharId];
+          }
+          else
+          {
+            chartEditorState.currentSongMetadata.playData.characters.opponentVocals = [opponentCharId];
+          }
+
           this.hasClearedVocals = true;
           // Tell the user the load was successful.
           chartEditorState.success('Loaded Vocals', 'Loaded vocals for $charName (${path.file}.${path.ext}), variation ${chartEditorState.selectedVariation}');
@@ -93,8 +112,10 @@ class ChartEditorUploadVocalsDialog extends ChartEditorBaseDialog
         {
           trace('Failed to load vocal track (${path.file}.${path.ext})');
 
-          chartEditorState.error('Failed to Load Vocals',
-            'Failed to load vocal track (${path.file}.${path.ext}) for variation (${chartEditorState.selectedVariation})');
+          chartEditorState.error(
+            'Failed to Load Vocals',
+            'Failed to load vocal track (${path.file}.${path.ext}) for variation (${chartEditorState.selectedVariation})'
+          );
 
           #if FEATURE_FILE_DROP
           vocalsEntry.vocalsEntryLabel.text = 'Drag and drop vocals for $charName here, or click to browse.';
@@ -114,6 +135,15 @@ class ChartEditorUploadVocalsDialog extends ChartEditorBaseDialog
 
             if (chartEditorState.loadVocalsFromBytes(selectedFile.bytes, charKey, this.instId, !this.hasClearedVocals))
             {
+              if (isPlayer)
+              {
+                chartEditorState.currentSongMetadata.playData.characters.playerVocals = [playerCharId];
+              }
+              else
+              {
+                chartEditorState.currentSongMetadata.playData.characters.opponentVocals = [opponentCharId];
+              }
+
               hasClearedVocals = true;
               // Tell the user the load was successful.
               chartEditorState.success('Loaded Vocals', 'Loaded vocals for $charName (${selectedFile.name}), variation ${chartEditorState.selectedVariation}');
@@ -130,8 +160,10 @@ class ChartEditorUploadVocalsDialog extends ChartEditorBaseDialog
             {
               trace('Failed to load vocal track (${selectedFile.fullPath})');
 
-              chartEditorState.error('Failed to Load Vocals',
-                'Failed to load vocal track (${selectedFile.name}) for variation (${chartEditorState.selectedVariation})');
+              chartEditorState.error(
+                'Failed to Load Vocals',
+                'Failed to load vocal track (${selectedFile.name}) for variation (${chartEditorState.selectedVariation})'
+              );
 
               #if FEATURE_FILE_DROP
               vocalsEntry.vocalsEntryLabel.text = 'Drag and drop vocals for $charName here, or click to browse.';
@@ -154,9 +186,9 @@ class ChartEditorUploadVocalsDialog extends ChartEditorBaseDialog
     }
   }
 
-  public static function build(state:ChartEditorState, charIds:Array<String>, ?closable:Bool, ?modal:Bool):ChartEditorUploadVocalsDialog
+  public static function build(state:ChartEditorState, playerCharId:String, opponentCharId:String, ?closable:Bool, ?modal:Bool):ChartEditorUploadVocalsDialog
   {
-    var dialog = new ChartEditorUploadVocalsDialog(state, charIds, {
+    var dialog = new ChartEditorUploadVocalsDialog(state, playerCharId, opponentCharId, {
       closable: closable ?? false,
       modal: modal ?? true
     });
@@ -199,53 +231,13 @@ class ChartEditorUploadVocalsDialog extends ChartEditorBaseDialog
     this.dialogCancel.disabled = false;
   }
 
-  /**
-   * Called when clicking the Upload Chart box.
-   */
-  public function onClickChartBox():Void
-  {
-    if (this.locked) return;
-
-    this.lock();
-
-    FileUtil.browseForFile('Open Chart', [FileUtil.FILE_FILTER_FNFC], onSelectFile, onCancelBrowse);
-  }
-
-  /**
-   * Called when a file is selected by the dialog displayed when clicking the Upload Chart box.
-   */
-  function onSelectFile(selectedFile:SelectedFileData):Void
-  {
-    this.unlock();
-
-    if (selectedFile != null && selectedFile.bytes != null)
-    {
-      try
-      {
-        var result:Null<Array<String>> = ChartEditorImportExportHandler.loadFromFNFC(chartEditorState, selectedFile.bytes);
-        if (result != null)
-        {
-          chartEditorState.success('Loaded Chart',
-            result.length == 0 ? 'Loaded chart (${selectedFile.name})' : 'Loaded chart (${selectedFile.name})\n${result.join("\n")}');
-
-          if (selectedFile.fullPath != null) chartEditorState.currentWorkingFilePath = selectedFile.fullPath;
-          this.hideDialog(DialogButton.APPLY);
-        }
-      }
-      catch (err)
-      {
-        chartEditorState.failure('Failed to Load Chart', 'Failed to load chart (${selectedFile.name}): ${err}');
-      }
-    }
-  }
-
   function onCancelBrowse():Void
   {
     this.unlock();
   }
 }
 
-@:build(haxe.ui.ComponentBuilder.build('assets/exclude/data/ui/chart-editor/dialogs/upload-vocals-entry.xml'))
+@:build(originfunkin.macro.OriginEditorMacro.build('assets/exclude/ui/editors/chart-editor/dialogs/upload-vocals-entry.xml'))
 class ChartEditorUploadVocalsEntry extends Box
 {
   public var vocalsEntryLabel:Label;

@@ -18,27 +18,16 @@ class WaveformDataParser
 
     // Method 1. This only works if the sound has been played before.
     @:privateAccess
-    var soundBuffer:Null<lime.media.AudioBuffer> = sound?._channel?.__audioSource?.buffer;
+    var soundBuffer:Null<lime.media.AudioBuffer> = sound?._source?.buffer;
+    // SDL2/OpenFL creates the AudioSource only when playback starts. Editors
+    // also need waveforms for loaded, stopped and paused sounds.
+    @:privateAccess
+    if (soundBuffer == null) soundBuffer = sound._sound?.__buffer;
 
     if (soundBuffer == null)
     {
-      // Method 2. This works if the sound has not been played before.
-      @:privateAccess
-      soundBuffer = sound?._sound?.__buffer;
-
-      if (soundBuffer == null)
-      {
-        trace('[WAVEFORM] Failed to interpret FlxSound: ${sound}');
-        return null;
-      }
-      else
-      {
-        // trace('[WAVEFORM] Method 2 worked.');
-      }
-    }
-    else
-    {
-      // trace('[WAVEFORM] Method 1 worked.');
+      trace('[WAVEFORM] Failed to interpret FlxSound: ${sound}');
+      return null;
     }
 
     return interpretAudioBuffer(soundBuffer);
@@ -50,10 +39,12 @@ class WaveformDataParser
     var bitsPerSample = soundBuffer.bitsPerSample;
     var samplesPerPoint:Int = 256; // I don't think we need to configure this.
 
-    // TODO: Make this work better on HTML5.
-    var soundData:lime.utils.Int16Array = cast soundBuffer.data;
+    var soundData = soundBuffer.data;
+    if (soundData == null || channels <= 0 || (bitsPerSample != 8 && bitsPerSample != 16)) return null;
+    var bytes = soundData.toBytes();
+    var bytesPerSample = bitsPerSample == 16 ? 2 : 1;
 
-    var soundDataSampleCount:Int = Std.int(Math.ceil(soundData.length / channels / (bitsPerSample == 16 ? 2 : 1)));
+    var soundDataSampleCount:Int = Std.int(soundData.byteLength / channels / bytesPerSample);
     var outputPointCount:Int = Std.int(Math.ceil(soundDataSampleCount / samplesPerPoint));
 
     // Pre-allocate Vector with exact final size for better performance and memory efficiency
@@ -81,9 +72,9 @@ class WaveformDataParser
       {
         for (channelIndex in 0...channels)
         {
-          var sampleValue:Int = soundData[
-            sampleIndex * channels + channelIndex
-          ];
+          var byteIndex = soundData.byteOffset + (sampleIndex * channels + channelIndex) * bytesPerSample;
+          var sampleValue:Int = bitsPerSample == 16 ? bytes.getUInt16(byteIndex) : bytes.get(byteIndex) - 128;
+          if (bitsPerSample == 16 && sampleValue >= 32768) sampleValue -= 65536;
 
           if (sampleValue < minValues[channelIndex]) minValues[channelIndex] = sampleValue;
           if (sampleValue > maxValues[channelIndex]) maxValues[channelIndex] = sampleValue;
@@ -95,9 +86,7 @@ class WaveformDataParser
       for (channelIndex in 0...channels)
       {
         outputData[baseIndex + channelIndex * 2] = minValues[channelIndex];
-        outputData[
-          baseIndex + channelIndex * 2 + 1
-        ] = maxValues[channelIndex];
+        outputData[baseIndex + channelIndex * 2 + 1] = maxValues[channelIndex];
       }
     }
 

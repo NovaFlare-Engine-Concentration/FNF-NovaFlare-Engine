@@ -3,6 +3,11 @@ package funkin.ui.options;
 import flixel.system.ui.FlxSoundTray;
 import openfl.display.Bitmap;
 import funkin.util.MathUtil;
+//
+// ~PATHS~
+//
+import funkin.assets.Assets as Assets;
+import funkin.assets.ValidatedPaths as Paths;
 
 /**
  *  Extends the default flixel soundtray, but with some art
@@ -13,7 +18,10 @@ import funkin.util.MathUtil;
  */
 class FunkinSoundTray extends FlxSoundTray
 {
-  var graphicScale:Float = 0.30;
+  static final GRAPHIC_SCALE:Float = 0.30;
+  static final BAR_COUNT:Int = 10;
+  static final BACKING_BAR_OPACITY:Float = 0.4;
+
   var lerpYPos:Float = 0;
   var alphaTarget:Float = 0;
   var volumeMaxSound:String;
@@ -25,9 +33,9 @@ class FunkinSoundTray extends FlxSoundTray
     super();
     removeChildren();
 
-    var bg:Bitmap = new Bitmap(Assets.getBitmapData(Paths.image("soundtray/volumebox")));
-    bg.scaleX = graphicScale;
-    bg.scaleY = graphicScale;
+    var bg:Bitmap = new Bitmap(Assets.getBitmapData(Paths.image('ui/soundtray/volume-box')));
+    bg.scaleX = GRAPHIC_SCALE;
+    bg.scaleY = GRAPHIC_SCALE;
     bg.smoothing = true;
     addChild(bg);
 
@@ -35,28 +43,29 @@ class FunkinSoundTray extends FlxSoundTray
     visible = false;
 
     // makes an alpha'd version of all the bars (bar_10.png)
-    var backingBar:Bitmap = new Bitmap(Assets.getBitmapData(Paths.image("soundtray/bars_10")));
+    var backingBar:Bitmap = new Bitmap(Assets.getBitmapData(Paths.image('ui/soundtray/bars-10')));
     backingBar.x = 9;
     backingBar.y = 5;
-    backingBar.scaleX = graphicScale;
-    backingBar.scaleY = graphicScale;
+    backingBar.scaleX = GRAPHIC_SCALE;
+    backingBar.scaleY = GRAPHIC_SCALE;
     backingBar.smoothing = true;
     addChild(backingBar);
-    backingBar.alpha = 0.4;
+    backingBar.alpha = BACKING_BAR_OPACITY;
 
     // clear the bars array entirely, it was initialized
     // in the super class
     _bars = [];
 
-    // 1...11 due to how block named the assets,
-    // we are trying to get assets bars_1-10
-    for (i in 1...11)
+    final BAR_X_POS:Int = 9;
+    final BAR_Y_POS:Int = 5;
+
+    for (i in 1...(BAR_COUNT + 1))
     {
-      var bar:Bitmap = new Bitmap(Assets.getBitmapData(Paths.image("soundtray/bars_" + i)));
-      bar.x = 9;
-      bar.y = 5;
-      bar.scaleX = graphicScale;
-      bar.scaleY = graphicScale;
+      var bar:Bitmap = new Bitmap(Assets.getBitmapData(Paths.image('ui/soundtray/bars-${('$i'.lpad('0', 2))}')));
+      bar.x = BAR_X_POS;
+      bar.y = BAR_Y_POS;
+      bar.scaleX = GRAPHIC_SCALE;
+      bar.scaleY = GRAPHIC_SCALE;
       bar.smoothing = true;
       addChild(bar);
       _bars.push(bar);
@@ -65,9 +74,9 @@ class FunkinSoundTray extends FlxSoundTray
     screenCenter();
     y = -height - 10;
 
-    volumeUpSound = Paths.sound("soundtray/Volup");
-    volumeDownSound = Paths.sound("soundtray/Voldown");
-    volumeMaxSound = Paths.sound("soundtray/VolMAX");
+    volumeUpSound = Paths.sound('ui/soundtray/volume-up').toFlxSoundAsset();
+    volumeDownSound = Paths.sound('ui/soundtray/volume-down').toFlxSoundAsset();
+    volumeMaxSound = Paths.sound('ui/soundtray/volume-max').toFlxSoundAsset();
   }
 
   override public function update(ms:Float):Void
@@ -139,6 +148,13 @@ class FunkinSoundTray extends FlxSoundTray
     var globalVolume:Int = FlxG.sound.muted || FlxG.sound.volume == 0 ? 0 : Math.round(FlxG.sound.volume * 10);
 
     for (i in 0..._bars.length) _bars[i].visible = i < globalVolume;
+  }
+
+  override public function screenCenter():Void
+  {
+    scaleX = _defaultScale * (FlxG.scaleMode.scale.x > 0 ? FlxG.scaleMode.scale.x : 1);
+    scaleY = _defaultScale * (FlxG.scaleMode.scale.y > 0 ? FlxG.scaleMode.scale.y : 1);
+    x = (0.5 * (FlxG.stage.stageWidth - _bg.width * scaleX) - FlxG.game.x);
   }
 
   function saveVolumePreferences():Void

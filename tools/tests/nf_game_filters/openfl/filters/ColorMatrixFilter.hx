@@ -1,0 +1,1 @@
+package openfl.filters; class ColorMatrixFilter extends BitmapFilter { public var matrix:Array<Float>; public function new(m:Array<Float>) { super(); matrix=m; } }

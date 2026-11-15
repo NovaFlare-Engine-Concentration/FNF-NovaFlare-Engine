@@ -1,9 +1,15 @@
 package funkin.data.freeplay.player;
 
 import funkin.data.animation.AnimationData;
+import funkin.util.tools.ISerializable;
+import funkin.ui.charSelect.characters.CharSelectCharacter;
 
+/**
+ * The data for a playable character.
+ * Includes the information needed to display it in the UI and load its songs.
+ */
 @:nullSafety
-class PlayerData
+class PlayerData implements ISerializable
 {
   /**
    * The semantic version number of the player data JSON format.
@@ -66,7 +72,7 @@ class PlayerData
 
   /**
    * Whether this character is unlocked by default.
-   * Use a ScriptedPlayableCharacter to add custom logic.
+   * Extend PlayableCharacter in a script to add custom logic.
    */
   @:optional @:default(true)
   public var unlocked:Bool = true;
@@ -78,18 +84,18 @@ class PlayerData
 
   /**
    * Convert this StageData into a JSON string.
+   *
+   * @param pretty Whether to use pretty formatting on the output.
+   * @return This object, converted into a JSON string.
    */
-  public function serialize(pretty:Bool = true):String
+  public function serialize(pretty:Bool = true, ?params:json2object.JsonWriterParams):String
   {
     // Update generatedBy and version before writing.
     updateVersionToLatest();
 
-    #if ORIGIN_FUNKIN_COMPAT
-    return funkin.util.SerializerUtil.toJSON(this, pretty);
-    #else
-    var writer = new json2object.JsonWriter<PlayerData>();
+    var writer = new json2object.JsonWriter<PlayerData>(params ?? {ignoreNullOptionals: true, ignoreDefaults: true});
     return writer.write(this, pretty ? ' ' : null);
-    #end
+
   }
 
   public function updateVersionToLatest():Void
@@ -111,11 +117,12 @@ class PlayerFreeplayDJData
   @:optional @:default('PROTECT YO NUTS')
   var text3:String;
   @:jignored
-  var animationMap:Map<String, AnimationData>;
-  @:jignored
-  var prefixToOffsetsMap:Map<String, Array<Float>>;
+  var animationOffsets:Map<String, Array<Float>>;
   @:optional
   var charSelect:Null<PlayerFreeplayDJCharSelectData>;
+  // Historical DJ scripts query these authored frame markers through getters.
+  @:optional
+  var cartoon:Null<PlayerFreeplayDJCartoonData>;
   @:optional
   var fistPump:Null<PlayerFreeplayDJFistPumpData>;
 
@@ -130,34 +137,26 @@ class PlayerFreeplayDJData
 
   @:optional @:default([0, 0])
   var offsets:Array<Float>;
+  @:jignored
+  var _initializedAnimations:Bool = false;
 
   public function new()
   {
-    animationMap = new Map();
   }
 
-  function mapAnimations():Void
+  public function getAtlasPath():String
   {
-    if (animationMap == null) animationMap = new Map();
-    if (prefixToOffsetsMap == null) prefixToOffsetsMap = new Map();
-
-    animationMap.clear();
-    prefixToOffsetsMap.clear();
-    for (anim in animations)
-    {
-      animationMap.set(anim.name, anim);
-      prefixToOffsetsMap.set(anim.prefix, anim.offsets);
-    }
+    return assetPath;
   }
-
-  public inline function getAssetPath():String return assetPath; // return assetPath;
-
-  public inline function getAnimationsList():Array<AnimationData> return animations;
 
   public function useApplyStageMatrix():Bool
   {
     return applyStageMatrix;
   }
+
+  public inline function getAssetPath():String return assetPath;
+
+  public inline function getAnimationsList():Array<AnimationData> return animations;
 
   public function getGlobalOffsets():Array<Float>
   {
@@ -179,6 +178,7 @@ class PlayerFreeplayDJData
       cacheOnLoad: atlasSettings?.cacheOnLoad ?? false,
       filterQuality: cast atlasSettings?.filterQuality ?? animate.FlxAnimateFrames.FilterQuality.MEDIUM,
       applyStageMatrix: atlasSettings?.applyStageMatrix ?? false,
+      postStageMatrixApply: atlasSettings?.postStageMatrixApply ?? false,
       useRenderTexture: atlasSettings?.useRenderTexture ?? false
     }
   }
@@ -198,31 +198,42 @@ class PlayerFreeplayDJData
     }
   }
 
-  public function getAnimationPrefix(name:String):Null<String>
+  @:deprecated('Use getAnimationOffsets() instead')
+  public function getAnimationOffsetsByPrefix(prefix:String):Array<Float>
   {
-    if (animationMap.size() == 0) mapAnimations();
-
-    var anim = animationMap.get(name);
-    if (anim == null) return null;
-    return anim.prefix;
+    return getAnimationOffsets(prefix);
   }
 
-  public function getAnimationOffsetsByPrefix(?prefix:String):Array<Float>
+  @:deprecated('You really should NOT use animation prefixes for Freeplay DJs anymore.')
+  public function getAnimationPrefix(name:String):Null<String>
   {
-    if (prefixToOffsetsMap.size() == 0) mapAnimations();
-    if (prefix == null) return [0, 0];
-    return prefixToOffsetsMap.get(prefix);
+    if (!_initializedAnimations) _initializeMap();
+
+    for (animation in animations)
+    {
+      if (animation.prefix == name) return animation.prefix;
+    }
+
+    return null;
   }
 
   public function getAnimationOffsets(name:String):Array<Float>
   {
-    return getAnimationOffsetsByPrefix(getAnimationPrefix(name));
+    if (!_initializedAnimations) _initializeMap();
+
+    return animationOffsets.get(name) ?? [0, 0];
   }
 
   public function getFistPumpIntroStartFrame():Int
   {
     return fistPump?.introStartFrame ?? 0;
   }
+
+  public function getCartoonSoundClickFrame():Int return cartoon?.soundClickFrame ?? 80;
+  public function getCartoonSoundCartoonFrame():Int return cartoon?.soundCartoonFrame ?? 85;
+  public function getCartoonLoopBlinkFrame():Int return cartoon?.loopBlinkFrame ?? 112;
+  public function getCartoonLoopFrame():Int return cartoon?.loopFrame ?? 166;
+  public function getCartoonChannelChangeFrame():Int return cartoon?.channelChangeFrame ?? 60;
 
   public function getFistPumpIntroEndFrame():Int
   {
@@ -263,10 +274,41 @@ class PlayerFreeplayDJData
   {
     return charSelect?.transitionDelay ?? 0.25;
   }
+
+  function _initializeMap():Void
+  {
+    if (animationOffsets == null)
+    {
+      animationOffsets = new Map<String, Array<Float>>();
+
+      animationOffsets.clear();
+
+      for (animation in animations)
+      {
+        animationOffsets.set(animation.name, animation.offsets);
+      }
+    }
+
+    _initializedAnimations = true;
+  }
 }
 
 class PlayerCharSelectData
 {
+  /**
+   * The asset path to use for this character.
+   * This should point to a valid asset path.
+   * @default `ui/character-select/characters/$charId`,
+   */
+  @:optional @:default('')
+  public var assetPath:String;
+
+  /**
+   * Optional data about the character.
+   */
+  @:optional
+  public var characterData:PlayerCharSelectCharacterData;
+
   /**
    * A zero-indexed number for the character's preferred position in the grid.
    * 0 = top left, 4 = center, 8 = bottom right
@@ -277,20 +319,205 @@ class PlayerCharSelectData
   public var position:Null<Int>;
 
   /**
-   * The GF name to assign for this character.
+   * Optional data about the accompanying GF character.
    */
   @:optional
   public var gf:PlayerCharSelectGFData;
+
+  /**
+   * Optional offsets for the pixel icon.
+   */
+  @:optional @:default([0, 0])
+  public var pixelIconOffsets:Array<Float>;
+
+  /**
+   * The default animations for the GF character.
+   */
+  @:jignored
+  static var DEFAULT_ANIMATIONS_GF:Array<AnimationData> = [
+    {
+      name: 'idle',
+      prefix: 'idle'
+    },
+    {
+      name: 'select',
+      prefix: 'confirm',
+      looped: true
+    },
+    {
+      name: 'deselect',
+      prefix: 'deselect'
+    }
+  ];
+
+  /**
+   * The default animations for the player character.
+   */
+  @:jignored
+  static var DEFAULT_ANIMATIONS_PLAYER:Array<AnimationData> = [
+    {
+      name: 'idle',
+      prefix: 'idle'
+    },
+    {
+      name: 'unlock',
+      prefix: 'unlock'
+    },
+    {
+      name: 'select',
+      prefix: 'select'
+    },
+    {
+      name: 'deselect',
+      prefix: 'deselect'
+    },
+    {
+      name: 'deselect-hold',
+      prefix: 'deselect loop start'
+    },
+    {
+      name: 'slideOut',
+      prefix: 'slideout'
+    },
+    {
+      name: 'slideIn',
+      prefix: 'slidein'
+    },
+    {
+      name: 'slideInPoint',
+      prefix: 'slidein idle point'
+    }
+  ];
+
+  /**
+   * The default animations for the locked character.
+   */
+  @:jignored
+  static var DEFAULT_ANIMATIONS_LOCKED:Array<AnimationData> = [
+    {
+      name: 'idle',
+      prefix: 'idle',
+      looped: true
+    },
+    {
+      name: 'unlock',
+      prefix: 'unlock'
+    },
+    {
+      name: 'locked',
+      prefix: 'cannot select'
+    },
+    {
+      name: 'slideOut',
+      prefix: 'slideout'
+    },
+    {
+      name: 'slideIn',
+      prefix: 'slidein'
+    }
+  ];
+
+  /**
+   * Return the array of default animations for the player character.
+   * Used for backwards compatibility with older versions.
+   *
+   * @param characterType The type of character.
+   * @return The array of default animations.
+   */
+  public static function getDefaultAnimations(characterType:CharacterSelectType):Array<AnimationData>
+  {
+    switch (characterType)
+    {
+      case PLAYER:
+        return DEFAULT_ANIMATIONS_PLAYER;
+      case GF:
+        return DEFAULT_ANIMATIONS_GF;
+      case LOCKED_PLAYER:
+        return DEFAULT_ANIMATIONS_LOCKED;
+    }
+  }
+  /** The rendering format requested by the character-select data. */
+  public function getAssetType():String
+  {
+    return characterData?.renderType ?? 'animateatlas';
+  }
+
+  /** Resolve the requested atlas or use the character's standard location. */
+  public function getAnimateAtlasAssetPath(charId:String):String
+  {
+    var wantedAssetPath = characterData?.assetPath ?? assetPath ?? '';
+    if (StringTools.trim(wantedAssetPath).length == 0) return 'ui/character-select/characters/$charId';
+    return wantedAssetPath;
+  }
 }
 
 typedef PlayerCharSelectGFData =
 {
-  @:optional
+  /**
+   * The asset path to use for this character.
+   * This should point to a valid asset path.
+   * @default `ui/character-select/characters/$charId`,
+   */
+  @:optional @:default('')
   public var assetPath:String;
+
+  /**
+   * Optional data about the character.
+   */
   @:optional
+  public var characterData:PlayerCharSelectCharacterData;
+
+  @:optional @:deprecated('This is no longer used.')
   public var animInfoPath:String;
   @:optional @:default(false)
   public var visualizer:Bool;
+}
+
+typedef PlayerCharSelectCharacterData =
+{
+  /**
+   * The asset path to use for this character.
+   * This should point to a valid asset path.
+   * @default `ui/character-select/characters/$charId`,
+   */
+  @:optional @:default('')
+  public var assetPath:String;
+
+  /**
+   * Optional render type for the character. Defaults to using texture atlases.
+   */
+  @:optional @:default('animateatlas')
+  public var renderType:String;
+
+  /**
+   * Optional script class to use for the character, allowing for custom behavior.
+   */
+  @:optional
+  public var scriptClass:String;
+
+  /**
+   * Optional list of animations for the character.
+   */
+  @:optional
+  public var animations:Array<AnimationData>;
+
+  /**
+   * Optional settings for the character's texture atlas, if it is one.
+   */
+  @:optional
+  public var atlasSettings:funkin.data.stage.StageData.TextureAtlasData;
+
+  /**
+   * The number of beats to wait before playing the idle animation.
+   */
+  @:optional @:default(1.0)
+  public var danceEvery:Float;
+
+  /**
+   * The global offsets for the character's position.
+   */
+  @:optional @:default([0, 0])
+  public var offsets:Array<Float>;
 }
 
 typedef PlayerResultsData =
@@ -322,6 +549,9 @@ typedef PlayerResultsMusicData =
 
 typedef PlayerResultsAnimationData =
 {
+  /** Registry-owned layout policy; JSON cannot opt into this internal marker. */
+  @:jignored @:optional
+  var legacyAtlasPlacement:Bool;
   /**
    * `sparrow` or `animate` or whatever
    */
@@ -359,6 +589,15 @@ typedef PlayerFreeplayDJCharSelectData =
 {
   var transitionDelay:Float;
 }
+
+typedef PlayerFreeplayDJCartoonData =
+{
+  var soundClickFrame:Int;
+  var soundCartoonFrame:Int;
+  var loopBlinkFrame:Int;
+  var loopFrame:Int;
+  var channelChangeFrame:Int;
+};
 
 typedef PlayerFreeplayDJFistPumpData =
 {

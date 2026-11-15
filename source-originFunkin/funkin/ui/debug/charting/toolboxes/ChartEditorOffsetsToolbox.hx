@@ -21,7 +21,8 @@ import haxe.ui.events.UIEvent;
  */
 // @:nullSafety // TODO: Fix null safety when used with HaxeUI build macros.
 
-@:access(funkin.ui.debug.charting.ChartEditorState) @:build(haxe.ui.ComponentBuilder.build('assets/exclude/data/ui/chart-editor/toolboxes/offsets.xml'))
+@:access(funkin.ui.debug.charting.ChartEditorState)
+@:build(originfunkin.macro.OriginEditorMacro.build('assets/exclude/ui/editors/chart-editor/toolboxes/offsets.xml'))
 class ChartEditorOffsetsToolbox extends ChartEditorBaseToolbox
 {
   var waveformContainer:Absolute;
@@ -94,6 +95,13 @@ class ChartEditorOffsetsToolbox extends ChartEditorBaseToolbox
     this.onDialogClosed = onClose;
   }
 
+  override function onReady():Void
+  {
+    refreshAudioPreview();
+    refresh();
+    refreshTicks();
+  }
+
   function onClose(event:UIEvent)
   {
     stopAudioPreview(); // Pause it instead, maybe?
@@ -112,6 +120,11 @@ class ChartEditorOffsetsToolbox extends ChartEditorBaseToolbox
       var targetVolume = offsetPlayerVolume.value * 2 / 100;
       setTrackVolume(PLAYER, targetVolume);
     };
+    offsetPlayerVolume.onRightClick = (_) ->
+    {
+      offsetPlayerVolume.value = 50;
+      setTrackVolume(INSTRUMENTAL, offsetPlayerVolume.value * 2 / 100);
+    };
     offsetPlayerMute.onClick = (_) ->
     {
       toggleMuteTrack(PLAYER);
@@ -125,6 +138,11 @@ class ChartEditorOffsetsToolbox extends ChartEditorBaseToolbox
       var targetVolume = offsetOpponentVolume.value * 2 / 100;
       setTrackVolume(OPPONENT, targetVolume);
     };
+    offsetOpponentVolume.onRightClick = (_) ->
+    {
+      offsetOpponentVolume.value = 50;
+      setTrackVolume(INSTRUMENTAL, offsetOpponentVolume.value * 2 / 100);
+    };
     offsetOpponentMute.onClick = (_) ->
     {
       toggleMuteTrack(OPPONENT);
@@ -137,6 +155,11 @@ class ChartEditorOffsetsToolbox extends ChartEditorBaseToolbox
     {
       var targetVolume = offsetInstrumentalVolume.value * 2 / 100;
       setTrackVolume(INSTRUMENTAL, targetVolume);
+    };
+    offsetInstrumentalVolume.onRightClick = (_) ->
+    {
+      offsetInstrumentalVolume.value = 50;
+      setTrackVolume(INSTRUMENTAL, offsetInstrumentalVolume.value * 2 / 100);
     };
     offsetInstrumentalMute.onClick = (_) ->
     {
@@ -192,6 +215,7 @@ class ChartEditorOffsetsToolbox extends ChartEditorBaseToolbox
     }
     waveformScrollview.onScroll = (_) ->
     {
+      if (audioPreviewTracks == null || audioPreviewTracks.members == null) return;
       if (!audioPreviewTracks.playing)
       {
         // Move the playhead if it would go out of view.
@@ -221,27 +245,26 @@ class ChartEditorOffsetsToolbox extends ChartEditorBaseToolbox
 
     initializeTicks();
 
-    refreshAudioPreview();
-    refresh();
-    refreshTicks();
+    // Immediately hide the waveforms when they're ready
+    // We need to wait for the whole menu to be built before showing to prevent them clipping.
+    waveformPlayer.registerEvent(UIEvent.INITIALIZE, hideWaveform);
+    waveformOpponent.registerEvent(UIEvent.INITIALIZE, hideWaveform);
+    waveformInstrumental.registerEvent(UIEvent.INITIALIZE, hideWaveform);
 
-    waveformPlayer.registerEvent(MouseEvent.MOUSE_DOWN, (_) ->
-    {
-      onStartDragWaveform(PLAYER);
-    });
-    waveformOpponent.registerEvent(MouseEvent.MOUSE_DOWN, (_) ->
-    {
-      onStartDragWaveform(OPPONENT);
-    });
-    waveformInstrumental.registerEvent(MouseEvent.MOUSE_DOWN, (_) ->
-    {
-      onStartDragWaveform(INSTRUMENTAL);
-    });
+    waveformPlayer.registerEvent(MouseEvent.MOUSE_DOWN, (_) -> onStartDragWaveform(PLAYER));
+    waveformOpponent.registerEvent(MouseEvent.MOUSE_DOWN, (_) -> onStartDragWaveform(OPPONENT));
+    waveformInstrumental.registerEvent(MouseEvent.MOUSE_DOWN, (_) -> onStartDragWaveform(INSTRUMENTAL));
 
-    offsetTicksContainer.registerEvent(MouseEvent.MOUSE_DOWN, (_) ->
-    {
-      onStartDragPlayhead();
-    });
+    offsetTicksContainer.registerEvent(MouseEvent.MOUSE_DOWN, (_) -> onStartDragPlayhead());
+  }
+
+  function hideWaveform(e:UIEvent):Void
+  {
+    var player = cast(e.target, WaveformPlayer);
+    player.waveform.duration = 0;
+
+    // Unregister the event to make sure this function isn't called again.
+    player.unregisterEvent(UIEvent.INITIALIZE, hideWaveform);
   }
 
   function initializeTicks():Void
@@ -286,7 +309,7 @@ class ChartEditorOffsetsToolbox extends ChartEditorBaseToolbox
 
     // Build opponent waveform.
     // waveformOpponent.waveform.forceUpdate = true;
-    // note: if song only has one set of vocals (Vocals.ogg/mp3) then this is null and crashes charting editor
+    // note: if song only has one set of vocals (Vocals.ogg) then this is null and crashes charting editor
     // so we null check
     waveformOpponent.waveform.waveformData = opponentVoice?.waveformData;
     waveformOpponent.waveform.duration = (opponentVoice?.length ?? 1000.0) / Constants.MS_PER_SEC;
@@ -380,7 +403,7 @@ class ChartEditorOffsetsToolbox extends ChartEditorBaseToolbox
     // Determine the position of the mouse relative to the
     var mouseXPos = FlxG.mouse.x;
 
-    var relativeMouseXPos = mouseXPos - waveformScrollview.cachedScreenX;
+    var relativeMouseXPos = mouseXPos - @:privateAccess waveformScrollview._cachedScreenX;
     var targetPlayheadPos = relativeMouseXPos + waveformScrollview.hscrollPos;
 
     // Move the playhead to the mouse position.
@@ -718,13 +741,16 @@ class ChartEditorOffsetsToolbox extends ChartEditorBaseToolbox
 
   override public function update(elapsed:Float)
   {
+    if (audioPreviewTracks == null || audioPreviewTracks.members == null) return;
     super.update(elapsed);
 
     if (audioPreviewTracks.playing)
     {
       trace('Playback time: ${audioPreviewTracks.time}');
 
-      var targetScrollPos:Float = waveformInstrumental.waveform.waveformData.secondsToIndex(audioPreviewTracks.time / Constants.MS_PER_SEC) / (waveformScale / BASE_SCALE * waveformMagicFactor);
+      var targetScrollPos:Float = waveformInstrumental.waveform.waveformData.secondsToIndex(
+        audioPreviewTracks.time / Constants.MS_PER_SEC
+      ) / (waveformScale / BASE_SCALE * waveformMagicFactor);
       // waveformScrollview.hscrollPos = targetScrollPos;
       var prevPlayheadAbsolutePos = playheadAbsolutePos;
       playheadAbsolutePos = targetScrollPos;

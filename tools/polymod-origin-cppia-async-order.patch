@@ -1,0 +1,108 @@
+--- a/polymod/Polymod.hx
++++ b/polymod/Polymod.hx
+@@ -982,10 +982,10 @@
+       var libraryIds:Array<String> = Polymod.assetLibrary.listLibraries();
+       var allBytes:Array<String> = Polymod.assetLibrary.list(BYTES);
+       var cppiaPaths:Array<String> = allBytes.filter(path -> PolymodConfig.cppiaClassExt.exists(ext -> path.endsWith(ext)));
+-
+       cppiaPaths = polymod.hscript._internal.PolymodCPPIATarget.select(cppiaPaths);
+ 
+       var futures:Array<lime.app.Future<Bool>> = [];
++      var items:Array<{path:String, promise:lime.app.Promise<Bool>}> = [];
+       for (binaryPath in cppiaPaths)
+       {
+         var path:String = binaryPath;
+@@ -1005,51 +1005,60 @@
+             continue;
+           }
+         }
+-
+         var promise = new lime.app.Promise<Bool>();
+-
+         futures.push(promise.future);
+-        try
++        items.push({path: path, promise: promise});
++      }
++
++      // Keep registration in the same order as the synchronous loader. A
++      // later module may depend on a class provided by an earlier one.
++      var next:Int = 0;
++      var waiting:Bool = false;
++      var pumping:Bool = false;
++      var pump:Void->Void = null;
++      pump = () ->
++      {
++        if (pumping) return;
++        pumping = true;
++        while (!waiting && next < items.length)
+         {
+-          Polymod.assetLibrary.loadBytes(path).onComplete((bytes:Bytes) ->
++          var item = items[next++];
++          waiting = true;
++          try
+           {
+-            try
++            Polymod.assetLibrary.loadBytes(item.path).onComplete((bytes:Bytes) ->
+             {
+-              var registered = polymod.hscript._internal.PolymodCppiaClassReference.registerModule(bytes, path);
+-              if (registered.length == 0)
++              try
+               {
+-                Polymod.warning(SCRIPT_PARSE_FAILED, 'Compiled script "$path" registered no classes, so nothing in it can be used.', SCRIPT_RUNTIME);
++                var registered = polymod.hscript._internal.PolymodCppiaClassReference.registerModule(bytes, item.path);
++                if (registered.length == 0)
++                  Polymod.warning(SCRIPT_PARSE_FAILED, 'Compiled script "${item.path}" registered no classes, so nothing in it can be used.', SCRIPT_RUNTIME);
++                item.promise.complete(registered.length > 0);
+               }
+-              promise.complete(registered.length > 0);
+-            }
+-            catch (e)
+-            {
+-              promise.error(e);
+-            }
+-          }).onError((err) ->
++              catch (e:Dynamic) { item.promise.error(e); }
++              waiting = false;
++              pump();
++            }).onError((err) ->
+             {
+               if (err == '404')
+-              {
+-                Polymod.error(
+-                  SCRIPT_PARSE_FAILED,
+-                  'Error while loading compiled script "${path}", could not retrieve script contents (404 error)!',
+-                  SCRIPT_RUNTIME
+-                );
+-              }
++                Polymod.error(SCRIPT_PARSE_FAILED, 'Error while loading compiled script "${item.path}", could not retrieve script contents (404 error)!', SCRIPT_RUNTIME);
+               else
+-              {
+-                Polymod.error(SCRIPT_PARSE_FAILED, 'Error while parsing script ${path}: ' + '\n' + 'An unknown error occurred: ${err}', SCRIPT_RUNTIME);
+-              }
+-              promise.error(err);
++                Polymod.error(SCRIPT_PARSE_FAILED, 'Error while parsing script ${item.path}: ' + '\n' + 'An unknown error occurred: ${err}', SCRIPT_RUNTIME);
++              item.promise.error(err);
++              waiting = false;
++              pump();
+             });
++          }
++          catch (e:Dynamic)
++          {
++            Polymod.error(SCRIPT_NOT_FOUND, 'Could not read compiled script "${item.path}": $e');
++            item.promise.error(e);
++            waiting = false;
++          }
+         }
+-        catch (e:Dynamic)
+-        {
+-          Polymod.error(SCRIPT_NOT_FOUND, 'Could not read compiled script "$path": $e');
+-          promise.error(e);
+-          continue;
+-        }
+-      }
++        pumping = false;
++      };
++      pump();
+       return futures;
+     }
+   }

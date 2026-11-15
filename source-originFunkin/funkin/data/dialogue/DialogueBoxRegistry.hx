@@ -2,7 +2,6 @@ package funkin.data.dialogue;
 
 import funkin.play.cutscene.dialogue.DialogueBox;
 import funkin.data.dialogue.DialogueBoxData;
-import funkin.play.cutscene.dialogue.ScriptedDialogueBox;
 import funkin.util.tools.ISingleton;
 import funkin.data.DefaultRegistryImpl;
 
@@ -20,7 +19,29 @@ class DialogueBoxRegistry extends BaseRegistry<DialogueBox, DialogueBoxData, Dia
 
   public function new()
   {
-    super('DIALOGUEBOX', 'dialogue/boxes', DIALOGUEBOX_DATA_VERSION_RULE);
+    super({
+      registryId: 'DIALOGUEBOX',
+      dataFilePath: 'gameplay/dialogue/boxes/',
+      nestedEntries: true,
+      versionRule: DIALOGUEBOX_DATA_VERSION_RULE
+    });
+  }
+
+  override function queryDefaultAssets(type:funkin.assets.Assets.AssetType, id:String,
+    ?params:DialogueBoxEntryParams):Array<funkin.assets.Paths.AssetPath>
+  {
+    @:privateAccess var entry = this.entries.get(id);
+    if (entry == null) return [];
+    var data = entry._data;
+    if (data == null || data.assetPath == null || data.assetPath == '') return [];
+    return switch (type)
+    {
+      case IMAGE: [funkin.assets.Paths.image(data.assetPath)];
+      case XML:
+        var path = funkin.assets.Paths.xml(data.assetPath, false);
+        path.exists() ? [path] : [];
+      default: [];
+    }
   }
 }
 

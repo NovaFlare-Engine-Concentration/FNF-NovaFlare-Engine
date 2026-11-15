@@ -20,7 +20,8 @@ import funkin.ui.debug.charting.toolboxes.ChartEditorDifficultyToolbox;
 /**
  * Static functions which handle building themed UI elements for a provided ChartEditorState.
  */
-@:nullSafety @:access(funkin.ui.debug.charting.ChartEditorState)
+@:nullSafety
+@:access(funkin.ui.debug.charting.ChartEditorState)
 class ChartEditorToolboxHandler
 {
   public static function setToolboxState(state:ChartEditorState, id:String, shown:Bool):Void
@@ -54,7 +55,7 @@ class ChartEditorToolboxHandler
       toolbox.showDialog(false);
       clearHaxeUIFocus();
 
-      state.playSound(Paths.sound('chartingSounds/openWindow'));
+      state.playSound(Paths.sound('ui/editors/chart-editor/charting-sounds/window-open'));
 
       switch (id)
       {
@@ -99,7 +100,7 @@ class ChartEditorToolboxHandler
       clearHaxeUIFocus();
       toolbox.hideDialog(DialogButton.CANCEL);
 
-      state.playSound(Paths.sound('chartingSounds/exitWindow'));
+      state.playSound(Paths.sound('ui/editors/chart-editor/charting-sounds/window-exit'));
 
       switch (id)
       {
@@ -279,8 +280,7 @@ class ChartEditorToolboxHandler
     };
 
     var checkboxStartTime:Null<CheckBox> = toolbox.findComponent('playtestStartTimeCheckbox', CheckBox);
-    if (checkboxStartTime == null)
-      throw 'ChartEditorToolboxHandler.buildToolboxPlaytestPropertiesLayout() - Could not find playtestStartTimeCheckbox component.';
+    if (checkboxStartTime == null) throw 'ChartEditorToolboxHandler.buildToolboxPlaytestPropertiesLayout() - Could not find playtestStartTimeCheckbox component.';
 
     checkboxStartTime.selected = state.playtestStartTime;
 
@@ -300,8 +300,7 @@ class ChartEditorToolboxHandler
     };
 
     var checkboxShowResults:Null<CheckBox> = toolbox.findComponent('playtestShowResultsCheckbox', CheckBox);
-    if (checkboxShowResults == null)
-      throw 'ChartEditorToolboxHandler.buildToolboxPlaytestPropertiesLayout() - Could not find playtestShowResultsCheckbox component.';
+    if (checkboxShowResults == null) throw 'ChartEditorToolboxHandler.buildToolboxPlaytestPropertiesLayout() - Could not find playtestShowResultsCheckbox component.';
 
     checkboxShowResults.selected = state.playtestShowResults;
 
@@ -312,8 +311,7 @@ class ChartEditorToolboxHandler
 
     var checkboxSongScripts:Null<CheckBox> = toolbox.findComponent('playtestSongScriptsCheckbox', CheckBox);
 
-    if (checkboxSongScripts == null)
-      throw 'ChartEditorToolboxHandler.buildToolboxPlaytestPropertiesLayout() - Could not find playtestSongScriptsCheckbox component.';
+    if (checkboxSongScripts == null) throw 'ChartEditorToolboxHandler.buildToolboxPlaytestPropertiesLayout() - Could not find playtestSongScriptsCheckbox component.';
 
     state.playtestSongScripts = checkboxSongScripts.selected;
 
@@ -324,8 +322,7 @@ class ChartEditorToolboxHandler
 
     var checkboxAudioSettings:Null<CheckBox> = toolbox.findComponent('playtestAudioSettingsCheckbox', CheckBox);
 
-    if (checkboxAudioSettings == null)
-      throw 'ChartEditorToolboxHandler.buildToolboxPlaytestPropertiesLayout() - Could not find playtestAudioSettingsCheckbox component.';
+    if (checkboxAudioSettings == null) throw 'ChartEditorToolboxHandler.buildToolboxPlaytestPropertiesLayout() - Could not find playtestAudioSettingsCheckbox component.';
 
     state.playtestAudioSettings = checkboxAudioSettings.selected;
 

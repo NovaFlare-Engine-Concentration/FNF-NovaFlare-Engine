@@ -37,6 +37,84 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
   }
 
   /**
+   * Determine a list of the assets of the given type that are required to display this note style.
+   * @param type The type of asset to query.
+   * @return The list of assets to query.
+   */
+  public function queryAssets(type:funkin.assets.Assets.AssetType):Array<funkin.assets.Paths.AssetPath>
+  {
+    switch (type)
+    {
+      case IMAGE:
+        var paths = [
+          // TODO: Make these functions return asset paths directly, then rewrite queryAssets properly!
+
+          // Note sprites
+          getHoldNoteAssetPath(),
+
+        ].filterNull().map((path) -> funkin.assets.Paths.image(path));
+
+        var strumlinePath = getStrumlineAssetPath();
+        if (strumlinePath != null) paths.push(funkin.assets.Paths.file(strumlinePath, 'png', true, getAssetLibrary(getStrumlineAssetPath(true))));
+        var notePath = getNoteAssetPath();
+        if (notePath != null) paths.push(funkin.assets.Paths.file(notePath, 'png', true, getAssetLibrary(getNoteAssetPath(true))));
+        var splashPath = isNoteSplashEnabled() ? getSplashAssetPath() : null;
+        if (splashPath != null) paths.push(funkin.assets.Paths.file(splashPath, 'png', true, getAssetLibrary(getSplashAssetPath(true))));
+        if (isHoldNoteCoverEnabled())
+        {
+          for (direction in [NoteDirection.LEFT, NoteDirection.DOWN, NoteDirection.UP, NoteDirection.RIGHT])
+          {
+            var coverPath = getHoldCoverDirectionAssetPath(direction);
+            if (coverPath != null) paths.push(funkin.assets.Paths.file(coverPath, 'png', true, getAssetLibrary(getHoldCoverDirectionAssetPath(direction, true))));
+          }
+        }
+
+        for (step in [Countdown.CountdownStep.THREE, Countdown.CountdownStep.TWO, Countdown.CountdownStep.ONE, Countdown.CountdownStep.GO])
+        {
+          var countdownPath = buildCountdownSpritePath(step);
+          if (countdownPath != null) paths.push(funkin.assets.Paths.file(countdownPath, 'png', true, buildCountdownSpriteLibrary(step)));
+        }
+        for (rating in ['sick', 'good', 'bad', 'shit'])
+        {
+          var judgementPath = buildJudgementSpritePath(rating);
+          if (judgementPath != null) paths.push(funkin.assets.Paths.file(judgementPath, 'png', true, getAssetLibrary(buildJudgementSpritePath(rating, true))));
+        }
+        for (digit in 0...10)
+        {
+          var comboPath = buildComboNumSpritePath(digit);
+          if (comboPath != null) paths.push(funkin.assets.Paths.file(comboPath, 'png', true, getAssetLibrary(buildComboNumSpritePath(digit, true))));
+        }
+
+        return paths;
+      case XML:
+        var paths:Array<funkin.assets.Paths.AssetPath> = [];
+        var strumlinePath = getStrumlineAssetPath();
+        if (strumlinePath != null) paths.push(funkin.assets.Paths.file(strumlinePath, 'xml', true, getAssetLibrary(getStrumlineAssetPath(true))));
+        var notePath = getNoteAssetPath();
+        if (notePath != null) paths.push(funkin.assets.Paths.file(notePath, 'xml', true, getAssetLibrary(getNoteAssetPath(true))));
+        var splashPath = isNoteSplashEnabled() ? getSplashAssetPath() : null;
+        if (splashPath != null) paths.push(funkin.assets.Paths.file(splashPath, 'xml', true, getAssetLibrary(getSplashAssetPath(true))));
+        if (isHoldNoteCoverEnabled())
+        {
+          for (direction in [NoteDirection.LEFT, NoteDirection.DOWN, NoteDirection.UP, NoteDirection.RIGHT])
+          {
+            var coverPath = getHoldCoverDirectionAssetPath(direction);
+            if (coverPath != null) paths.push(funkin.assets.Paths.file(coverPath, 'xml', true, getAssetLibrary(getHoldCoverDirectionAssetPath(direction, true))));
+          }
+        }
+        return paths;
+      case SOUND:
+        return [getCountdownSoundPath(THREE), getCountdownSoundPath(TWO), getCountdownSoundPath(ONE), getCountdownSoundPath(GO)].map((path) ->
+        {
+          if (path == null) return null;
+          return funkin.assets.Paths.sound(path);
+        }).filterNull();
+      default:
+        return [];
+    }
+  }
+
+  /**
    * @param id The ID of the JSON file to parse.
    */
   public function new(id:String, ?params:Dynamic)
@@ -82,7 +160,12 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
       throw 'Could not load spritesheet for note style: $id';
     }
 
-    target.frames = atlas;
+    var needsRebuild:Bool = target.frames != atlas || target.builtNoteStyleId != id || target.builtNoteStyle != this;
+
+    if (needsRebuild)
+    {
+      target.frames = atlas;
+    }
 
     target.antialiasing = !(_data.assets?.note?.isPixel ?? false);
 
@@ -90,11 +173,21 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
     target.offset.set(noteOffsets[0], noteOffsets[1]);
 
     // Apply the animations.
-    buildNoteAnimations(target);
+    if (needsRebuild)
+    {
+      buildNoteAnimations(target);
+      target.builtNoteStyleId = id;
+      target.builtNoteStyle = this;
+    }
 
     // Set the scale.
     var scale = getNoteScale();
-    target.scale.set(scale, scale);
+    switch (_data.legacyNoteSizing)
+    {
+      case 1: target.setGraphicSize(Strumline.STRUMLINE_SIZE);
+      case 2: target.setGraphicSize(Strumline.STRUMLINE_SIZE * scale);
+      default: target.scale.set(scale, scale);
+    }
     target.updateHitbox();
   }
 
@@ -108,6 +201,8 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
   }
 
   var noteFrames:Null<FlxAtlasFrames> = null;
+  var noteFramesPath:Null<String> = null;
+  var noteFramesLibrary:Null<String> = null;
 
   function buildNoteFrames(force:Bool = false):Null<FlxAtlasFrames>
   {
@@ -118,7 +213,8 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
       return null;
     }
 
-    if (!FunkinMemory.isTextureCached(Paths.image(noteAssetPath)))
+    var noteLibrary = getAssetLibrary(getNoteAssetPath(true));
+    if (!funkin.assets.Assets.isFlxGraphicCached(funkin.assets.Paths.file(noteAssetPath, 'png', true, noteLibrary)))
     {
       FlxG.log.warn('Note texture is not cached: ${noteAssetPath}');
     }
@@ -128,17 +224,146 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
     {
       if (noteFrames?.parent?.isDestroyed ?? true) noteFrames = null;
     }
+    if (noteFramesPath != noteAssetPath || noteFramesLibrary != noteLibrary) noteFrames = null;
 
     if (noteFrames != null && !force) return noteFrames;
 
-    noteFrames = Paths.getSparrowAtlas(noteAssetPath, getAssetLibrary(getNoteAssetPath(true)));
+    noteFrames = Paths.getSparrowAtlas(noteAssetPath, noteLibrary);
 
     if (noteFrames == null)
     {
       throw 'Could not load note frames for note style: $id';
     }
 
+    noteFramesPath = noteAssetPath;
+    noteFramesLibrary = noteLibrary;
     return noteFrames;
+  }
+
+  /** Bridges for zero-argument 0.9 compiled scripts; old String methods remain unchanged. */
+  @:keep
+  public function __nfPreviewNoteAssetPath():Null<funkin.assets.Paths.AssetPath>
+  {
+    return cast originfunkin.compat.PreviewNoteStylePaths.resolve(this, 'getNoteAssetPath', []);
+  }
+
+  @:keep
+  public function __nfPreviewStrumlineAssetPath():Null<funkin.assets.Paths.AssetPath>
+  {
+    return cast originfunkin.compat.PreviewNoteStylePaths.resolve(this, 'getStrumlineAssetPath', []);
+  }
+
+  /** One-argument 0.9 compiled path APIs; the historical String APIs remain available. */
+  @:keep
+  public function __nfPreviewCountdownSoundPath(step:Countdown.CountdownStep):Null<funkin.assets.Paths.AssetPath>
+  {
+    return cast originfunkin.compat.PreviewNoteStylePaths.resolve(this, 'getCountdownSoundPath', [step]);
+  }
+
+  @:keep
+  public function __nfPreviewJudgementSpritePath(rating:String):Null<funkin.assets.Paths.AssetPath>
+  {
+    return cast originfunkin.compat.PreviewNoteStylePaths.resolve(this, 'buildJudgementSpritePath', [rating]);
+  }
+
+  @:keep
+  public function __nfPreviewComboNumSpritePath(digit:Int):Null<funkin.assets.Paths.AssetPath>
+  {
+    return cast originfunkin.compat.PreviewNoteStylePaths.resolve(this, 'buildComboNumSpritePath', [digit]);
+  }
+
+  @:keep
+  public function __nfPreviewHoldCoverDirectionAssetPath(direction:NoteDirection):Null<funkin.assets.Paths.AssetPath>
+  {
+    return cast originfunkin.compat.PreviewNoteStylePaths.resolve(this, 'getHoldCoverDirectionAssetPath', [direction]);
+  }
+
+  /** Bridge the zero-argument 0.9 compiled API without changing the historical String API. */
+  @:keep
+  public function __nfPreviewHoldNoteAssetPath():Null<funkin.assets.Paths.AssetPath>
+  {
+    return cast originfunkin.compat.PreviewNoteStylePaths.resolve(this, 'getHoldNoteAssetPath', []);
+  }
+
+  /** Resolve the public 0.9 path contract without changing historical callers. */
+  @:nullSafety(Off)
+  function resolvePreviewAssetPath(method:String, args:Array<Dynamic>, ?overridePath:String):Null<funkin.assets.Paths.AssetPath>
+  {
+    var raw = overridePath ?? resolvePreviewRawPath(method, args);
+    if (raw == null) return null;
+    var withoutExt = haxe.io.Path.withoutExtension(raw);
+    var parts = withoutExt.split(Constants.LIBRARY_SEPARATOR);
+    var library:Null<String> = null;
+    var filePath = withoutExt;
+    if (parts.length == 2)
+    {
+      library = parts[0];
+      filePath = parts[1];
+    }
+    var ext = method == 'getCountdownSoundPath' ? Constants.EXT_SOUND : 'png';
+    var asset = funkin.assets.Paths.file(filePath, ext, false, library);
+    return asset.exists() ? asset : null;
+  }
+
+  /** Inspect data directly so a scripted override is not invoked a second time. */
+  @:nullSafety(Off)
+  function resolvePreviewRawPath(method:String, args:Array<Dynamic>):Null<String>
+  {
+    if (method == 'getHoldCoverDirectionAssetPath') return resolvePreviewHoldCoverRaw(cast args[0]);
+    var field:Null<String> = switch (method)
+    {
+      case 'getNoteAssetPath': 'note';
+      case 'getHoldNoteAssetPath': 'holdNote';
+      case 'getStrumlineAssetPath': 'noteStrumline';
+      case 'getSplashAssetPath': 'noteSplash';
+      case 'buildJudgementSpritePath':
+        switch (cast(args[0], String))
+        {
+          case 'sick': 'judgementSick';
+          case 'good': 'judgementGood';
+          case 'bad': 'judgementBad';
+          case 'shit': 'judgementShit';
+          default: null;
+        }
+      case 'buildComboNumSpritePath':
+        var digit:Int = cast args[0];
+        digit >= 0 && digit <= 9 ? 'comboNumber$digit' : null;
+      case 'getCountdownSoundPath' | 'buildCountdownSpritePath':
+        switch (cast(args[0], Countdown.CountdownStep))
+        {
+          case THREE: 'countdownThree';
+          case TWO: 'countdownTwo';
+          case ONE: 'countdownOne';
+          case GO: 'countdownGo';
+          default: null;
+        }
+      default: null;
+    }
+    if (field == null) return null;
+    var assets:Dynamic = _data?.assets;
+    var item:Dynamic = assets == null ? null : Reflect.field(assets, field);
+    var raw:Null<String> = item == null ? null : method == 'getCountdownSoundPath'
+      ? (item.data == null ? null : item.data.audioPath) : item.assetPath;
+    return raw ?? fallback?.resolvePreviewRawPath(method, args);
+  }
+
+  @:nullSafety(Off)
+  function resolvePreviewHoldCoverRaw(direction:NoteDirection):Null<String>
+  {
+    var path:Null<String> = switch (direction)
+    {
+      case LEFT: _data?.assets?.holdNoteCover?.data?.left?.assetPath;
+      case DOWN: _data?.assets?.holdNoteCover?.data?.down?.assetPath;
+      case UP: _data?.assets?.holdNoteCover?.data?.up?.assetPath;
+      case RIGHT: _data?.assets?.holdNoteCover?.data?.right?.assetPath;
+    };
+    return path ?? resolvePreviewHoldCoverRootRaw();
+  }
+
+  @:nullSafety(Off)
+  function resolvePreviewHoldCoverRootRaw():Null<String>
+  {
+    return _data?.assets?.holdNoteCover?.assetPath ?? fallback?.resolvePreviewHoldCoverRootRaw();
   }
 
   public function getNoteAssetPath(raw:Bool = false):Null<String>
@@ -160,17 +385,41 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
   function buildNoteAnimations(target:NoteSprite):Void
   {
     var leftData:Null<AnimationData> = fetchNoteAnimationData(LEFT);
-    if (leftData != null) target.animation.addByPrefix('purpleScroll', leftData.prefix ?? '', leftData.frameRate ?? 24, leftData.looped ?? false,
-      leftData.flipX, leftData.flipY);
+    if (leftData != null) target.animation.addByPrefix(
+      'purpleScroll',
+      leftData.prefix ?? '',
+      leftData.frameRate ?? 24,
+      leftData.looped ?? false,
+      leftData.flipX,
+      leftData.flipY
+    );
     var downData:Null<AnimationData> = fetchNoteAnimationData(DOWN);
-    if (downData != null) target.animation.addByPrefix('blueScroll', downData.prefix ?? '', downData.frameRate ?? 24, downData.looped ?? false,
-      downData.flipX, downData.flipY);
+    if (downData != null) target.animation.addByPrefix(
+      'blueScroll',
+      downData.prefix ?? '',
+      downData.frameRate ?? 24,
+      downData.looped ?? false,
+      downData.flipX,
+      downData.flipY
+    );
     var upData:Null<AnimationData> = fetchNoteAnimationData(UP);
-    if (upData != null) target.animation.addByPrefix('greenScroll', upData.prefix ?? '', upData.frameRate ?? 24, upData.looped ?? false, upData.flipX,
-      upData.flipY);
+    if (upData != null) target.animation.addByPrefix(
+      'greenScroll',
+      upData.prefix ?? '',
+      upData.frameRate ?? 24,
+      upData.looped ?? false,
+      upData.flipX,
+      upData.flipY
+    );
     var rightData:Null<AnimationData> = fetchNoteAnimationData(RIGHT);
-    if (rightData != null) target.animation.addByPrefix('redScroll', rightData.prefix ?? '', rightData.frameRate ?? 24, rightData.looped ?? false,
-      rightData.flipX, rightData.flipY);
+    if (rightData != null) target.animation.addByPrefix(
+      'redScroll',
+      rightData.prefix ?? '',
+      rightData.frameRate ?? 24,
+      rightData.looped ?? false,
+      rightData.flipX,
+      rightData.flipY
+    );
   }
 
   public function isNoteAnimated():Bool
@@ -183,9 +432,11 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
     return _data.assets?.note?.scale ?? fallback?.getNoteScale() ?? 1.0;
   }
 
+  static final ZERO_OFFSETS:Array<Float> = [0.0, 0.0];
+
   public function getNoteOffsets():Array<Float>
   {
-    return _data?.assets?.note?.offsets ?? fallback?.getNoteOffsets() ?? [0.0, 0.0];
+    return _data?.assets?.note?.offsets ?? fallback?.getNoteOffsets() ?? ZERO_OFFSETS;
   }
 
   function fetchNoteAnimationData(dir:NoteDirection):Null<AnimationData>
@@ -232,7 +483,7 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
 
   public function getHoldNoteOffsets():Array<Float>
   {
-    return _data?.assets?.holdNote?.offsets ?? fallback?.getHoldNoteOffsets() ?? [0.0, 0.0];
+    return _data?.assets?.holdNote?.offsets ?? fallback?.getHoldNoteOffsets() ?? ZERO_OFFSETS;
   }
 
   public function applyStrumlineFrames(target:StrumlineNote):Void
@@ -240,14 +491,15 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
     // TODO: Add support for multi-Sparrow.
     // Will be less annoying after this is merged: https://github.com/HaxeFlixel/flixel/pull/2772
 
-    var atlas:FlxAtlasFrames = Paths.getSparrowAtlas(getStrumlineAssetPath() ?? '', getAssetLibrary(getStrumlineAssetPath(true)));
+    var assetPath = funkin.assets.Paths.file(getStrumlineAssetPath() ?? '', 'png', true, getAssetLibrary(getStrumlineAssetPath(true)));
+    var noteFrames = funkin.assets.Assets.getSparrowAtlas(assetPath);
 
-    if (atlas == null)
+    if (noteFrames == null)
     {
       throw 'Could not load spritesheet for note style: $id';
     }
 
-    target.frames = atlas;
+    target.frames = noteFrames;
 
     target.scale.set(_data.assets.noteStrumline?.scale ?? 1.0);
     target.antialiasing = !(_data.assets.noteStrumline?.isPixel ?? false);
@@ -327,6 +579,15 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
     return _data?.assets?.noteStrumline?.offsets ?? fallback?.getStrumlineOffsets() ?? [0.0, 0.0];
   }
 
+  /** Convert historical target widths at the native rendering boundary. */
+  public function getStrumlineScaleForFrame(frameWidth:Int):Float
+  {
+    var scale = getStrumlineScale();
+    if ((_data.legacyNoteSizing == 1 || _data.legacyNoteSizing == 2) && frameWidth > 0)
+      return Std.int(Strumline.STRUMLINE_SIZE * scale) / frameWidth;
+    return scale;
+  }
+
   public function applyStrumlineOffsets(target:StrumlineNote):Void
   {
     var offsets = getStrumlineOffsets();
@@ -364,28 +625,28 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
         if (_data.assets.countdownThree == null) return fallback?.buildCountdownSprite(step);
         var assetPath = buildCountdownSpritePath(step);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, buildCountdownSpriteLibrary(step));
         result.scale.x = _data.assets.countdownThree?.scale ?? 1.0;
         result.scale.y = _data.assets.countdownThree?.scale ?? 1.0;
       case TWO:
         if (_data.assets.countdownTwo == null) return fallback?.buildCountdownSprite(step);
         var assetPath = buildCountdownSpritePath(step);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, buildCountdownSpriteLibrary(step));
         result.scale.x = _data.assets.countdownTwo?.scale ?? 1.0;
         result.scale.y = _data.assets.countdownTwo?.scale ?? 1.0;
       case ONE:
         if (_data.assets.countdownOne == null) return fallback?.buildCountdownSprite(step);
         var assetPath = buildCountdownSpritePath(step);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, buildCountdownSpriteLibrary(step));
         result.scale.x = _data.assets.countdownOne?.scale ?? 1.0;
         result.scale.y = _data.assets.countdownOne?.scale ?? 1.0;
       case GO:
         if (_data.assets.countdownGo == null) return fallback?.buildCountdownSprite(step);
         var assetPath = buildCountdownSpritePath(step);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, buildCountdownSpriteLibrary(step));
         result.scale.x = _data.assets.countdownGo?.scale ?? 1.0;
         result.scale.y = _data.assets.countdownGo?.scale ?? 1.0;
       default:
@@ -540,28 +801,28 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
         if (_data.assets.judgementSick == null) return fallback?.buildJudgementSprite(rating);
         var assetPath = buildJudgementSpritePath(rating);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildJudgementSpritePath(rating, true)));
         result.scale.x = _data.assets.judgementSick?.scale ?? 1.0;
         result.scale.y = _data.assets.judgementSick?.scale ?? 1.0;
       case "good":
         if (_data.assets.judgementGood == null) return fallback?.buildJudgementSprite(rating);
         var assetPath = buildJudgementSpritePath(rating);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildJudgementSpritePath(rating, true)));
         result.scale.x = _data.assets.judgementGood?.scale ?? 1.0;
         result.scale.y = _data.assets.judgementGood?.scale ?? 1.0;
       case "bad":
         if (_data.assets.judgementBad == null) return fallback?.buildJudgementSprite(rating);
         var assetPath = buildJudgementSpritePath(rating);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildJudgementSpritePath(rating, true)));
         result.scale.x = _data.assets.judgementBad?.scale ?? 1.0;
         result.scale.y = _data.assets.judgementBad?.scale ?? 1.0;
       case "shit":
         if (_data.assets.judgementShit == null) return fallback?.buildJudgementSprite(rating);
         var assetPath = buildJudgementSpritePath(rating);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildJudgementSpritePath(rating, true)));
         result.scale.x = _data.assets.judgementShit?.scale ?? 1.0;
         result.scale.y = _data.assets.judgementShit?.scale ?? 1.0;
       default:
@@ -603,7 +864,7 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
     }
   }
 
-  public function buildJudgementSpritePath(rating:String):Null<String>
+  public function buildJudgementSpritePath(rating:String, raw:Bool = false):Null<String>
   {
     var basePath:Null<String> = null;
 
@@ -620,7 +881,8 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
       default:
         basePath = null;
     }
-    if (basePath == null) return fallback?.buildJudgementSpritePath(rating);
+    if (basePath == null) return fallback?.buildJudgementSpritePath(rating, raw);
+    if (raw) return basePath;
     var parts = basePath?.split(Constants.LIBRARY_SEPARATOR) ?? [];
 
     if (parts.length < 1) return null;
@@ -663,70 +925,70 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
         if (_data.assets.comboNumber0 == null) return fallback?.buildComboNumSprite(digit);
         var assetPath = buildComboNumSpritePath(digit);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildComboNumSpritePath(digit, true)));
         result.scale.x = _data.assets.comboNumber0?.scale ?? 1.0;
         result.scale.y = _data.assets.comboNumber0?.scale ?? 1.0;
       case 1:
         if (_data.assets.comboNumber1 == null) return fallback?.buildComboNumSprite(digit);
         var assetPath = buildComboNumSpritePath(digit);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildComboNumSpritePath(digit, true)));
         result.scale.x = _data.assets.comboNumber1?.scale ?? 1.0;
         result.scale.y = _data.assets.comboNumber1?.scale ?? 1.0;
       case 2:
         if (_data.assets.comboNumber2 == null) return fallback?.buildComboNumSprite(digit);
         var assetPath = buildComboNumSpritePath(digit);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildComboNumSpritePath(digit, true)));
         result.scale.x = _data.assets.comboNumber2?.scale ?? 1.0;
         result.scale.y = _data.assets.comboNumber2?.scale ?? 1.0;
       case 3:
         if (_data.assets.comboNumber3 == null) return fallback?.buildComboNumSprite(digit);
         var assetPath = buildComboNumSpritePath(digit);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildComboNumSpritePath(digit, true)));
         result.scale.x = _data.assets.comboNumber3?.scale ?? 1.0;
         result.scale.y = _data.assets.comboNumber3?.scale ?? 1.0;
       case 4:
         if (_data.assets.comboNumber4 == null) return fallback?.buildComboNumSprite(digit);
         var assetPath = buildComboNumSpritePath(digit);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildComboNumSpritePath(digit, true)));
         result.scale.x = _data.assets.comboNumber4?.scale ?? 1.0;
         result.scale.y = _data.assets.comboNumber4?.scale ?? 1.0;
       case 5:
         if (_data.assets.comboNumber5 == null) return fallback?.buildComboNumSprite(digit);
         var assetPath = buildComboNumSpritePath(digit);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildComboNumSpritePath(digit, true)));
         result.scale.x = _data.assets.comboNumber5?.scale ?? 1.0;
         result.scale.y = _data.assets.comboNumber5?.scale ?? 1.0;
       case 6:
         if (_data.assets.comboNumber6 == null) return fallback?.buildComboNumSprite(digit);
         var assetPath = buildComboNumSpritePath(digit);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildComboNumSpritePath(digit, true)));
         result.scale.x = _data.assets.comboNumber6?.scale ?? 1.0;
         result.scale.y = _data.assets.comboNumber6?.scale ?? 1.0;
       case 7:
         if (_data.assets.comboNumber7 == null) return fallback?.buildComboNumSprite(digit);
         var assetPath = buildComboNumSpritePath(digit);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildComboNumSpritePath(digit, true)));
         result.scale.x = _data.assets.comboNumber7?.scale ?? 1.0;
         result.scale.y = _data.assets.comboNumber7?.scale ?? 1.0;
       case 8:
         if (_data.assets.comboNumber8 == null) return fallback?.buildComboNumSprite(digit);
         var assetPath = buildComboNumSpritePath(digit);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildComboNumSpritePath(digit, true)));
         result.scale.x = _data.assets.comboNumber8?.scale ?? 1.0;
         result.scale.y = _data.assets.comboNumber8?.scale ?? 1.0;
       case 9:
         if (_data.assets.comboNumber9 == null) return fallback?.buildComboNumSprite(digit);
         var assetPath = buildComboNumSpritePath(digit);
         if (assetPath == null) return null;
-        result.loadTexture(assetPath);
+        result.loadTexture(assetPath, getAssetLibrary(buildComboNumSpritePath(digit, true)));
         result.scale.x = _data.assets.comboNumber9?.scale ?? 1.0;
         result.scale.y = _data.assets.comboNumber9?.scale ?? 1.0;
       default:
@@ -791,7 +1053,7 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
     }
   }
 
-  public function buildComboNumSpritePath(digit:Int):Null<String>
+  public function buildComboNumSpritePath(digit:Int, raw:Bool = false):Null<String>
   {
     var basePath:Null<String> = null;
     switch (digit)
@@ -820,7 +1082,8 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
         basePath = null;
     }
 
-    if (basePath == null) return fallback?.buildComboNumSpritePath(digit);
+    if (basePath == null) return fallback?.buildComboNumSpritePath(digit, raw);
+    if (raw) return basePath;
 
     var parts = basePath?.split(Constants.LIBRARY_SEPARATOR) ?? [];
     if (parts.length < 1) return null;
@@ -902,6 +1165,8 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
   }
 
   var splashFrames:Null<FlxAtlasFrames> = null;
+  var splashFramesPath:Null<String> = null;
+  var splashFramesLibrary:Null<String> = null;
 
   function buildSplashFrames(force:Bool = false):Null<FlxAtlasFrames>
   {
@@ -912,7 +1177,8 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
       return null;
     }
 
-    if (!FunkinMemory.isTextureCached(Paths.image(splashAssetPath)))
+    var splashLibrary = getAssetLibrary(getSplashAssetPath(true));
+    if (!funkin.assets.Assets.isFlxGraphicCached(funkin.assets.Paths.file(splashAssetPath, 'png', true, splashLibrary)))
     {
       FlxG.log.warn('Note Splash texture not cached: ${splashAssetPath}');
     }
@@ -921,15 +1187,18 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
     {
       if (splashFrames?.parent?.isDestroyed ?? true) splashFrames = null;
     }
+    if (splashFramesPath != splashAssetPath || splashFramesLibrary != splashLibrary) splashFrames = null;
 
     if (splashFrames != null && !force) return splashFrames;
 
-    splashFrames = Paths.getSparrowAtlas(splashAssetPath, getAssetLibrary(getSplashAssetPath(true)));
-    splashFrames.parent.persist = true;
+    splashFrames = Paths.getSparrowAtlas(splashAssetPath, splashLibrary);
     if (splashFrames == null)
     {
       throw 'Could not load notesplash frames for note style: $id';
     }
+    splashFramesPath = splashAssetPath;
+    splashFramesLibrary = splashLibrary;
+    splashFrames.parent.persist = true;
     return splashFrames;
   }
 
@@ -1031,11 +1300,10 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
 
   function buildHoldCoverFrames(force:Bool = false):Null<FlxFramesCollection>
   {
-    // If the hold cover frames got unloaded, ensure they get reloaded.
-    if (holdCoverFrames?.parent?.isDestroyed ?? true) holdCoverFrames = null;
-
-    // If the hold cover frames are already loaded, just use those.
-    if (holdCoverFrames != null && !force) return holdCoverFrames;
+    // Rebuild from the current direction assets. Combined collections have no
+    // parent, and a single-direction atlas may have changed since the last call.
+    // Do not destroy the old collection: active sprites can still reference it.
+    holdCoverFrames = null;
 
     for (direction in Strumline.DIRECTIONS)
     {
@@ -1061,7 +1329,9 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
         _data.assets?.holdNoteCover?.data?.right;
     };
 
-    if (directionData == null) return null;
+    // Animation data falls back to the parent for an absent direction; use
+    // that same parent's atlas instead of leaving its animation without frames.
+    if (directionData == null) return fallback?.buildHoldCoverFrameForDirection(direction);
 
     var holdCoverAssetPath:Null<String> = getHoldCoverDirectionAssetPath(direction) ?? fallback?.getHoldCoverDirectionAssetPath(direction);
     if (holdCoverAssetPath == null)
@@ -1070,7 +1340,7 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
       return null;
     }
 
-    if (!FunkinMemory.isTextureCached(Paths.image(holdCoverAssetPath)))
+    if (!funkin.assets.Assets.isFlxGraphicCached(funkin.assets.Paths.file(holdCoverAssetPath, 'png', true, getAssetLibrary(getHoldCoverDirectionAssetPath(direction, true)))))
     {
       FlxG.log.warn('Hold Note Cover texture not cached: ${holdCoverAssetPath}');
     }
@@ -1090,8 +1360,13 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
       var animData:Null<Array<AnimationData>> = fetchHoldCoverAnimationData(direction);
       if (animData != null)
       {
-        // this entry is the base animation that plays ("holdCover$noteColor" animation), which we want to loop
-        animData[1].looped = true;
+        // Optional start/end animations may be absent, so identify the hold
+        // animation by name instead of assuming it occupies the second slot.
+        var holdAnimationName = 'holdCover${direction.colorName.toTitleCase()}';
+        for (animation in animData)
+        {
+          if (animation.name == holdAnimationName) animation.looped = true;
+        }
         FlxAnimationUtil.addAtlasAnimations(target.glow, animData);
       }
     }

@@ -4,13 +4,24 @@ import flixel.FlxSprite.FlxSprite;
 
 class CheckboxPreferenceItem extends FlxSprite
 {
+  public static function queryAssets(type:funkin.assets.Assets.AssetType):Array<funkin.assets.Paths.AssetPath>
+  {
+    return switch (type)
+    {
+      case IMAGE: [funkin.assets.Paths.image('ui/options/checkbox')];
+      case XML: [funkin.assets.Paths.xml('ui/options/checkbox')];
+      default: [];
+    }
+  }
+
+
   public var currentValue(default, set):Bool;
 
   public function new(x:Float, y:Float, defaultValue:Bool = false, available:Bool = true)
   {
     super(x, y);
 
-    frames = Paths.getSparrowAtlas('checkboxThingie');
+    frames = Paths.getSparrowAtlas('ui/options/checkbox');
     animation.addByPrefix('static', 'Check Box unselected', 24, false);
     animation.addByPrefix('checked', 'Check Box selecting animation', 24, false);
 

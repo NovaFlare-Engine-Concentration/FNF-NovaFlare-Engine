@@ -48,7 +48,10 @@ class SchemeMenuButton extends FlxSpriteGroup
   {
     super(xPos, yPos);
 
-    body = new FlxShapeBox(0, 0, 200, 100, {thickness: 4, color: FlxColor.BLACK}, FlxColor.WHITE);
+    body = new FlxShapeBox(0, 0, 200, 100, {
+      thickness: 4,
+      color: FlxColor.BLACK
+    }, FlxColor.WHITE);
     add(body);
 
     text = new AtlasText(-150, -75, labelText, AtlasFont.DEFAULT);
@@ -67,7 +70,7 @@ class SchemeMenuButton extends FlxSpriteGroup
     {
       busy = true;
 
-      FunkinSound.playOnce(Paths.sound('confirmMenu'));
+      FunkinSound.playOnce(Paths.sound('ui/main-menu/confirm-menu'));
 
       FlxFlicker.flicker(this, 1, 0.06, true, false, function(_)
       {

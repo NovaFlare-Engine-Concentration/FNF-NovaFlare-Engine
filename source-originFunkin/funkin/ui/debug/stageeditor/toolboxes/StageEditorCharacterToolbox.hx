@@ -3,7 +3,7 @@ package funkin.ui.debug.stageeditor.toolboxes;
 #if FEATURE_STAGE_EDITOR
 import haxe.ui.components.NumberStepper;
 import funkin.play.character.BaseCharacter.CharacterType;
-import funkin.data.character.CharacterData.CharacterDataParser;
+import funkin.data.character.CharacterRegistry;
 import funkin.data.character.CharacterData;
 import funkin.util.SortUtil;
 import funkin.save.Save;
@@ -18,7 +18,8 @@ import haxe.ui.events.UIEvent;
 
 using StringTools;
 
-@:access(funkin.ui.debug.stageeditor.StageEditorState) @:build(haxe.ui.macros.ComponentMacros.build("assets/exclude/data/ui/stage-editor/toolboxes/character-properties.xml"))
+@:access(funkin.ui.debug.stageeditor.StageEditorState)
+@:build(originfunkin.macro.OriginEditorMacro.build("assets/exclude/ui/editors/stage-editor/toolboxes/character-properties.xml"))
 class StageEditorCharacterToolbox extends StageEditorDefaultToolbox
 {
   public var charPosX:NumberStepper;
@@ -49,18 +50,14 @@ class StageEditorCharacterToolbox extends StageEditorDefaultToolbox
     charZIdx.onChange = function(_)
     {
       if (state.selectedChar == null) return;
-      state.charGroups[
-        state.selectedChar.characterType
-      ].zIndex = Std.int(charZIdx.pos);
+      state.charGroups[state.selectedChar.characterType].zIndex = Std.int(charZIdx.pos);
       state.sortAssets();
     }
 
     charCamX.onChange = charCamY.onChange = function(_)
     {
       if (state.selectedChar == null) return;
-      state.charCamOffsets[
-        state.selectedChar.characterType
-      ] = [charCamX.pos ?? 0, charCamY.pos ?? 0];
+      state.charCamOffsets[state.selectedChar.characterType] = [charCamX.pos ?? 0, charCamY.pos ?? 0];
       state.updateMarkerPos();
     }
 
@@ -132,11 +129,15 @@ class StageEditorCharacterToolbox extends StageEditorDefaultToolbox
     }
 
     var prevText = charType.text;
-    var charData = CharacterDataParser.fetchCharacterData(curChar?.characterId);
-    charType.icon = (charData == null ? null : CharacterDataParser.getCharPixelIconAsset(curChar?.characterId));
+    var charData = CharacterRegistry.instance.fetchCharacterData(curChar?.characterId);
+    charType.icon = (charData == null ? null : CharacterRegistry.getCharPixelIconAsset(curChar?.characterId));
     charType.text = (charData == null ? "None" : charData.name.length > 6 ? '${charData.name.substr(0, 6)}.' : '${charData.name}');
 
-    if (prevText != charType.text) Screen.instance.removeComponent(charMenu);
+    if (prevText != charType.text && charMenu != null)
+    {
+      Screen.instance.removeComponent(charMenu);
+      charMenu = null;
+    }
   }
 
   public function repositionCharacter()
@@ -160,7 +161,8 @@ class StageEditorCharacterToolbox extends StageEditorDefaultToolbox
 ')
 class StageEditorCharacterMenu extends Menu // copied from chart editor
 {
-  override public function new(state:StageEditorState, parent:StageEditorCharacterToolbox)
+  override public function new(state:StageEditorState,
+    parent:StageEditorCharacterToolbox)
   {
     super();
 
@@ -172,14 +174,14 @@ class StageEditorCharacterMenu extends Menu // copied from chart editor
     charGrid.width = this.width;
     charSelectScroll.addComponent(charGrid);
 
-    var charIds = CharacterDataParser.listCharacterIds();
+    var charIds = CharacterRegistry.instance.listEntryIds();
     charIds.sort(SortUtil.alphabetically);
 
     var defaultText:String = '(choose a character)';
 
     for (charIndex => charId in charIds)
     {
-      var charData:CharacterData = CharacterDataParser.fetchCharacterData(charId);
+      var charData:CharacterData = CharacterRegistry.instance.fetchCharacterData(charId);
 
       var charButton = new Button();
       charButton.width = 70;
@@ -197,7 +199,7 @@ class StageEditorCharacterMenu extends Menu // copied from chart editor
       }
 
       var LIMIT = 6;
-      charButton.icon = CharacterDataParser.getCharPixelIconAsset(charId);
+      charButton.icon = CharacterRegistry.getCharPixelIconAsset(charId);
       charButton.text = charData.name.length > LIMIT ? '${charData.name.substr(0, LIMIT)}.' : '${charData.name}';
 
       charButton.onClick = _ ->
@@ -235,11 +237,15 @@ class StageEditorCharacterMenu extends Menu // copied from chart editor
         // okay i think that was enough cleaning phew you can see how clean this group is now!!!
         // anyways new character!!!!
 
-        var newChar = CharacterDataParser.fetchCharacter(charId, true);
+        var newChar = CharacterRegistry.instance.fetchEntry(charId, {
+          debug: true
+        });
         if (newChar == null)
         {
           state.notifyChange("Switch Character", "Couldn't find character " + charId + ". Switching to default.", true);
-          newChar = CharacterDataParser.fetchCharacter(Constants.DEFAULT_CHARACTER, true);
+          newChar = CharacterRegistry.instance.fetchEntry(Constants.DEFAULT_CHARACTER, {
+            debug: true
+          });
         }
 
         newChar.characterType = type;
@@ -286,7 +292,12 @@ class StageEditorCharacterMenu extends Menu // copied from chart editor
 
     this.alpha = 0;
     this.y -= 10;
-    FlxTween.tween(this, {alpha: 1, y: this.y + 10}, 0.2, {ease: FlxEase.quartOut});
+    FlxTween.tween(this, {
+      alpha: 1,
+      y: this.y + 10
+    }, 0.2, {
+      ease: FlxEase.quartOut
+    });
   }
 }
 #end

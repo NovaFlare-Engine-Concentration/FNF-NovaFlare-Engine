@@ -1,0 +1,24 @@
+--- a/polymod/hscript/_internal/DependencyOrder.hx
++++ b/polymod/hscript/_internal/DependencyOrder.hx
+@@ -16,8 +16,20 @@
+    return {exports:[for(x in exports) normalize(x)], references:[for(x in scan.types) normalize(x)], declared:declared};
+   } catch (_:Dynamic) {return null;}
+  }
+- /** Return original order when metadata is unknown, names collide, or dependencies cycle. */
++ /** Unknown modules stay fixed and separate independently planned blocks. */
+  public static function plan(modules:Array<Null<ModuleSummary>>):Array<Int> {
++  var result:Array<Int>=[]; var start=0;
++  while(start<modules.length) {
++   if(modules[start]==null) { result.push(start); start++; continue; }
++   var end=start+1; while(end<modules.length && modules[end]!=null) end++;
++   var block=modules.slice(start,end);
++   for(index in planKnown(block)) result.push(start+index);
++   start=end;
++  }
++  return result;
++ }
++ /** Collisions or dependency cycles retain this block's original order. */
++ static function planKnown(modules:Array<Null<ModuleSummary>>):Array<Int> {
+   var original=[for(i in 0...modules.length) i];
+   var owners:Map<String,Int>=[];
+   for(i in 0...modules.length) {

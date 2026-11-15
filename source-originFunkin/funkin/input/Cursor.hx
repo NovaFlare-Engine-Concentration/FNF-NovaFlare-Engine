@@ -3,8 +3,18 @@ package funkin.input;
 #if FEATURE_HAXEUI
 import haxe.ui.backend.flixel.CursorHelper;
 #end
+#if (FEATURE_HAXEUI && !FLX_NO_MOUSE)
+import lime.app.Application;
+import haxe.ui.backend.flixel.MouseHelper;
+import haxe.ui.core.Screen;
+import haxe.ui.dragdrop.DragManager;
+import haxe.ui.events.MouseEvent;
+#end
 import lime.app.Future;
 import openfl.display.BitmapData;
+import funkin.assets.Assets;
+import funkin.assets.Paths;
+import funkin.assets.Paths.AssetPath;
 
 @:nullSafety
 class Cursor
@@ -15,14 +25,32 @@ class Cursor
    */
   public static var cursorMode(default, set):Null<CursorMode> = null;
 
+  static var ownsMouseSession:Bool = false;
+  static var previousSystemCursor:Bool = false;
+
   /**
    * Show the cursor.
    */
   public static inline function show():Void
   {
+    if (!ownsMouseSession)
+    {
+      previousSystemCursor = FlxG.mouse.useSystemCursor;
+      ownsMouseSession = true;
+    }
+    if (FlxG.mouse.useSystemCursor) FlxG.mouse.useSystemCursor = false;
     FlxG.mouse.visible = true;
-    // Reset the cursor mode.
-    Cursor.cursorMode = Default;
+    // HaxeUI or another state may have replaced the Flixel graphic without
+    // changing cursorMode. Reapply the editor's default even in that case.
+    if (cursorMode == Default)
+      loadCursorGraphicSync(Default);
+    else
+      Cursor.cursorMode = Default;
+    #if (FEATURE_HAXEUI && !FLX_NO_MOUSE)
+    cursorOwned = true;
+    CursorHelper.useCustomCursors = true;
+    lastResolvedCursor = null;
+    #end
   }
 
   /**
@@ -31,8 +59,28 @@ class Cursor
   public static inline function hide():Void
   {
     FlxG.mouse.visible = false;
+    #if (FEATURE_HAXEUI && !FLX_NO_MOUSE)
+    // HaxeUI may have loaded a graphic while invalidating cursorMode.
+    var unloadOwnedGraphic = cursorOwned && cursorMode == null;
+    #end
     // Reset the cursor mode.
     Cursor.cursorMode = null;
+    #if (FEATURE_HAXEUI && !FLX_NO_MOUSE)
+    if (unloadOwnedGraphic) FlxG.mouse.unload();
+    cursorOwned = false;
+    CursorHelper.useCustomCursors = false;
+    lastResolvedCursor = null;
+    #end
+    if (ownsMouseSession)
+    {
+      ownsMouseSession = false;
+      if (FlxG.mouse.useSystemCursor != previousSystemCursor)
+      {
+        FlxG.mouse.useSystemCursor = previousSystemCursor;
+        // Flixel's system-cursor setter can show it even while visible is false.
+        FlxG.mouse.visible = false;
+      }
+    }
   }
 
   public static inline function toggle():Void
@@ -47,92 +95,93 @@ class Cursor
     }
   }
 
-  public static final CURSOR_DEFAULT_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-default.png',
+  // Static values get loaded before asset paths can be validated, so we skip that.
+  static final CURSOR_DEFAULT_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-default'),
     scale: 1.0,
     offsetX: 0,
     offsetY: 0,
   };
   static var assetCursorDefault:Null<BitmapData> = null;
-  public static final CURSOR_CROSS_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-cross.png',
+  static final CURSOR_CROSS_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-cross'),
     scale: 1.0,
     offsetX: 0,
     offsetY: 0,
   };
   static var assetCursorCross:Null<BitmapData> = null;
-  public static final CURSOR_ERASER_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-eraser.png',
+  static final CURSOR_ERASER_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-eraser'),
     scale: 1.0,
     offsetX: 0,
     offsetY: 0,
   };
   static var assetCursorEraser:Null<BitmapData> = null;
-  public static final CURSOR_GRABBING_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-grabbing.png',
+  static final CURSOR_GRABBING_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-grabbing'),
     scale: 1.0,
     offsetX: -8,
     offsetY: 0,
   };
   static var assetCursorGrabbing:Null<BitmapData> = null;
-  public static final CURSOR_HOURGLASS_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-hourglass.png',
+  static final CURSOR_HOURGLASS_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-hourglass'),
     scale: 1.0,
     offsetX: 0,
     offsetY: 0,
   };
   static var assetCursorHourglass:Null<BitmapData> = null;
-  public static final CURSOR_POINTER_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-pointer.png',
+  static final CURSOR_POINTER_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-pointer'),
     scale: 1.0,
     offsetX: -8,
     offsetY: 0,
   };
   static var assetCursorPointer:Null<BitmapData> = null;
-  public static final CURSOR_TEXT_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-text.png',
+  static final CURSOR_TEXT_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-text'),
     scale: 0.2,
     offsetX: 0,
     offsetY: 0,
   };
   static var assetCursorText:Null<BitmapData> = null;
-  public static final CURSOR_TEXT_VERTICAL_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-text-vertical.png',
+  static final CURSOR_TEXT_VERTICAL_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-text-vertical'),
     scale: 0.2,
     offsetX: 0,
     offsetY: 0,
   };
   static var assetCursorTextVertical:Null<BitmapData> = null;
-  public static final CURSOR_ZOOM_IN_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-zoom-in.png',
+  static final CURSOR_ZOOM_IN_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-zoom-in'),
     scale: 1.0,
     offsetX: 0,
     offsetY: 0,
   };
   static var assetCursorZoomIn:Null<BitmapData> = null;
-  public static final CURSOR_ZOOM_OUT_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-zoom-out.png',
+  static final CURSOR_ZOOM_OUT_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-zoom-out'),
     scale: 1.0,
     offsetX: 0,
     offsetY: 0,
   };
   static var assetCursorZoomOut:Null<BitmapData> = null;
-  public static final CURSOR_CROSSHAIR_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-crosshair.png',
+  static final CURSOR_CROSSHAIR_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-crosshair'),
     scale: 1.0,
     offsetX: -16,
     offsetY: -16,
   };
   static var assetCursorCrosshair:Null<BitmapData> = null;
-  public static final CURSOR_CELL_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-cell.png',
+  static final CURSOR_CELL_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-cell'),
     scale: 1.0,
     offsetX: -16,
     offsetY: -16,
   };
   static var assetCursorCell:Null<BitmapData> = null;
-  public static final CURSOR_SCROLL_PARAMS:CursorParams = {
-    graphic: 'assets/images/cursor/cursor-scroll.png',
+  static final CURSOR_SCROLL_PARAMS:CursorParams = {
+    graphic: Paths.image('ui/cursor/desktop/cursor-scroll'),
     scale: 0.2,
     offsetX: -15,
     offsetY: -15,
@@ -141,12 +190,48 @@ class Cursor
 
   static function set_cursorMode(value:Null<CursorMode>):Null<CursorMode>
   {
-    if (value != null && cursorMode != value)
+    if (cursorMode != value)
     {
       cursorMode = value;
+      // A tool can replace the HaxeUI graphic while its resolved CSS name stays
+      // the same. Force the next mouse move to resolve and apply it again.
+      #if (FEATURE_HAXEUI && !FLX_NO_MOUSE)
+      lastResolvedCursor = null;
+      #end
       loadCursorGraphicSync(cursorMode);
     }
     return cursorMode;
+  }
+
+  /**
+   * Return a list of all asset paths used by the cursor.
+   *
+   * @param type The type of asset to return a list of paths for.
+   * @return The list of asset paths.
+   */
+  public static function queryAssets(type:funkin.assets.Assets.AssetType):Array<funkin.assets.Paths.AssetPath>
+  {
+    switch (type)
+    {
+      case IMAGE:
+        return [
+          CURSOR_DEFAULT_PARAMS.graphic,
+          CURSOR_CROSS_PARAMS.graphic,
+          CURSOR_ERASER_PARAMS.graphic,
+          CURSOR_GRABBING_PARAMS.graphic,
+          CURSOR_HOURGLASS_PARAMS.graphic,
+          CURSOR_POINTER_PARAMS.graphic,
+          CURSOR_TEXT_PARAMS.graphic,
+          CURSOR_TEXT_VERTICAL_PARAMS.graphic,
+          CURSOR_ZOOM_IN_PARAMS.graphic,
+          CURSOR_ZOOM_OUT_PARAMS.graphic,
+          CURSOR_CROSSHAIR_PARAMS.graphic,
+          CURSOR_CELL_PARAMS.graphic,
+          CURSOR_SCROLL_PARAMS.graphic,
+        ];
+      default:
+        return [];
+    }
   }
 
   /**
@@ -180,31 +265,83 @@ class Cursor
     var data = switch (mode)
     {
       case Default:
-        {cache: assetCursorDefault, params: CURSOR_DEFAULT_PARAMS, set: (bmp) -> assetCursorDefault = bmp};
+        {
+          cache: assetCursorDefault,
+          params: CURSOR_DEFAULT_PARAMS,
+          set: (bmp) -> assetCursorDefault = bmp
+        };
       case Cross:
-        {cache: assetCursorCross, params: CURSOR_CROSS_PARAMS, set: (bmp) -> assetCursorCross = bmp};
+        {
+          cache: assetCursorCross,
+          params: CURSOR_CROSS_PARAMS,
+          set: (bmp) -> assetCursorCross = bmp
+        };
       case Eraser:
-        {cache: assetCursorEraser, params: CURSOR_ERASER_PARAMS, set: (bmp) -> assetCursorEraser = bmp};
+        {
+          cache: assetCursorEraser,
+          params: CURSOR_ERASER_PARAMS,
+          set: (bmp) -> assetCursorEraser = bmp
+        };
       case Grabbing:
-        {cache: assetCursorGrabbing, params: CURSOR_GRABBING_PARAMS, set: (bmp) -> assetCursorGrabbing = bmp};
+        {
+          cache: assetCursorGrabbing,
+          params: CURSOR_GRABBING_PARAMS,
+          set: (bmp) -> assetCursorGrabbing = bmp
+        };
       case Hourglass:
-        {cache: assetCursorHourglass, params: CURSOR_HOURGLASS_PARAMS, set: (bmp) -> assetCursorHourglass = bmp};
+        {
+          cache: assetCursorHourglass,
+          params: CURSOR_HOURGLASS_PARAMS,
+          set: (bmp) -> assetCursorHourglass = bmp
+        };
       case Pointer:
-        {cache: assetCursorPointer, params: CURSOR_POINTER_PARAMS, set: (bmp) -> assetCursorPointer = bmp};
+        {
+          cache: assetCursorPointer,
+          params: CURSOR_POINTER_PARAMS,
+          set: (bmp) -> assetCursorPointer = bmp
+        };
       case Text:
-        {cache: assetCursorText, params: CURSOR_TEXT_PARAMS, set: (bmp) -> assetCursorText = bmp};
+        {
+          cache: assetCursorText,
+          params: CURSOR_TEXT_PARAMS,
+          set: (bmp) -> assetCursorText = bmp
+        };
       case TextVertical:
-        {cache: assetCursorTextVertical, params: CURSOR_TEXT_VERTICAL_PARAMS, set: (bmp) -> assetCursorTextVertical = bmp};
+        {
+          cache: assetCursorTextVertical,
+          params: CURSOR_TEXT_VERTICAL_PARAMS,
+          set: (bmp) -> assetCursorTextVertical = bmp
+        };
       case ZoomIn:
-        {cache: assetCursorZoomIn, params: CURSOR_ZOOM_IN_PARAMS, set: (bmp) -> assetCursorZoomIn = bmp};
+        {
+          cache: assetCursorZoomIn,
+          params: CURSOR_ZOOM_IN_PARAMS,
+          set: (bmp) -> assetCursorZoomIn = bmp
+        };
       case ZoomOut:
-        {cache: assetCursorZoomOut, params: CURSOR_ZOOM_OUT_PARAMS, set: (bmp) -> assetCursorZoomOut = bmp};
+        {
+          cache: assetCursorZoomOut,
+          params: CURSOR_ZOOM_OUT_PARAMS,
+          set: (bmp) -> assetCursorZoomOut = bmp
+        };
       case Crosshair:
-        {cache: assetCursorCrosshair, params: CURSOR_CROSSHAIR_PARAMS, set: (bmp) -> assetCursorCrosshair = bmp};
+        {
+          cache: assetCursorCrosshair,
+          params: CURSOR_CROSSHAIR_PARAMS,
+          set: (bmp) -> assetCursorCrosshair = bmp
+        };
       case Cell:
-        {cache: assetCursorCell, params: CURSOR_CELL_PARAMS, set: (bmp) -> assetCursorCell = bmp};
+        {
+          cache: assetCursorCell,
+          params: CURSOR_CELL_PARAMS,
+          set: (bmp) -> assetCursorCell = bmp
+        };
       case Scroll:
-        {cache: assetCursorScroll, params: CURSOR_SCROLL_PARAMS, set: (bmp) -> assetCursorScroll = bmp};
+        {
+          cache: assetCursorScroll,
+          params: CURSOR_SCROLL_PARAMS,
+          set: (bmp) -> assetCursorScroll = bmp
+        };
       default:
         null;
     }
@@ -215,7 +352,8 @@ class Cursor
       return;
     }
 
-    if (data.cache != null)
+    @:privateAccess
+    if (data.cache != null && !(data.cache.image == null && data.cache.__texture == null))
     {
       applyGraphic(data.cache, data.params);
       return;
@@ -250,9 +388,16 @@ class Cursor
   }
 
   #if FEATURE_HAXEUI
-  public static function registerHaxeUICursors():Void
+  /**
+   * Registers editor cursor graphics and CSS aliases with HaxeUI and wires up
+   * cursor visibility synchronization on platforms with a mouse.
+   * Call once at boot, after `Toolkit.init()`.
+   */
+  public static function setupHaxeUICursors():Void
   {
-    CursorHelper.useCustomCursors = true;
+    // ScreenImpl has its own cursor handler in addition to ours. Keep it
+    // inactive until an Origin cursor is explicitly shown.
+    CursorHelper.useCustomCursors = false;
     registerHaxeUICursor('default', CURSOR_DEFAULT_PARAMS);
     registerHaxeUICursor('cross', CURSOR_CROSS_PARAMS);
     registerHaxeUICursor('eraser', CURSOR_ERASER_PARAMS);
@@ -267,16 +412,99 @@ class Cursor
     registerHaxeUICursor('crosshair', CURSOR_CROSSHAIR_PARAMS);
     registerHaxeUICursor('cell', CURSOR_CELL_PARAMS);
     registerHaxeUICursor('scroll', CURSOR_SCROLL_PARAMS);
+    // Keep editor controls on the editor theme even for CSS cursor aliases.
+    for (name in ['col-resize', 'ew-resize', 'row-resize', 'ns-resize', 'nesw-resize', 'nwse-resize'])
+      registerHaxeUICursor(name, CURSOR_CROSSHAIR_PARAMS);
+    registerHaxeUICursor('wait', CURSOR_HOURGLASS_PARAMS);
+    registerHaxeUICursor('progress', CURSOR_HOURGLASS_PARAMS);
+
+    #if !FLX_NO_MOUSE
+    MouseHelper.notify(MouseEvent.MOUSE_MOVE, onMouseMoveSyncCursor, 5);
+    #end
   }
 
   public static function registerHaxeUICursor(id:String, params:CursorParams):Void
   {
-    CursorHelper.registerCursor(id, params.graphic, params.scale, params.offsetX, params.offsetY);
+    var graphicPath:String = params.graphic.toString();
+    CursorHelper.registerCursor(id, graphicPath, params.scale, params.offsetX, params.offsetY);
   }
   #end
-}
 
-// https://developer.mozilla.org/en-US/docs/Web/CSS/cursor
+  #if (FEATURE_HAXEUI && !FLX_NO_MOUSE)
+  // This listener lives for the application lifetime; only modify the mouse
+  // while this cursor manager owns it, not in unrelated NF states.
+  static var cursorOwned:Bool = false;
+  static var lastResolvedCursor:Null<String> = null;
+
+  static function onMouseMoveSyncCursor(_:MouseEvent):Void
+  {
+    if (!cursorOwned || !FlxG.mouse.visible)
+    {
+      lastResolvedCursor = null;
+      return;
+    }
+    var name:String = "default";
+    var components = Screen.instance.findComponentsUnderPoint(MouseHelper.currentWorldX, MouseHelper.currentWorldY);
+    components.reverse();
+    for (c in components)
+    {
+      if (c.style == null) c.validateNow();
+      var cursor:Null<String> = c.style.cursor;
+      if (cursor != null)
+      {
+        name = cursor;
+        break;
+      }
+    }
+
+    if (DragManager.instance.isDragging) name = 'grabbing';
+
+    if (name == lastResolvedCursor) return;
+    lastResolvedCursor = name;
+    applyCursor(name);
+  }
+
+  static function applyCursor(name:String):Void
+  {
+    var window = Application.current.window;
+    var container = FlxG.mouse.cursorContainer;
+
+    if (name == "none")
+    {
+      container.visible = false;
+      window.cursor = cast null;
+      return;
+    }
+
+    // HaxeUI caches its cursor name separately. Another editor path can
+    // replace the image without invalidating that cache, so restore the
+    // resolved graphic directly and invalidate our own mode cache as well.
+    cursorMode = null;
+    if (CursorHelper.hasCursor(name))
+    {
+      var info = CursorHelper.registeredCursors.get(name);
+      if (info != null)
+      {
+        FlxG.mouse.load(CursorHelper.mouseLoadFunction(info.graphic), info.scale, info.offsetX, info.offsetY);
+        container.visible = FlxG.mouse.visible;
+        window.cursor = cast null;
+        return;
+      }
+    }
+    if (openfl.Assets.exists(name))
+    {
+      FlxG.mouse.load(CursorHelper.mouseLoadFunction(name));
+      container.visible = FlxG.mouse.visible;
+      window.cursor = cast null;
+      return;
+    }
+
+    loadCursorGraphicSync(Default);
+    container.visible = FlxG.mouse.visible;
+    window.cursor = cast null;
+  }
+  #end
+} // https://developer.mozilla.org/en-US/docs/Web/CSS/cursor
 
 enum CursorMode
 {
@@ -300,7 +528,7 @@ enum CursorMode
  */
 typedef CursorParams =
 {
-  graphic:String,
+  graphic:AssetPath,
   scale:Float,
   offsetX:Int,
   offsetY:Int,

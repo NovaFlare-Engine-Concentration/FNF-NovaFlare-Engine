@@ -18,6 +18,9 @@ class FlxVideo extends FunkinSprite
 {
   var video:Video;
   var netStream:NetStream;
+  var netConnection:NetConnection;
+  var streamClosed:Bool = false;
+  var videoDestroyed:Bool = false;
   var videoPath:String;
 
   /**
@@ -32,9 +35,6 @@ class FlxVideo extends FunkinSprite
 
     this.videoPath = videoPath;
 
-    @:nullSafety(Off) // Why do I to do this here as well for this to build?
-    makeGraphic(2, 2, FlxColor.TRANSPARENT);
-
     video = new Video();
     video.x = 0;
     video.y = 0;
@@ -42,13 +42,17 @@ class FlxVideo extends FunkinSprite
 
     FlxG.game.addChild(video);
 
-    var netConnection:NetConnection = new NetConnection();
+    netConnection = new NetConnection();
     netConnection.connect(null);
 
     netStream = new NetStream(netConnection);
-    netStream.client = {onMetaData: onClientMetaData};
+    netStream.client = {
+      onMetaData: onClientMetaData
+    };
     netConnection.addEventListener(NetStatusEvent.NET_STATUS, onNetConnectionNetStatus);
     netStream.play(videoPath);
+
+    makeSolidColor(2, 2, FlxColor.TRANSPARENT);
   }
 
   /**
@@ -111,21 +115,28 @@ class FlxVideo extends FunkinSprite
    */
   public function finishVideo():Void
   {
-    netStream.dispose();
-    FlxG.removeChild(video);
-
+    if (streamClosed) return;
+    closeStream();
     if (finishCallback != null) finishCallback();
+  }
+
+  function closeStream():Void
+  {
+    if (streamClosed) return;
+    streamClosed = true;
+    videoAvailable = false;
+    FunkinSound.onVolumeChanged.remove(onVolumeChanged);
+    netConnection.removeEventListener(NetStatusEvent.NET_STATUS, onNetConnectionNetStatus);
+    if (netStream != null) netStream.dispose();
+    if (FlxG.game.contains(video)) FlxG.game.removeChild(video);
   }
 
   override public function destroy():Void
   {
-    if (netStream != null)
-    {
-      netStream.dispose();
-
-      if (FlxG.game.contains(video)) FlxG.game.removeChild(video);
-    }
-
+    if (videoDestroyed) return;
+    videoDestroyed = true;
+    finishCallback = null;
+    closeStream();
     super.destroy();
   }
 
@@ -135,6 +146,7 @@ class FlxVideo extends FunkinSprite
    */
   public function onClientMetaData(metaData:Dynamic):Void
   {
+    if (streamClosed) return;
     video.attachNetStream(netStream);
 
     onVideoReady();
@@ -150,16 +162,17 @@ class FlxVideo extends FunkinSprite
     FunkinSound.onVolumeChanged.add(onVolumeChanged);
     onVolumeChanged(FlxG.sound.muted ? 0 : FlxG.sound.volume);
 
-    makeGraphic(Std.int(video.width), Std.int(video.height), FlxColor.TRANSPARENT);
+    makeSolidColor(Std.int(video.width), Std.int(video.height), FlxColor.TRANSPARENT);
   }
 
   function onVolumeChanged(volume:Float):Void
   {
+    if (streamClosed) return;
     netStream.soundTransform = new SoundTransform(volume);
   }
 
   function onNetConnectionNetStatus(event:NetStatusEvent):Void
   {
-    if (event.info.code == 'NetStream.Play.Complete') finishVideo();
+    if (!streamClosed && event.info.code == 'NetStream.Play.Complete') finishVideo();
   }
 }

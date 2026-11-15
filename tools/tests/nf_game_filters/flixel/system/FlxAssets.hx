@@ -1,0 +1,1 @@
+package flixel.system; class FlxShader {}

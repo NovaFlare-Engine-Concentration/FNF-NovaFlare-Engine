@@ -5,9 +5,10 @@ import funkin.data.song.SongData.SongNoteData;
 import funkin.data.song.SongData.SongEventData;
 
 /**
- * Command that deselects all selected notes and events in the chart editor.
+ * Represents a reversible action to deselect all selected notes and events.
  */
-@:nullSafety @:access(funkin.ui.debug.charting.ChartEditorState)
+@:nullSafety
+@:access(funkin.ui.debug.charting.ChartEditorState)
 class DeselectAllItemsCommand implements ChartEditorCommand
 {
   var previousNoteSelection:Array<SongNoteData> = [];
@@ -17,6 +18,11 @@ class DeselectAllItemsCommand implements ChartEditorCommand
   {
   }
 
+  /**
+   * Perform the action, deselecting all notes and events.
+   *
+   * @param state The ChartEditorState to perform the command on.
+   */
   public function execute(state:ChartEditorState):Void
   {
     this.previousNoteSelection = state.currentNoteSelection;
@@ -29,6 +35,11 @@ class DeselectAllItemsCommand implements ChartEditorCommand
     state.editButtonsDirty = true;
   }
 
+  /**
+   * Reverse the action, re-selecting the notes and events that were deselected.
+   *
+   * @param state The ChartEditorState to perform the command on.
+   */
   public function undo(state:ChartEditorState):Void
   {
     state.currentNoteSelection = previousNoteSelection;
@@ -38,12 +49,23 @@ class DeselectAllItemsCommand implements ChartEditorCommand
     state.editButtonsDirty = true;
   }
 
+  /**
+   * Whether the command should display in the undo/redo menu.
+   * This should be `false` if no real actions were actually performed.
+   *
+   * @param state The ChartEditorState to perform the command on.
+   * @return Whether the command should be added to the history.
+   */
   public function shouldAddToHistory(state:ChartEditorState):Bool
   {
     // This command is undoable. Add to the history if we actually performed an action.
     return (previousNoteSelection.length > 0 || previousEventSelection.length > 0);
   }
 
+  /**
+   * Convert the action to a string. Used to display the action in the undo/redo history.
+   * @return This command, as a readable string.
+   */
   public function toString():String
   {
     return 'Deselect All Items';

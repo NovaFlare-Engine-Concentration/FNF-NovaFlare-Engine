@@ -1,29 +1,31 @@
 package funkin.graphics;
 
-import flixel.util.FlxColor;
-import flixel.graphics.FlxGraphic;
-import flixel.tweens.FlxTween;
-import openfl.display3D.textures.TextureBase;
-import funkin.graphics.framebuffer.FixedBitmapData;
-import funkin.graphics.framebuffer.FunkinFilterRenderer;
-import openfl.display.BitmapData;
-import flixel.math.FlxRect;
-import flixel.math.FlxPoint;
-import flixel.math.FlxMatrix;
-import flixel.graphics.frames.FlxFrame;
-import flixel.FlxCamera;
-import flixel.system.FlxAssets.FlxGraphicAsset;
-import funkin.FunkinMemory;
-import animate.internal.SymbolItem;
-import animate.internal.elements.Element;
-import animate.internal.elements.AtlasInstance;
-import animate.internal.elements.SymbolInstance;
 import animate.FlxAnimate;
 import animate.FlxAnimateFrames.FilterQuality;
 import animate.FlxAnimateFrames.SpritemapInput;
-import animate.internal.RenderTexture;
-import openfl.filters.BitmapFilter;
+import animate.FlxAnimateFrames;
+import animate.internal.SymbolItem;
+import animate.internal.elements.AtlasInstance;
+import animate.internal.elements.Element;
+import animate.internal.elements.SymbolInstance;
+import flixel.FlxCamera;
+import flixel.graphics.FlxGraphic;
+import flixel.graphics.frames.FlxFrame;
+import flixel.math.FlxMatrix;
+import flixel.math.FlxPoint;
+import flixel.math.FlxRect;
+import flixel.system.FlxAssets.FlxGraphicAsset;
+import flixel.tweens.FlxTween;
+import flixel.util.FlxColor;
+import funkin.assets.Assets;
+import funkin.assets.Paths;
+import funkin.graphics.framebuffer.FunkinFilterRenderer;
 import haxe.io.Path;
+import openfl.display.BitmapData;
+import openfl.display3D.textures.TextureBase;
+import openfl.filters.BitmapFilter;
+import polymod.Polymod;
+import polymod.PolymodAssets;
 
 using StringTools;
 
@@ -96,9 +98,19 @@ typedef AtlasSpriteSettings =
   var applyStageMatrix:Bool;
 
   /**
+   * Whether to apply the stage matrix of the Texture Atlas before or after FlxSprite calculations.
+   * Changes the behaviour of a sprite in relation to the position, scale and rotation of the matrix.
+   * When set to ``false`` the stage matrix will apply before other FlxSprite matrix calculations,
+   * as if the symbol was contained inside of the sprite.
+   * When set to ``true`` the stage matrix will apply after FlxSprite matrix calculations,
+   * as if the sprite was contained inside of the symbol.
+   */
+  @:optional
+  var postStageMatrixApply:Bool;
+
+  /**
    * If enabled, the sprite will render as one texture instead of rendering multiple limbs.
    * This is useful for stuff like changing alpha, and shaders that require the whole sprite.
-   *
    * Only enable this if your sprite either:
    * - Changes alpha to something other than 1.0
    * - Has a shader or blend mode
@@ -110,15 +122,69 @@ typedef AtlasSpriteSettings =
 /**
  * An FlxSprite with additional functionality.
  * - A more efficient method for creating solid color sprites.
- * - TODO: Better cache handling for textures.
  */
-@:nullSafety @:access(animate.FlxAnimateController)
+@:nullSafety
+@:access(animate.FlxAnimateController)
+@:access(polymod.Polymod)
 class FunkinSprite extends FlxAnimate
 {
+  /** Legacy texture-cache entry points used by pre-0.7 scripts. */
+  @:keep
+  public static function cacheTexture(key:String):Void
+  {
+    // The historical API is synchronous: callers can use the graphic immediately.
+    // The current bitmap frontend registers the graphic with the staged cache.
+    var graphic:Null<flixel.graphics.FlxGraphic> = flixel.graphics.FlxGraphic.fromAssetKey(key, false, null, true);
+    if (graphic == null)
+    {
+      flixel.FlxG.log.warn('Failed to cache graphic: $key');
+      return;
+    }
+    graphic.persist = true;
+  }
+
+  @:keep
+  public static function isTextureCached(key:String):Bool
+  {
+    return flixel.FlxG.bitmap.get(key) != null;
+  }
+
+  @:keep
+  public static function cacheSparrow(key:String):Void
+  {
+    cacheTexture(funkin.Paths.image(key));
+  }
+
+  @:keep
+  public static function cachePacker(key:String):Void
+  {
+    cacheTexture(funkin.Paths.image(key));
+  }
+
+  public var vcamPoint:Null<FlxPoint> = null;
+
   /**
    * The filters array to be applied to the sprite.
    */
   public var filters(default, set):Null<Array<BitmapFilter>> = null;
+
+  override function set_clipRect(rect:FlxRect):FlxRect
+  {
+    if (!isAnimate) return super.set_clipRect(rect);
+
+    if (rect != null) clipRect = rect.round();
+    else
+      @:nullSafety(Off)
+      clipRect = null;
+
+    return rect;
+  }
+
+  /**
+   * Only used for mods that don't use the new asset system.
+   */
+  @:unreflective
+  var __backwardsCompatibility:Bool = false;
 
   /**
    * @param x Starting X position
@@ -126,7 +192,10 @@ class FunkinSprite extends FlxAnimate
    * @param path The asset path for the graphic
    * @param atlasSettings The optional settings for the texture atlas
    */
-  public function new(?x:Float = 0, ?y:Float = 0, ?path:String, ?atlasSettings:AtlasSpriteSettings)
+  public function new(?x:Float = 0,
+    ?y:Float = 0,
+    ?path:String,
+    ?atlasSettings:AtlasSpriteSettings)
   {
     super(x, y);
 
@@ -154,7 +223,7 @@ class FunkinSprite extends FlxAnimate
             path = path.replace('$lib:assets/$lib/images/', '');
           }
 
-          this.loadTextureAtlas(path, lib, atlasSettings);
+          this.loadTextureAtlas(path, atlasSettings);
 
         default:
           FlxG.log.warn('Texture path $path is not a valid path. Make sure the path points to either an image or a folder with the texture atlas files!');
@@ -221,10 +290,10 @@ class FunkinSprite extends FlxAnimate
    * @param key The key of the texture to load.
    * @return The new FunkinSprite.
    */
-  public static function createTextureAtlas(x:Float = 0.0, y:Float = 0.0, key:String, ?assetLibrary:Null<String>, ?settings:AtlasSpriteSettings):FunkinSprite
+  public static function createTextureAtlas(x:Float = 0.0, y:Float = 0.0, key:String, ?settings:AtlasSpriteSettings):FunkinSprite
   {
     var sprite:FunkinSprite = new FunkinSprite(x, y);
-    sprite.loadTextureAtlas(key, assetLibrary ?? "", settings);
+    sprite.loadTextureAtlas(key, settings);
     return sprite;
   }
 
@@ -233,62 +302,78 @@ class FunkinSprite extends FlxAnimate
    * @param key The key of the texture to load.
    * @return This sprite, for chaining.
    */
-  public function loadTexture(key:String):FunkinSprite
+  public function loadTexture(key:String, ?library:String):FunkinSprite
   {
-    var graphicKey:String = Paths.image(key);
+    var graphicKey:AssetPath = Paths.file(key, 'png', true, library);
 
-    if (!Assets.exists(graphicKey, IMAGE))
+    if (!Assets.exists(graphicKey.toString(), IMAGE))
     {
       FlxG.log.error('Texture not found, check your path! $graphicKey');
       return this;
     }
 
-    if (!FunkinMemory.isTextureCached(graphicKey))
+    if (!funkin.assets.Assets.isFlxGraphicCached(graphicKey))
     {
       FlxG.log.warn('Texture not cached, may experience stuttering! $graphicKey');
     }
 
-    loadGraphic(graphicKey);
+    loadGraphic(funkin.assets.Assets.getFlxGraphic(graphicKey));
 
     return this;
   }
 
-  public function loadTextureAsync(key:String, fade:Bool = false):Void
+  /**
+   * Load a static image as the sprite's texture asynchronously.
+   * If the texture is already cached, it will be loaded immediately.
+   * Otherwise, the texture will stay invisible until loading finishes.
+   *
+   * @param assetPath The path of the texture to load.
+   * @param fade If `true`, the sprite will fade in once the texture is loaded.
+   * @return A `Future` that resolves when the texture is loaded.
+   */
+  public function loadTextureAsync(assetPath:funkin.assets.Paths.AssetPath,
+    fade:Bool = false):lime.app.Future<FlxGraphic>
   {
     var fadeTween:Null<FlxTween> = null;
     if (fade)
     {
-      fadeTween = FlxTween.tween(this, {alpha: 0}, 0.25);
+      fadeTween = FlxTween.tween(this, {
+        alpha: 0
+      }, 0.25);
     }
 
-    trace('[ASYNC] Start loading image (${key})');
-    graphic.persist = true;
-    openfl.Assets.loadBitmapData(key)
-      .onComplete(function(bitmapData:openfl.display.BitmapData)
-      {
-        trace('[ASYNC] Finished loading image');
-        var cache:Bool = false;
-        loadBitmapData(bitmapData, cache);
+    trace('[ASYNC] Start loading image (${assetPath})');
 
-        if (fadeTween != null)
-        {
-          fadeTween.cancel();
-          FlxTween.tween(this, {alpha: 1.0}, 0.25);
-        }
-      })
-      .onError(function(error:Dynamic)
+    var future = funkin.assets.Assets.loadFlxGraphic(assetPath);
+
+    future.onComplete((graphic:FlxGraphic) ->
+    {
+      trace('[ASYNC] Finished loading image');
+      loadGraphic(graphic);
+
+      if (fadeTween != null)
       {
-        trace('[ASYNC] Failed to load image: ${error}');
-        if (fadeTween != null)
-        {
-          fadeTween.cancel();
-          this.alpha = 1.0;
-        }
-      })
-      .onProgress(function(progress:Int, total:Int)
+        fadeTween.cancel();
+        FlxTween.tween(this, {
+          alpha: 1.0
+        }, 0.25);
+      }
+    });
+    future.onError((error:Dynamic) ->
+    {
+      trace('[ASYNC] Failed to load image: ${error}');
+      if (fadeTween != null)
       {
-        trace('[ASYNC] Loading image progress: ${progress}/${total}');
-      });
+        fadeTween.cancel();
+        this.alpha = 1.0;
+      }
+    });
+    future.onProgress((progress:Int, total:Int) ->
+    {
+      trace('[ASYNC] Loading image progress: ${progress}/${total}');
+    });
+
+    return future;
   }
 
   /**
@@ -319,7 +404,7 @@ class FunkinSprite extends FlxAnimate
    */
   public function loadTextureBase(input:TextureBase):Null<FunkinSprite>
   {
-    var inputBitmap:Null<FixedBitmapData> = FixedBitmapData.fromTexture(input);
+    var inputBitmap:Null<BitmapData> = BitmapData.fromTexture(input);
     if (inputBitmap == null)
     {
       FlxG.log.warn('loadTextureBase - input resulted in null bitmap! $input');
@@ -331,11 +416,17 @@ class FunkinSprite extends FlxAnimate
 
   /**
    * Loads an Adobe Animate texture atlas as the sprite's texture.
+   *
    * @param key The key of the texture to load.
+   * @param library DEPRECATED, DOES NOTHING: The library to load the texture atlas from.
    * @param settings Additional settings for loading the atlas.
+   * @param modId You can load a texture atlas from a specific mod with this.
    * @return This sprite, for chaining.
    */
-  public function loadTextureAtlas(key:Null<String>, ?assetLibrary:Null<String>, ?settings:AtlasSpriteSettings):FunkinSprite
+  public function loadTextureAtlas(key:Null<String>,
+    ?library:String,
+    settings:Null<AtlasSpriteSettings> = null,
+    modId:String = ''):FunkinSprite
   {
     if (key == null)
     {
@@ -348,9 +439,74 @@ class FunkinSprite extends FlxAnimate
     }
 
     this.applyStageMatrix = settings.applyStageMatrix ?? false;
+    this.postStageMatrixApply = settings.postStageMatrixApply ?? false;
     this.useRenderTexture = settings.useRenderTexture ?? false;
 
-    frames = Paths.getAnimateAtlas(key, assetLibrary, settings);
+    if (modId != '')
+    {
+      var spritemapCount:Int = 1;
+      var spritemaps:Array<SpritemapInput> = [];
+      var animationJson:Null<String> = Polymod.assetLibrary.getTextDirectly('assets/$key/Animation.json', modId);
+
+      while (true)
+      {
+        var bitmap:Null<BitmapData> = funkin.Paths.getBitmapDataFromMod('assets/$key/spritemap$spritemapCount.png', modId);
+        var json:Null<String> = Polymod.assetLibrary.getTextDirectly('assets/$key/spritemap$spritemapCount.json', modId);
+
+        if (json == null || bitmap == null) break;
+
+        // Null-safety kinda dumb #2
+        var bNotNull:BitmapData = bitmap;
+        var jNotNull:String = json;
+
+        spritemaps.push({
+          source: bNotNull,
+          json: jNotNull
+        });
+
+        spritemapCount++;
+      }
+
+      if (animationJson == null)
+      {
+        throw 'Could not find Animation.json in path "$key" from mod "$modId"';
+      }
+
+      animationJson = animationJson.replace(String.fromCharCode(0xFEFF), '');
+      for (spritemap in spritemaps)
+      {
+        spritemap.json = spritemap.json.replace(String.fromCharCode(0xFEFF), '');
+      }
+
+      frames = FlxAnimateFrames.fromAnimate(animationJson, spritemaps, settings.metadataJson, settings.cacheKey, settings.uniqueInCache, {
+        swfMode: settings.swfMode,
+        cacheOnLoad: settings.cacheOnLoad,
+        filterQuality: settings.filterQuality,
+        onSymbolCreate: settings.onSymbolCreate
+      });
+    }
+    else
+    {
+      frames = Paths.getAnimateAtlas(key, settings);
+    }
+
+    if (frames == null)
+    {
+      var msg:String = 'Could not load FlxAnimateFrames from path "$key"';
+
+      if (modId != '')
+      {
+        msg += ' with mod "$modId".';
+      }
+      else
+      {
+        msg += '.';
+      }
+
+      throw msg;
+    }
+
+    __backwardsCompatibility = funkin.modding.compat.AnimateAtlas.needsBackwardsCompat(key);
 
     return this;
   }
@@ -358,14 +514,19 @@ class FunkinSprite extends FlxAnimate
   /**
    * Load an animated texture (Sparrow atlas spritesheet) as the sprite's texture.
    * @param key The key of the texture to load.
+   * @param modId The mod ID to load the texture from.
    * @return This sprite, for chaining.
    */
-  public function loadSparrow(key:String):FunkinSprite
+  public function loadSparrow(key:String, modId:String = ''):FunkinSprite
   {
-    var graphicKey:String = Paths.image(key);
-    if (!FunkinMemory.isTextureCached(graphicKey)) FlxG.log.warn('Texture not cached, may experience stuttering! $graphicKey');
+    var graphicKey:AssetPath = Paths.image(key);
+    if (!funkin.assets.Assets.isFlxGraphicCached(graphicKey))
+    {
+      trace('Sparrow texture not cached, may experience stuttering! $graphicKey');
+      FlxG.log.warn('Sparrow texture not cached, may experience stuttering! $graphicKey');
+    }
 
-    this.frames = Paths.getSparrowAtlas(key);
+    this.frames = Paths.getSparrowAtlas(key, null, modId);
 
     return this;
   }
@@ -375,12 +536,16 @@ class FunkinSprite extends FlxAnimate
    * @param key The key of the texture to load.
    * @return This sprite, for chaining.
    */
-  public function loadPacker(key:String):FunkinSprite
+  public function loadPacker(key:String, modId:String = ''):FunkinSprite
   {
-    var graphicKey:String = Paths.image(key);
-    if (!FunkinMemory.isTextureCached(graphicKey)) FlxG.log.warn('Texture not cached, may experience stuttering! $graphicKey');
+    var graphicKey:AssetPath = Paths.image(key);
+    if (!funkin.assets.Assets.isFlxGraphicCached(graphicKey))
+    {
+      trace('Packer texture not cached, may experience stuttering! $graphicKey');
+      FlxG.log.warn('Packer texture not cached, may experience stuttering! $graphicKey');
+    }
 
-    this.frames = Paths.getPackerAtlas(key);
+    this.frames = Paths.getPackerAtlas(key, null, modId);
 
     return this;
   }
@@ -409,7 +574,7 @@ class FunkinSprite extends FlxAnimate
     {
       return true;
     }
-    else if (this.anim.hasAnimateAtlas && !animationList.contains(id))
+    else if (__backwardsCompatibility && this.anim.hasAnimateAtlas && !animationList.contains(id))
     {
       return addAnimationIfMissing(id);
     }
@@ -419,6 +584,8 @@ class FunkinSprite extends FlxAnimate
 
   /**
    * Adds an animation if it doesn't exist.
+   * ONLY used for backwards compatibility.
+   *
    * @param id The animation ID to check.
    */
   function addAnimationIfMissing(id:String):Bool
@@ -516,6 +683,7 @@ class FunkinSprite extends FlxAnimate
     var graphic:FlxGraphic = FlxG.bitmap.create(2, 2, color, false, 'solid#${color.toHexString(true, false)}');
     frames = graphic.imageFrame;
     scale.set(width / 2.0, height / 2.0);
+    localScale.set(scale.x, scale.y);
     updateHitbox();
 
     return this;
@@ -526,10 +694,21 @@ class FunkinSprite extends FlxAnimate
    */
   public function listAnimations():Array<String>
   {
-    var frameLabels:Array<String> = getFrameLabelList();
+    var frameLabels:Array<String> = __backwardsCompatibility ? getFrameLabelList() : [];
     var animationList:Array<String> = this.animation?.getNameList() ?? [];
 
     return frameLabels.concat(animationList);
+  }
+
+  /**
+   * Gets the length of an animation.
+   * @param name The name of the animation.
+   * @return The length of the animation.
+   */
+  public function getAnimationLength(name:String):Int
+  {
+    var animation:Null<flixel.animation.FlxAnimation> = this.animation.getByName(name);
+    return animation?.numFrames ?? 0;
   }
 
   /**
@@ -571,7 +750,8 @@ class FunkinSprite extends FlxAnimate
    * @param name The name of the frame label to retrieve.
    * @return The frame label, or null if it doesn't exist.
    */
-  public function getFrameLabel(name:String, ?timeline:animate.internal.Timeline):Null<animate.internal.Frame>
+  public function getFrameLabel(name:String,
+    ?timeline:animate.internal.Timeline):Null<animate.internal.Frame>
   {
     if (!this.anim.hasAnimateAtlas)
     {
@@ -614,7 +794,9 @@ class FunkinSprite extends FlxAnimate
    * @param graphic The new graphic to use.
    * @param adjustScale Whether to adjust the scale of new frame to match the old one.
    */
-  public function replaceSymbolGraphic(symbol:String, ?graphic:Null<FlxGraphicAsset>, ?adjustScale:Bool = true):Void
+  public function replaceSymbolGraphic(symbol:String,
+    ?graphic:Null<FlxGraphicAsset>,
+    ?adjustScale:Bool = true):Void
   {
     if (!this.anim.hasAnimateAtlas)
     {
@@ -738,6 +920,24 @@ class FunkinSprite extends FlxAnimate
   }
 
   /**
+   * Gets the screen position of the sprite, taking into account the camera scroll and the `vcamPoint` if it exists.
+   * @param result An optional `FlxPoint` to store the result in. If null, a new `FlxPoint` will be created.
+   * @param camera The camera to calculate the screen position relative to. If null, the default camera will be used.
+   * @return The screen position of the sprite.
+   */
+  override function getScreenPosition(?result:FlxPoint, ?camera:FlxCamera):FlxPoint
+  {
+    if (result == null) result = FlxPoint.get();
+    if (camera == null) camera = getDefaultCamera();
+    result.set(x, y);
+    if (pixelPerfectPosition) result.floor();
+
+    if (vcamPoint != null) return result.subtract((vcamPoint.x * scrollFactor.x) + camera.scroll.x, (vcamPoint.y * scrollFactor.y) + camera.scroll.y);
+
+    return result.subtract(camera.scroll.x * scrollFactor.x, camera.scroll.y * scrollFactor.y);
+  }
+
+  /**
    * Ensure scale is applied when cloning a sprite.
    * The default `clone()` method acts kinda weird TBH.
    * @return A clone of this sprite.
@@ -747,6 +947,7 @@ class FunkinSprite extends FlxAnimate
     var result = new FunkinSprite(this.x, this.y);
     result.frames = this.frames;
     result.scale.set(this.scale.x, this.scale.y);
+    result.localScale.set(this.localScale.x, this.localScale.y);
     result.updateHitbox();
 
     return result;
@@ -782,7 +983,8 @@ class FunkinSprite extends FlxAnimate
     matrix.ty = Math.round(matrix.ty / this.scale.y) * this.scale.y;
   }
 
-  var filterRenderer:FunkinFilterRenderer;
+  @:nullSafety(Off)
+  var filterRenderer:FunkinFilterRenderer = null;
   var filtered:Bool = false;
   var filterOffsets:Array<Float> = [0, 0];
 
@@ -791,7 +993,27 @@ class FunkinSprite extends FlxAnimate
     // Forcefully enable render texture when we have filters.
     if (filters != null && filters.length > 0) return true;
 
+    if (this.isAnimate && this.clipRect != null) return true;
+
     return super.checkRenderTexture();
+  }
+
+  override function set_frames(value:flixel.graphics.frames.FlxFramesCollection):flixel.graphics.frames.FlxFramesCollection
+  {
+    return super.set_frames(value);
+  }
+
+  override function set_graphic(value:FlxGraphic):FlxGraphic
+  {
+    if (value == null) return super.set_graphic(value);
+
+    if (value.bitmap == null)
+    {
+      FlxG.log.warn('FunkinSprite is using disposed FlxGraphic "${value.key}"! Expect graphical glitches!');
+      trace(' WARN '.warning() + 'FunkinSprite is using disposed FlxGraphic "${value.key}"! Expect graphical glitches!');
+    }
+
+    return super.set_graphic(value);
   }
 
   function set_filters(value:Null<Array<BitmapFilter>>):Null<Array<BitmapFilter>>
@@ -803,10 +1025,13 @@ class FunkinSprite extends FlxAnimate
 
   override public function draw():Void
   {
-    for (filter in filters ?? [])
+    if (filters != null)
     {
-      @:privateAccess
-      if (filter.__renderDirty) _renderTextureDirty = true;
+      for (filter in filters)
+      {
+        @:privateAccess
+        if (filter.__renderDirty) _renderTextureDirty = true;
+      }
     }
 
     super.draw();
@@ -831,7 +1056,7 @@ class FunkinSprite extends FlxAnimate
     if (willUseRenderTexture)
     {
       var bounds:Array<Int> = [Math.ceil(frame.frame.width), Math.ceil(frame.frame.height)];
-      if (_renderTexture == null) _renderTexture = new RenderTexture(bounds[0], bounds[1]);
+      if (_renderTexture == null) _renderTexture = new FunkinRenderTexture(bounds[0], bounds[1], this);
 
       if (_renderTextureDirty)
       {
@@ -849,7 +1074,7 @@ class FunkinSprite extends FlxAnimate
 
       if (filtered)
       {
-        matrix.translate(filterOffsets[0], filterOffsets[1]);
+        matrix.translate(filterOffsets[0] * matrix.a + filterOffsets[1] * matrix.c, filterOffsets[1] * matrix.d + filterOffsets[0] * matrix.b);
         camera.drawPixels(filterRenderer.graphic?.imageFrame.frame, null, matrix, colorTransform, blend, antialiasing, shader);
       }
       else
@@ -867,12 +1092,18 @@ class FunkinSprite extends FlxAnimate
   {
     final willUseRenderTexture = checkRenderTexture();
     final matrix = _matrix;
-    matrix.identity();
 
     @:privateAccess
     var bounds = timeline._bounds;
-    if (!willUseRenderTexture) matrix.translate(-bounds.x, -bounds.y);
 
+    #if (flixel < "6.1.0")
+    // The shared FlxAnimate prepares transforms in draw(), while newer
+    // upstream versions reuse a matrix prepared during culling.
+    matrix.identity();
+    if (!willUseRenderTexture) matrix.translate(-bounds.x, -bounds.y);
+    #end
+
+    // Reuses the matrix built by the cull pass when possible.
     prepareAnimateMatrix(matrix, camera, bounds);
 
     if (renderStage) drawStage(camera);
@@ -884,12 +1115,7 @@ class FunkinSprite extends FlxAnimate
     {
       if (_renderTexture == null)
       {
-        _renderTexture = new RenderTexture(Math.ceil(bounds.width), Math.ceil(bounds.height));
-
-        // Replace the render texture's camera with a FunkinCamera
-        // This allows the blend shader to work inside the render texture!
-        @:privateAccess
-        _renderTexture._camera = new FunkinCamera('', 0, 0, Math.ceil(bounds.width), Math.ceil(bounds.height));
+        _renderTexture = new FunkinRenderTexture(Math.ceil(bounds.width), Math.ceil(bounds.height), this);
       }
 
       if (_renderTextureDirty)
@@ -908,7 +1134,7 @@ class FunkinSprite extends FlxAnimate
 
       if (filtered)
       {
-        matrix.translate(filterOffsets[0], filterOffsets[1]);
+        matrix.translate(filterOffsets[0] * matrix.a + filterOffsets[1] * matrix.c, filterOffsets[1] * matrix.d + filterOffsets[0] * matrix.b);
         camera.drawPixels(filterRenderer.graphic?.imageFrame.frame, null, matrix, colorTransform, blend, antialiasing, shader);
       }
       else
@@ -925,12 +1151,14 @@ class FunkinSprite extends FlxAnimate
 
   override public function destroy():Void
   {
-    @:nullSafety(Off) // TODO: Remove when flixel.FlxSprite is null safed.
-    frames = null;
+    // @:nullSafety(Off)
+    // frames = null;
+    // ^ Might be useful but its like a micro enhancement in terms of optimization. Keeping it regardless -Moon
     filterRenderer.destroy();
     // Cancel all tweens so they don't continue to run on a destroyed sprite.
     // This prevents crashes.
     FlxTween.cancelTweensOf(this);
+    funkin.util.FlxTweenUtil.cancelPointTweens(this);
     super.destroy();
   }
 }

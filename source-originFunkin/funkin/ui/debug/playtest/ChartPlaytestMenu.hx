@@ -47,6 +47,9 @@ class ChartPlaytestMenu extends MusicBeatState
       FlxG.cameras.reset(playtestCam = new FunkinCamera('playtestCam'));
       playtestCam.bgColor = 0x0;
       cameras = [playtestCam];
+      #if NO_FEATURE_TOUCH_CONTROLS
+      Cursor.show();
+      #end
     });
 
     var blackBG:FunkinSprite = new FunkinSprite(0, 0);
@@ -57,46 +60,69 @@ class ChartPlaytestMenu extends MusicBeatState
 
     this.filePath = filePath;
 
-    songName = new FlxText(0, FlxG.height * 0.1, 0, 'Loaded Song: ${targetSong.songName}',
-      30).setFormat(Paths.font('vcr.ttf'), 50, FlxColor.WHITE, FlxTextAlign.CENTER);
+    songName = new FlxText(
+      0,
+      FlxG.height * 0.1,
+      0,
+      'Loaded Song: ${targetSong.songName}',
+      30
+    ).setFormat(funkin.assets.Paths.font('ui/fonts/VCR OSD Mono'), 50, FlxColor.WHITE, FlxTextAlign.CENTER);
     songName.screenCenter(X);
     add(songName);
 
-    variationButton = new ChartPlaytestMenuButtonListToggle(0, FlxG.height * 0.55, "Variation", targetSong.variations, function(value:String)
+    var variationList = targetSong.variations;
+    variationButton = new ChartPlaytestMenuButtonListToggle(0, FlxG.height * 0.55, 'Variation', variationList, function(value:String)
     {
       currentVariation = value;
       variationButton.screenCenter(X);
     });
+    currentVariation = variationList[variationButton.curSelected];
     variationButton.screenCenter(X);
     add(variationButton);
 
-    difficultyButton = new ChartPlaytestMenuButtonListToggle(0, FlxG.height * 0.45, "Difficulty",
-      targetSong.listDifficulties(null, targetSong.variations, true, true), function(value:String)
+    var diffList = targetSong.listDifficulties(null, targetSong.variations, true, true);
+    difficultyButton = new ChartPlaytestMenuButtonListToggle(0, FlxG.height * 0.45, 'Difficulty', diffList, function(value:String)
     {
       currentDifficulty = value;
       difficultyButton.screenCenter(X);
     });
+    currentDifficulty = diffList[difficultyButton.curSelected];
     difficultyButton.screenCenter(X);
     add(difficultyButton);
 
-    playtestButton = new ChartPlaytestMenuButton(0, FlxG.height * 0.8, "Playtest Song", function()
+    playtestButton = new ChartPlaytestMenuButton(0, FlxG.height * 0.8, 'Playtest Song', function()
     {
       try
       {
         FNFCUtil.playSongFromFNFCPath(filePath, currentDifficulty, currentVariation);
+        #if NO_FEATURE_TOUCH_CONTROLS
+        Cursor.hide();
+        #end
       }
       catch (e)
       {
-        lime.app.Application.current.window.alert('$e', 'Could Not Playtest Chart');
+        funkin.util.WindowUtil.showError('Could Not Playtest Chart', '$e');
       }
     });
     playtestButton.screenCenter(X);
     add(playtestButton);
 
-    FlxTween.tween(playtestCam, {alpha: 1}, 0.5);
+    FlxTween.tween(playtestCam, {
+      alpha: 1
+    }, 0.5);
 
     #if NO_FEATURE_TOUCH_CONTROLS
+    general.objects.screen.MouseEffect.enterEditor();
     Cursor.show();
+    #end
+  }
+
+  override function destroy():Void
+  {
+    super.destroy();
+    #if NO_FEATURE_TOUCH_CONTROLS
+    Cursor.hide();
+    general.objects.screen.MouseEffect.leaveEditor();
     #end
   }
 }

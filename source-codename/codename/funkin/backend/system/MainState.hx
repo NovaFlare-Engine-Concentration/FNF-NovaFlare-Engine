@@ -13,6 +13,7 @@ import codename.funkin.backend.system.framerate.Framerate;
 import codename.funkin.editors.ModConfigWarning;
 import codename.funkin.menus.TitleState;
 import haxe.io.Path;
+import openfl.Lib;
 
 
 @dox(hide)
@@ -156,13 +157,23 @@ class MainState extends FlxState {
 		Flags.load();
 		codename.funkin.savedata.FunkinSave.init();
 
+		Framerate.fontName = Framerate.defaultFontName;
+
+		FlxG.mouse.load();
+		FlxG.mouse.useSystemCursor = true;
+
+		if (Framerate.isLoaded)
+			Framerate.instance.visible = Framerate.memoryCounter.visible = Framerate.codenameBuildField.visible = Framerate.fpsCounter.visible = true;
+
+		Main.refreshAssets();
 		TranslationUtil.findAllLanguages();
 		TranslationUtil.setLanguage(Flags.DISABLE_LANGUAGES ? Flags.DEFAULT_LANGUAGE : null);
-		ModsFolder.onModSwitch.dispatch(ModsFolder.currentModFolder); // Loads global.hx
 		MusicBeatTransition.script = Flags.DEFAULT_TRANSITION_SCRIPT;
+		WindowUtils.setResolution();
+		WindowUtils.resetIcon();
 		WindowUtils.resetAffixes(false);
 		WindowUtils.setWindow();
-		Main.refreshAssets();
+		ModsFolder.onModSwitch.dispatch(ModsFolder.currentModFolder); // Loads global.hx
 		DiscordUtil.init();
 		EventsData.reloadEvents();
 		ControlsUtil.loadCustomControls();

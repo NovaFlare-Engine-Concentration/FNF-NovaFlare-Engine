@@ -18,6 +18,7 @@ class FunkinDebugDisplay extends Sprite
   static final INNER_RECT_DIFF:Int = 3;
   static final OUTER_RECT_DIMENSIONS:Array<Int> = [234, 201];
   static final OTHERS_OFFSET:Int = 8;
+  static final BG_CORNER_WIDTH:Int = 20;
 
   /**
    * Indicates whether the debug display is in advanced mode.
@@ -31,6 +32,8 @@ class FunkinDebugDisplay extends Sprite
 
   var deltaTimeout:Float;
   var times:Array<Float>;
+
+  var timesHead:Int = 0;
   var color:Int;
   var fps:Int;
   var fpsPeak:Int;
@@ -90,11 +93,22 @@ class FunkinDebugDisplay extends Sprite
 
     background = new Shape();
     background.graphics.beginFill(0x3D3F41, 1);
-    background.graphics.drawRect(0, 0, (OUTER_RECT_DIMENSIONS[0] * bgWidthMultiplier) + (INNER_RECT_DIFF * 2),
-      (OUTER_RECT_DIMENSIONS[1] * bgHeightMultiplier) + (INNER_RECT_DIFF * 2));
+    background.graphics.drawRoundRect(
+      0,
+      0,
+      (OUTER_RECT_DIMENSIONS[0] * bgWidthMultiplier) + (INNER_RECT_DIFF * 2),
+      (OUTER_RECT_DIMENSIONS[1] * bgHeightMultiplier) + (INNER_RECT_DIFF * 2),
+      BG_CORNER_WIDTH
+    );
     background.graphics.endFill();
     background.graphics.beginFill(0x2C2F30, 1);
-    background.graphics.drawRect(INNER_RECT_DIFF, INNER_RECT_DIFF, OUTER_RECT_DIMENSIONS[0] * bgWidthMultiplier, OUTER_RECT_DIMENSIONS[1] * bgHeightMultiplier);
+    background.graphics.drawRoundRect(
+      INNER_RECT_DIFF,
+      INNER_RECT_DIFF,
+      OUTER_RECT_DIMENSIONS[0] * bgWidthMultiplier,
+      OUTER_RECT_DIMENSIONS[1] * bgHeightMultiplier,
+      BG_CORNER_WIDTH - (INNER_RECT_DIFF * 2)
+    );
     background.graphics.endFill();
     background.alpha = backgroundOpacity;
     addChild(background);
@@ -130,8 +144,13 @@ class FunkinDebugDisplay extends Sprite
 
     if (MemoryUtil.supportsTaskMem())
     {
-      taskMemGraph = new FunkinStatsGraph(OTHERS_OFFSET, Math.floor(OTHERS_OFFSET + (gcMemGraph.y + gcMemGraph.axisHeight) + 22), graphsWidth, graphsHeight,
-        color);
+      taskMemGraph = new FunkinStatsGraph(
+        OTHERS_OFFSET,
+        Math.floor(OTHERS_OFFSET + (gcMemGraph.y + gcMemGraph.axisHeight) + 22),
+        graphsWidth,
+        graphsHeight,
+        color
+      );
       taskMemGraph.minValue = 0;
       addChild(taskMemGraph);
     }
@@ -157,9 +176,16 @@ class FunkinDebugDisplay extends Sprite
 
     times.push(currentTime);
 
-    while (times[0] < currentTime - Constants.MS_PER_SEC)
+    var cutoff:Float = currentTime - Constants.MS_PER_SEC;
+    while (timesHead < times.length && times[timesHead] < cutoff)
     {
-      times.shift();
+      timesHead++;
+    }
+
+    if (timesHead > 256 && timesHead * 2 > times.length)
+    {
+      times.splice(0, timesHead);
+      timesHead = 0;
     }
 
     if (deltaTimeout < UPDATE_DELAY)
@@ -168,7 +194,7 @@ class FunkinDebugDisplay extends Sprite
       return;
     }
 
-    fps = times.length;
+    fps = times.length - timesHead;
 
     if (fps > fpsPeak) fpsPeak = fps;
 

@@ -1,0 +1,30 @@
+--- a/src/hx/cppia/Cppia.cpp
++++ b/src/hx/cppia/Cppia.cpp
+@@ -1922,6 +1922,13 @@
+          if (func.signature)
+          {
+             //CPPIALOG(" found function %s\n", func.signature );
++            // Origin 0.9 adds an optional shared flag. Accept only its default null.
++            if (type->name==HX_CSTRING("openfl.display.BitmapData") && field==HX_CSTRING("fromTexture") &&
++                !strcmp(func.signature,"oo") && args.size()==2 && !strcmp(args.back()->getName(),"NullVal"))
++            {
++               delete args.back();
++               args.pop_back();
++            }
+             replace = new CallHaxe( this, func, 0, args, true );
+          }
+          else
+@@ -3321,6 +3328,13 @@
+                CPPIALOG("Warning - calling super host '%s' from cppia can lead to infinte recursion\n", field.utf8_str());
+ 
+             //CPPIALOG(" found function %s\n", func.signature );
++            // Origin 0.9 adds an optional blend target. Accept only its default null.
++            if (type->name==HX_CSTRING("flixel.FlxCamera") && field==HX_CSTRING("drawTriangles") &&
++                !strcmp(func.signature,"vooooooooooo") && args.size()==12 && !strcmp(args.back()->getName(),"NullVal"))
++            {
++               delete args.back();
++               args.pop_back();
++            }
+             replace = new CallHaxe( this, func, thisExpr, args, false, callSuperField && func.superExecute);
+          }
+       }

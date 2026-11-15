@@ -1,9 +1,14 @@
 package funkin.data.stage;
 
 import funkin.data.animation.AnimationData;
+import funkin.util.tools.ISerializable;
 
+/**
+ * The data for a Stage that songs take place on.
+ * Provides the information to place and arrange the props and characters.
+ */
 @:nullSafety
-class StageData
+class StageData implements ISerializable
 {
   /**
    * The semantic version number of the stage data JSON format.
@@ -12,11 +17,32 @@ class StageData
   @:default(funkin.data.stage.StageRegistry.STAGE_DATA_VERSION)
   public var version:String;
 
+  /**
+   * A readable name for the stage.
+   */
   public var name:String = 'Unknown';
+
+  /**
+   * A list of prop data for the stage.
+   */
   public var props:Array<StageDataProp> = [];
+
+  /**
+   * Information on how to place characters in the stage.
+   */
   public var characters:StageDataCharacters;
+
+  /**
+   * The default zoom level of the camera.
+   * @default `1.0`
+   */
   @:default(1.0) @:optional
   public var cameraZoom:Null<Float>;
+
+  /**
+   * @deprecated This value is no longer used but actually annotating it with @:deprecated
+   *  throws a warning in the Serializer I can't suppress
+   */
   @:default('shared') @:optional
   public var directory:Null<String>;
 
@@ -52,26 +78,32 @@ class StageData
 
   /**
    * Convert this StageData into a JSON string.
+   *
+   * @param pretty Whether to output JSON with clean spacing/formatting.
+   * @return A JSON string containing this object's data.
    */
-  public function serialize(pretty:Bool = true):String
+  public function serialize(pretty:Bool = true, ?params:json2object.JsonWriterParams):String
   {
     // Update generatedBy and version before writing.
     updateVersionToLatest();
 
-    #if ORIGIN_FUNKIN_COMPAT
-    return funkin.util.SerializerUtil.toJSON(this, pretty);
-    #else
-    var writer = new json2object.JsonWriter<StageData>();
+    var writer = new json2object.JsonWriter<StageData>(params ?? {ignoreNullOptionals: true, ignoreDefaults: true});
     return writer.write(this, pretty ? ' ' : null);
-    #end
+
   }
 
+  /**
+   * Set the JSON data version of the stage data to the current version.
+   */
   public function updateVersionToLatest():Void
   {
     this.version = StageRegistry.STAGE_DATA_VERSION;
   }
 }
 
+/**
+ * Data on how to place the characters in the stage.
+ */
 typedef StageDataCharacters =
 {
   var bf:StageDataCharacter;
@@ -79,6 +111,9 @@ typedef StageDataCharacters =
   var gf:StageDataCharacter;
 };
 
+/**
+ * Data on how to render a prop, and place it in the stage.
+ */
 typedef StageDataProp =
 {
   /**
@@ -104,7 +139,8 @@ typedef StageDataProp =
    * A number determining the stack order of the prop, relative to other props and the characters in the stage.
    * Props with lower numbers render below those with higher numbers.
    * This is just like CSS, it isn't hard.
-   * @default 0
+   *
+   * @default `0`
    */
   @:optional @:default(0)
   var zIndex:Int;
@@ -221,6 +257,10 @@ typedef StageDataProp =
 
 typedef TextureAtlasData =
 {
+  /** Keep this atlas in a distinct cache slot. */
+  @:optional
+  var uniqueInCache:Bool;
+
   /**
    * If true, the texture atlas will behave as if it was exported as an SWF file.
    * Notably, this allows MovieClip symbols to play.
@@ -258,6 +298,17 @@ typedef TextureAtlasData =
   var applyStageMatrix:Bool;
 
   /**
+   * Whether to apply the stage matrix of the Texture Atlas before or after FlxSprite calculations.
+   * Changes the behaviour of a sprite in relation to the position, scale and rotation of the matrix.
+   * When set to ``false`` the stage matrix will apply before other FlxSprite matrix calculations,
+   * as if the symbol was contained inside of the sprite.
+   * When set to ``true`` the stage matrix will apply after FlxSprite matrix calculations,
+   * as if the sprite was contained inside of the symbol.
+   */
+  @:optional
+  var postStageMatrixApply:Bool;
+
+  /**
    * If enabled, the sprite will render as one texture instead of rendering multiple limbs.
    * This is useful for stuff like changing alpha, and shaders that require the whole sprite.
    *
@@ -269,6 +320,9 @@ typedef TextureAtlasData =
   var useRenderTexture:Bool;
 };
 
+/**
+ * Data on how to place a specific character in the stage.
+ */
 typedef StageDataCharacter =
 {
   /**

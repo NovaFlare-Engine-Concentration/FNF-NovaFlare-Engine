@@ -9,6 +9,7 @@ import funkin.ui.freeplay.charselect.PlayableCharacter;
 import funkin.ui.options.items.CheckboxPreferenceItem;
 import flixel.util.FlxTimer;
 import flixel.tweens.FlxTween;
+import funkin.ui.mainmenu.MainMenuState;
 
 /**
  * Debug substate to configure the results screen for testing purposes,
@@ -31,6 +32,13 @@ class ResultsDebugSubState extends MusicBeatSubState
     add(items);
 
     createItems();
+  }
+
+  override function update(elapsed:Float):Void
+  {
+    super.update(elapsed);
+
+    if (controls.BACK) FlxG.switchState(() -> new MainMenuState());
   }
 
   var returnToDebugScreen:Bool = false;
@@ -72,6 +80,16 @@ class ResultsDebugSubState extends MusicBeatSubState
     {
       resultsParams.scoreData.tallies = DebugTallies.getTallyForRank(result);
     });
+    createToggleListItem("New Highscore", ["True", "False"], function(result:String)
+    {
+      var highscoreEnabled:Bool = true;
+      if (result == "False") highscoreEnabled = false;
+      resultsParams.isNewHighscore = highscoreEnabled;
+    });
+    createToggleListItem("Difficulty", Constants.DEFAULT_DIFFICULTY_LIST_FULL, function(result:String)
+    {
+      resultsParams.difficultyId = result;
+    });
     createToggleListItem("Force Rank Slam (Freeplay Only)", ["No", "Yes"], function(result:String)
     {
       resultsParams.forceRankSlam = result == "Yes";
@@ -82,7 +100,7 @@ class ResultsDebugSubState extends MusicBeatSubState
   {
     var txt:FlxText = new FlxText(0, 0, name);
     txt.antialiasing = false;
-    txt.setFormat(Paths.font('vcr.ttf'), 32);
+    txt.setFormat(funkin.assets.Paths.font('ui/fonts/VCR OSD Mono'), 32);
 
     var menuItem:MenuTypedItem<FlxText> = new MenuTypedItem<FlxText>(10, 36 * items.length, txt, name, onChange);
     menuItem.setEmptyBackground();
@@ -117,7 +135,7 @@ class ResultsDebugSubState extends MusicBeatSubState
     // We create and call the labelCallback here to initalize it
     var labelCallback:Void->Void = function()
     {
-      menuItem.label.text = name + ":" + toggleList[toggleCounter];
+      menuItem.label.text = name + ": " + toggleList[toggleCounter].charAt(0).toUpperCase() + toggleList[toggleCounter].substr(1);
       onChange(toggleList[toggleCounter]);
     };
     labelCallback();
@@ -133,7 +151,12 @@ class ResultsDebugSubState extends MusicBeatSubState
 
   function initResultsParams():Void
   {
-    resultsParams = {
+    resultsParams = createTestParams();
+  }
+
+  public static function createTestParams():ResultsStateParams
+  {
+    return {
       storyMode: false,
       title: "Cum Song Erect by Kawai Sprite",
       songId: "cum",
@@ -154,7 +177,7 @@ class ResultsDebugSubState extends MusicBeatSubState
           combo: 69,
           maxCombo: 69,
           totalNotesHit: 140,
-          totalNotes: 190
+          totalNotes: 190,
         }
       },
     };

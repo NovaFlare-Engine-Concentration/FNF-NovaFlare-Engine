@@ -3,6 +3,7 @@ package funkin.data.song;
 import flixel.util.FlxSort;
 import funkin.data.song.SongData.SongEventData;
 import funkin.data.song.SongData.SongNoteData;
+import funkin.data.song.SongData.SongNoteDataRaw;
 import funkin.data.song.SongData.SongTimeChange;
 import funkin.util.ClipboardUtil;
 
@@ -21,22 +22,18 @@ class SongDataUtils
    *
    * @param notes The notes to modify.
    * @param offset The time difference to apply in milliseconds.
+   * @return The modified array of notes.
    */
   public static function offsetSongNoteData(notes:Array<SongNoteData>, offset:Float):Array<SongNoteData>
   {
-    var offsetNote = function(note:SongNoteData):SongNoteData
+    return notes.map((note:SongNoteData) ->
     {
       var time:Float = note.time + offset;
       var data:Int = note.data;
       var length:Float = note.length;
       var kind:Null<String> = note.kind;
-      return new SongNoteData(time, data, length, kind);
-    };
-
-    var result = [
-      for (i in 0...notes.length) offsetNote(notes[i])
-    ];
-    return result;
+      return new SongNoteData(time, data, length, kind, note.cloneParams());
+    });
   }
 
   /**
@@ -46,12 +43,13 @@ class SongDataUtils
    *
    * @param events The events to modify.
    * @param offset The time difference to apply in milliseconds.
+   * @return The modified array of events.
    */
   public static function offsetSongEventData(events:Array<SongEventData>, offset:Float):Array<SongEventData>
   {
-    return events.map(function(event:SongEventData):SongEventData
+    return events.map((event:SongEventData) ->
     {
-      return new SongEventData(event.time + offset, event.eventKind, event.value);
+      return new SongEventData(event.time + offset, event.eventKind, event.value, event.editorLayer);
     });
   }
 
@@ -65,9 +63,9 @@ class SongDataUtils
    */
   public static function clampSongNoteData(notes:Array<SongNoteData>, startTime:Float, endTime:Float):Array<SongNoteData>
   {
-    return notes.filter(function(note:SongNoteData):Bool
+    return notes.filter((note:SongNoteData) ->
     {
-      return note.time >= startTime && note.time <= endTime;
+      return note == null || (note.time >= startTime && note.time <= endTime);
     });
   }
 
@@ -81,9 +79,9 @@ class SongDataUtils
    */
   public static function clampSongEventData(events:Array<SongEventData>, startTime:Float, endTime:Float):Array<SongEventData>
   {
-    return events.filter(function(event:SongEventData):Bool
+    return events.filter((event:SongEventData) ->
     {
-      return event.time >= startTime && event.time <= endTime;
+      return event == null || (event.time >= startTime && event.time <= endTime);
     });
   }
 
@@ -93,24 +91,46 @@ class SongDataUtils
    *
    * @param notes The array of notes to be subtracted from.
    * @param subtrahend The notes to remove from the `notes` array. Yes, subtrahend is a real word.
+   * @return The filtered array of notes.
    */
-  public static function subtractNotes(notes:Array<SongNoteData>, subtrahend:Array<SongNoteData>)
+  public static function subtractNotes(notes:Array<SongNoteData>, subtrahend:Array<SongNoteData>):Array<SongNoteData>
   {
     if (notes.length == 0 || subtrahend.length == 0) return notes;
 
-    var result = notes.filter(function(note:SongNoteData):Bool
+    // First reserve exact instances, so equal stacked notes do not steal one
+    // another's match. Consume each requested note at most once.
+    var removed:Array<Bool> = [for (_ in notes) false];
+    var matched:Array<Bool> = [for (_ in subtrahend) false];
+    for (j in 0...subtrahend.length)
     {
-      for (x in subtrahend)
+      var target:SongNoteDataRaw = cast subtrahend[j];
+      for (i in 0...notes.length)
       {
-        // The currently iterated note is in the subtrahend array.
-        // SongNoteData's == operation has been overridden so that this will work.
-        if (x == note) return false;
+        var candidate:SongNoteDataRaw = cast notes[i];
+        if (!removed[i] && candidate == target)
+        {
+          removed[i] = true;
+          matched[j] = true;
+          break;
+        }
       }
+    }
 
-      return true;
-    });
+    // Older callers also pass clones, so retain the existing value fallback.
+    for (j in 0...subtrahend.length)
+    {
+      if (matched[j]) continue;
+      for (i in 0...notes.length)
+      {
+        if (!removed[i] && subtrahend[j] == notes[i])
+        {
+          removed[i] = true;
+          break;
+        }
+      }
+    }
 
-    return result;
+    return [for (i in 0...notes.length) if (!removed[i]) notes[i]];
   }
 
   /**
@@ -119,12 +139,13 @@ class SongDataUtils
    *
    * @param events The array of events to be subtracted from.
    * @param subtrahend The events to remove from the `events` array. Yes, subtrahend is a real word.
+   * @return The filtered array of events.
    */
-  public static function subtractEvents(events:Array<SongEventData>, subtrahend:Array<SongEventData>)
+  public static function subtractEvents(events:Array<SongEventData>, subtrahend:Array<SongEventData>):Array<SongEventData>
   {
     if (events.length == 0 || subtrahend.length == 0) return events;
 
-    return events.filter(function(event:SongEventData):Bool
+    return events.filter((event:SongEventData) ->
     {
       for (x in subtrahend)
       {
@@ -139,16 +160,25 @@ class SongDataUtils
   /**
    * Create an array of notes whose note data is flipped (player becomes opponent and vice versa)
    * Does not mutate the original array.
+   *
+   * @param notes The array of notes to be flipped.
+   * @param strumlineSize The size of the strumline.
+   * @return The flipped array of notes.
    */
   public static function flipNotes(notes:Array<SongNoteData>, strumlineSize:Int = 4):Array<SongNoteData>
   {
-    return notes.map(function(note:SongNoteData):SongNoteData
+    return notes.map((note:SongNoteData) ->
     {
       var newData = note.data;
 
-      if (newData < strumlineSize) newData += strumlineSize;
+      if (newData < strumlineSize)
+      {
+        newData += strumlineSize;
+      }
       else
+      {
         newData -= strumlineSize;
+      }
 
       return new SongNoteData(note.time, newData, note.length, note.kind);
     });
@@ -158,13 +188,17 @@ class SongDataUtils
    * Create an array of notes whose note data is mirrored.
    * Does not mutate the original array.
    *
+   * @param notes The array of notes to be mirrored.
+   * @param strumlineSize The size of the strumline.
    * @param flip Flip the notes if the notes given are in both strumlines, so that result isn't inverted when mirrored.
    * @param mirrorX Mirror along the X axis, aka the directions of the notes.
    * @param mirrorY Mirror along the Y axis, aka the time of the notes.
+   * @return The mirrored array of notes.
    */
-  public static function mirrorNotes(notes:Array<SongNoteData>, strumlineSize:Int = 4, flip:Bool = false, mirrorX:Bool = true,
-      mirrorY:Bool = true):Array<SongNoteData>
+  public static function mirrorNotes(notes:Array<SongNoteData>, strumlineSize:Int = 4, flip:Bool = false, mirrorX:Bool = true, mirrorY:Bool = true):Array<SongNoteData>
   {
+    if (notes.length == 0) return notes;
+
     var minTime = notes[0].time;
     var maxTime = notes[0].time;
     var minStrumline = notes[0].data;
@@ -175,11 +209,23 @@ class SongDataUtils
       // I wish there was a better way of doing this
       if (flip)
       {
-        if (note.data < minStrumline) minStrumline = note.data;
-        else if (note.data > maxStrumline) maxStrumline = note.data;
+        if (note.data < minStrumline)
+        {
+          minStrumline = note.data;
+        }
+        else if (note.data > maxStrumline)
+        {
+          maxStrumline = note.data;
+        }
       }
-      if (note.time < minTime) minTime = note.time;
-      else if (note.time > maxTime) maxTime = note.time;
+      if (note.time < minTime)
+      {
+        minTime = note.time;
+      }
+      else if (note.time > maxTime)
+      {
+        maxTime = note.time;
+      }
     }
 
     var timeDiff = minTime + (maxTime - minTime) / 2;
@@ -190,21 +236,32 @@ class SongDataUtils
       notes = flipNotes(notes);
     }
 
-    return notes.map(function(note:SongNoteData):SongNoteData
+    return notes.map((note:SongNoteData) ->
     {
       var newData = note.data;
       var newTime = note.time;
 
       if (mirrorX)
       {
-        if (newData < strumlineSize) newData = strumlineSize - 1 - newData;
+        if (newData < strumlineSize)
+        {
+          newData = strumlineSize - 1 - newData;
+        }
         else
+        {
           newData = strumlineSize + strumlineSize * 2 - 1 - newData;
+        }
       }
       if (mirrorY)
       {
-        if (newTime < timeDiff) newTime += (timeDiff - newTime) * 2;
-        else if (newTime > timeDiff) newTime -= (newTime - timeDiff) * 2;
+        if (newTime < timeDiff)
+        {
+          newTime += (timeDiff - newTime) * 2;
+        }
+        else if (newTime > timeDiff)
+        {
+          newTime -= (newTime - timeDiff) * 2;
+        }
       }
 
       return new SongNoteData(newTime, newData, note.length, note.kind);
@@ -215,6 +272,11 @@ class SongDataUtils
    * Prepare an array of notes to be used as the clipboard data.
    *
    * Offset the provided array of notes such that the first note is at 0 milliseconds.
+   * This is used to ensure events you paste are centered on the cursor.
+   *
+   * @param notes The notes to offset.
+   * @param timeOffset The time offset to apply. If null, the first note's time will be used.
+   * @return The offset notes.
    */
   public static function buildNoteClipboard(notes:Array<SongNoteData>, ?timeOffset:Int):Array<SongNoteData>
   {
@@ -227,6 +289,11 @@ class SongDataUtils
    * Prepare an array of events to be used as the clipboard data.
    *
    * Offset the provided array of events such that the first event is at 0 milliseconds.
+   * This is used to ensure events you paste are centered on the cursor.
+   *
+   * @param events The events to offset.
+   * @param timeOffset The time offset to apply. If null, the first event's time will be used.
+   * @return The offset events.
    */
   public static function buildEventClipboard(events:Array<SongEventData>, ?timeOffset:Int):Array<SongEventData>
   {
@@ -237,6 +304,11 @@ class SongDataUtils
 
   /**
    * Sort an array of notes by strum time.
+   * TODO: Replace with `notes.sort(SortUtil.eventDataByTime)`
+   *
+   * @param notes The notes to sort.
+   * @param desc If true, sort in descending order.
+   * @return The sorted notes.
    */
   public static function sortNotes(notes:Array<SongNoteData>, desc:Bool = false):Array<SongNoteData>
   {
@@ -250,6 +322,11 @@ class SongDataUtils
 
   /**
    * Sort an array of events by strum time.
+   * TODO: Replace with `notes.sort(SortUtil.noteDataByTime)`
+   *
+   * @param events The events to sort.
+   * @param desc If true, sort in descending order.
+   * @return The sorted events.
    */
   public static function sortEvents(events:Array<SongEventData>, desc:Bool = false):Array<SongEventData>
   {
@@ -263,6 +340,10 @@ class SongDataUtils
 
   /**
    * Sort an array of notes by strum time.
+   *
+   * @param timeChanges The time changes to sort.
+   * @param desc If true, sort in descending order.
+   * @return The sorted time changes.
    */
   public static function sortTimeChanges(timeChanges:Array<SongTimeChange>, desc:Bool = false):Array<SongTimeChange>
   {
@@ -275,17 +356,15 @@ class SongDataUtils
   }
 
   /**
-   * Serialize note and event data and write it to the clipboard.
+   * Serialize note and event data and write it to the system clipboard.
+   * This lets you paste it back into the editor later.
+   *
+   * @param data The note and event data to write to the clipboard.
    */
   public static function writeItemsToClipboard(data:SongClipboardItems):Void
   {
-    #if ORIGIN_FUNKIN_COMPAT
-    var dataString:String = funkin.util.SerializerUtil.toJSON(data, true);
-    #else
-    var ignoreNullOptionals = true;
-    var writer = new json2object.JsonWriter<SongClipboardItems>(ignoreNullOptionals);
+    var writer = new json2object.JsonWriter<SongClipboardItems>({ignoreNullOptionals: true, ignoreDefaults: true});
     var dataString:String = writer.write(data, ' ');
-    #end
 
     ClipboardUtil.setClipboard(dataString);
 
@@ -294,6 +373,9 @@ class SongDataUtils
 
   /**
    * Read an array of note data from the clipboard and deserialize it.
+   *
+   * @return The note and event data, parsed from the user's clipboard.
+   *   If it failed to parse, `valid` will be false.
    */
   public static function readItemsFromClipboard():SongClipboardItems
   {
@@ -324,60 +406,87 @@ class SongDataUtils
 
   /**
    * Filter a list of notes to only include notes that are within the given time range.
+   *
+   * @param notes The list of notes to filter.
+   * @param start The start of the time range.
+   * @param end The end of the time range.
+   * @return The filtered list of notes.
    */
   public static function getNotesInTimeRange(notes:Array<SongNoteData>, start:Float, end:Float):Array<SongNoteData>
   {
-    return notes.filter(function(note:SongNoteData):Bool
+    return notes.filter((note:SongNoteData) ->
     {
-      return note.time >= start && note.time <= end;
+      return note != null && note.time >= start && note.time <= end;
     });
   }
 
   /**
    * Filter a list of events to only include events that are within the given time range.
+   *
+   * @param events The list of events to filter.
+   * @param start The start of the time range.
+   * @param end The end of the time range.
+   * @return The filtered list of events.
    */
   public static function getEventsInTimeRange(events:Array<SongEventData>, start:Float, end:Float):Array<SongEventData>
   {
-    return events.filter(function(event:SongEventData):Bool
+    return events.filter((event:SongEventData) ->
     {
-      return event.time >= start && event.time <= end;
+      return event != null && event.time >= start && event.time <= end;
     });
   }
 
   /**
    * Filter a list of notes to only include notes whose data is within the given range, inclusive.
+   *
+   * @param notes The list of notes to filter.
+   * @param start The start of the data range.
+   * @param end The end of the data range.
+   * @return The filtered list of notes.
    */
   public static function getNotesInDataRange(notes:Array<SongNoteData>, start:Int, end:Int):Array<SongNoteData>
   {
-    return notes.filter(function(note:SongNoteData):Bool
+    return notes.filter((note:SongNoteData) ->
     {
-      return note.data >= start && note.data <= end;
+      return note != null && note.data >= start && note.data <= end;
     });
   }
 
   /**
    * Filter a list of notes to only include notes whose data is one of the given values.
+   *
+   * @param notes The list of notes to filter.
+   * @param data The list of data values to include.
+   * @return The filtered list of notes.
    */
   public static function getNotesWithData(notes:Array<SongNoteData>, data:Array<Int>):Array<SongNoteData>
   {
-    return notes.filter(function(note:SongNoteData):Bool
+    return notes.filter((note:SongNoteData) ->
     {
-      return data.indexOf(note.data) != -1;
+      return note != null && data.indexOf(note.data) != -1;
     });
   }
 
   /**
    * Filter a list of events to only include events whose kind is one of the given values.
+   *
+   * @param events The list of events to filter.
+   * @param kinds The list of event kinds to include.
+   * @return The filtered list of events.
    */
   public static function getEventsWithKind(events:Array<SongEventData>, kinds:Array<String>):Array<SongEventData>
   {
-    return events.filter(function(event:SongEventData):Bool
+    return events.filter((event:SongEventData) ->
     {
-      return kinds.indexOf(event.eventKind) != -1;
+      return event != null && kinds.indexOf(event.eventKind) != -1;
     });
   }
 }
 
+/**
+ * Represents the data copied to clipboard from the Chart Editor.
+ * Gets decoded into text to be put in the system clipboard; this lets you paste the data into a chat or something!
+ */
 typedef SongClipboardItems =
 {
   @:optional

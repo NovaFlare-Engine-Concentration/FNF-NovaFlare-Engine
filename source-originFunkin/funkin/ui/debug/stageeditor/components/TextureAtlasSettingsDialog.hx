@@ -11,7 +11,7 @@ import haxe.ui.components.CheckBox;
 import haxe.ui.components.DropDown;
 import openfl.display.BitmapData;
 
-@:build(haxe.ui.macros.ComponentMacros.build('assets/exclude/data/ui/stage-editor/dialogs/texture-atlas-settings.xml'))
+@:build(originfunkin.macro.OriginEditorMacro.build('assets/exclude/ui/editors/stage-editor/dialogs/texture-atlas-settings.xml'))
 class TextureAtlasSettingsDialog extends Dialog
 {
   var atlasPath:String;
@@ -52,18 +52,22 @@ class TextureAtlasSettingsDialog extends Dialog
       while (files.containsAllExact(['spritemap$i.png', 'spritemap$i.json']))
       {
         var joinedPath:String = Path.join([baseAtlasPath, 'spritemap$i']);
-        spritemapFiles.push({name: '$joinedPath.png', data: FileUtil.readBytesFromPath(Path.join([atlasPath, 'spritemap$i.png']))});
-        spritemapFiles.push({name: '$joinedPath.json', data: FileUtil.readBytesFromPath(Path.join([atlasPath, 'spritemap$i.json']))});
+        spritemapFiles.push({
+          name: '$joinedPath.png',
+          data: FileUtil.readBytesFromPath(Path.join([atlasPath, 'spritemap$i.png']))
+        });
+        spritemapFiles.push({
+          name: '$joinedPath.json',
+          data: FileUtil.readBytesFromPath(Path.join([atlasPath, 'spritemap$i.json']))
+        });
         i++;
       }
 
       @:privateAccess
-      var spritemaps:Array<SpritemapInput> = [
-        for (i in 0...Std.int(spritemapFiles.length / 2)) {
-          source: BitmapData.fromBytes(spritemapFiles[i * 2].data),
-          json: SerializerUtil.sanitizeJSON(spritemapFiles[i * 2 + 1].data.toString())
-        }
-      ];
+      var spritemaps:Array<SpritemapInput> = [for (i in 0...Std.int(spritemapFiles.length / 2)) {
+        source: BitmapData.fromBytes(spritemapFiles[i * 2].data),
+        json: SerializerUtil.sanitizeJSON(spritemapFiles[i * 2 + 1].data.toString())
+      }];
 
       linkedObj.applyStageMatrix = taApplyStageMatrix.selected;
       linkedObj.useRenderTexture = taUseRenderTexture.selected;
@@ -96,7 +100,10 @@ class TextureAtlasSettingsDialog extends Dialog
       });
       linkedObj.startingAnimation = 'Idle';
 
-      linkedObj.usedFiles.push({name: Path.join([baseAtlasPath, 'Animation.json']), data: Bytes.ofString(animJson)});
+      linkedObj.usedFiles.push({
+        name: Path.join([baseAtlasPath, 'Animation.json']),
+        data: Bytes.ofString(animJson)
+      });
       linkedObj.usedFiles = linkedObj.usedFiles.concat(spritemapFiles);
 
       stageEditorState.notifyChange('Texture Atlas Loading Done', 'Finished loading the Texture Atlas for the object ${linkedObj.name}.');

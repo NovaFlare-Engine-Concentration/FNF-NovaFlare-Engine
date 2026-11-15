@@ -11,6 +11,7 @@ import codename.funkin.backend.scripting.events.menu.MenuChangeEvent;
 import codename.funkin.backend.scripting.events.menu.pause.*;
 import codename.funkin.backend.system.Conductor;
 import codename.funkin.backend.utils.FunkinParentDisabler;
+import codename.funkin.backend.utils.FunkinParentDisabler.ParentDisableable;
 import codename.funkin.editors.charter.Charter;
 import codename.funkin.menus.StoryMenuState;
 import codename.funkin.options.OptionsMenu;
@@ -27,6 +28,7 @@ class PauseSubState extends MusicBeatSubstate
 	var deathCounter:FunkinText;
 	var multiplayerText:FunkinText;
 
+	var parentDisablerExcludeList:Array<ParentDisableable>;
 	var menuItems:Array<String>;
 
 	var curSelected:Int = 0;
@@ -40,8 +42,9 @@ class PauseSubState extends MusicBeatSubstate
 
 	private var __cancelDefault:Bool = false;
 
-	public function new(?items:Array<String>, ?selectCall:NameEvent->Void) {
+	public function new(?items:Array<String>, ?selectCall:NameEvent->Void, ?excludeList:Array<ParentDisableable>) {
 		super();
+		parentDisablerExcludeList = excludeList != null ? excludeList : [];
 		menuItems = items != null ? items : Flags.DEFAULT_PAUSE_ITEMS.copy();
 		this.selectCall = selectCall;
 	}
@@ -56,7 +59,7 @@ class PauseSubState extends MusicBeatSubstate
 		if (controls.touchC)
 			menuItems.remove("Change Controls");
 
-		add(parentDisabler = new FunkinParentDisabler());
+		add(parentDisabler = new FunkinParentDisabler(false, true, parentDisablerExcludeList));
 
 		pauseScript = Script.create(Paths.script(script));
 		pauseScript.setParent(this);

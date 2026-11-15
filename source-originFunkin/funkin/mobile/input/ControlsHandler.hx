@@ -51,7 +51,10 @@ class ControlsHandler
    * @param state The input state to associate with the action.
    * @param cachedInput The array of FlxActionInput objects to cache the input.
    */
-  public static function addButton(action:FlxActionDigital, button:FunkinButton, state:FlxInputState, cachedInput:Array<FlxActionInput>):Void
+  public static function addButton(action:FlxActionDigital,
+    button:FunkinButton,
+    state:FlxInputState,
+    cachedInput:Array<FlxActionInput>):Void
   {
     if (action == null || button == null || cachedInput == null) return;
 
@@ -68,7 +71,9 @@ class ControlsHandler
    * @param cachedInput The array of action input objects to cache the input.
    */
   @:access(funkin.input.Controls)
-  public static function setupHitbox(controls:Controls, hitbox:FunkinHitbox, cachedInput:Array<FlxActionInput>):Void
+  public static function setupHitbox(controls:Controls,
+    hitbox:FunkinHitbox,
+    cachedInput:Array<FlxActionInput>):Void
   {
     if (controls == null || hitbox == null) return;
 
@@ -107,7 +112,8 @@ class ControlsHandler
    * @param controls The Controls instance defining game controls.
    * @param cachedInput The array of action input objects to clear cached input from.
    */
-  public static function removeCachedInput(controls:Controls, cachedInput:Array<FlxActionInput>):Void
+  public static function removeCachedInput(controls:Controls,
+    cachedInput:Array<FlxActionInput>):Void
   {
     for (action in controls.digitalActions)
     {

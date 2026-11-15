@@ -10,6 +10,11 @@ import hxvlc.flixel.FlxVideoSprite;
 @:nullSafety
 class FunkinVideoSprite extends FlxVideoSprite
 {
+  override public function load(location:hxvlc.util.Location, ?options:Array<String>):Bool
+  {
+    return super.load(originfunkin.compat.LegacyVideoLocation.resolve(location), options);
+  }
+
   public function new(x:Float = 0, y:Float = 0)
   {
     super(x, y);

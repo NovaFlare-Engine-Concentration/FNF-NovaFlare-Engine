@@ -5,6 +5,7 @@ import flixel.tweens.FlxTween;
 import funkin.graphics.FunkinSprite;
 import funkin.util.EaseUtil;
 import funkin.play.notes.notestyle.NoteStyle;
+import funkin.play.PlayState;
 
 @:nullSafety
 class PopUpStuff extends FlxTypedGroup<FunkinSprite>
@@ -19,20 +20,107 @@ class PopUpStuff extends FlxTypedGroup<FunkinSprite>
    * Offsets that are applied to all elements, independent of the note style.
    * Used to allow scripts to reposition the elements.
    */
-  var offsets:Array<Int> = [0, 0];
+  public var offsets:Array<Int> = [0, 0];
 
-  override public function new(noteStyle:NoteStyle)
+  override public function new(?noteStyle:NoteStyle)
   {
     super();
 
-    this.noteStyle = noteStyle;
+    // Pre-0.5 scripts constructed this without arguments. Reuse the active
+    // song style when available so pixel and custom songs keep their graphics.
+    var currentStyle:Null<NoteStyle> = @:privateAccess PlayState.instance?.noteStyle;
+    this.noteStyle = noteStyle ?? currentStyle ?? funkin.data.notestyle.NoteStyleRegistry.instance.fetchDefault();
+  }
+
+  var judgementPool:Map<String, Array<FunkinSprite>> = [];
+  var comboNumPool:Map<Int, Array<FunkinSprite>> = [];
+
+  function acquireJudgementSprite(rating:String):Null<FunkinSprite>
+  {
+    var pool:Null<Array<FunkinSprite>> = judgementPool.get(rating);
+    if (pool != null && pool.length > 0) return resetPooledSprite(pool.pop());
+
+    var sprite:Null<FunkinSprite> = noteStyle.buildJudgementSprite(rating);
+    if (sprite == null) return null;
+
+    if (pool == null) judgementPool.set(rating, []);
+    return sprite;
+  }
+
+  function releaseJudgementSprite(rating:String, sprite:FunkinSprite):Void
+  {
+    remove(sprite, true);
+    var pool:Null<Array<FunkinSprite>> = judgementPool.get(rating);
+    if (pool == null)
+    {
+      pool = [];
+      judgementPool.set(rating, pool);
+    }
+    pool.push(sprite);
+  }
+
+  function acquireComboNumSprite(digit:Int):Null<FunkinSprite>
+  {
+    var pool:Null<Array<FunkinSprite>> = comboNumPool.get(digit);
+    if (pool != null && pool.length > 0) return resetPooledSprite(pool.pop());
+
+    var sprite:Null<FunkinSprite> = noteStyle.buildComboNumSprite(digit);
+    if (sprite == null) return null;
+
+    if (pool == null) comboNumPool.set(digit, []);
+
+    return sprite;
+  }
+
+  function releaseComboNumSprite(digit:Int, sprite:FunkinSprite):Void
+  {
+    remove(sprite, true);
+    var pool:Null<Array<FunkinSprite>> = comboNumPool.get(digit);
+    if (pool == null)
+    {
+      pool = [];
+      comboNumPool.set(digit, pool);
+    }
+    pool.push(sprite);
+  }
+
+  function resetPooledSprite(sprite:Null<FunkinSprite>):Null<FunkinSprite>
+  {
+    if (sprite == null) return null;
+    sprite.alpha = 1.0;
+    sprite.velocity.set(0, 0);
+    sprite.acceleration.set(0, 0);
+    return sprite;
+  }
+
+  override public function destroy():Void
+  {
+    super.destroy();
+
+    for (pool in judgementPool)
+    {
+      for (sprite in pool)
+      {
+        sprite.destroy();
+      }
+    }
+    judgementPool.clear();
+
+    for (pool in comboNumPool)
+    {
+      for (sprite in pool)
+      {
+        sprite.destroy();
+      }
+    }
+    comboNumPool.clear();
   }
 
   public function displayRating(daRating:Null<String>)
   {
     if (daRating == null) daRating = "good";
 
-    var rating:Null<FunkinSprite> = noteStyle.buildJudgementSprite(daRating);
+    var rating:Null<FunkinSprite> = acquireJudgementSprite(daRating);
     if (rating == null) return;
 
     rating.zIndex = 1000;
@@ -58,11 +146,13 @@ class PopUpStuff extends FlxTypedGroup<FunkinSprite>
 
     var fadeEase = noteStyle.isJudgementSpritePixel(daRating) ? EaseUtil.stepped(2) : null;
 
-    FlxTween.tween(rating, {alpha: 0}, 0.2, {
+    final ratingKey:String = daRating;
+    FlxTween.tween(rating, {
+      alpha: 0
+    }, 0.2, {
       onComplete: function(tween:FlxTween)
       {
-        remove(rating, true);
-        rating.destroy();
+        releaseJudgementSprite(ratingKey, rating);
       },
       startDelay: Conductor.instance.beatLengthMs * 0.001,
       ease: fadeEase
@@ -87,7 +177,7 @@ class PopUpStuff extends FlxTypedGroup<FunkinSprite>
     var daLoop:Int = 1;
     for (digit in seperatedScore)
     {
-      var numScore:Null<FunkinSprite> = noteStyle.buildComboNumSprite(digit);
+      var numScore:Null<FunkinSprite> = acquireComboNumSprite(digit);
       if (numScore == null) continue;
 
       numScore.x = (FlxG.width * 0.507) - (36 * daLoop) - 65;
@@ -109,11 +199,13 @@ class PopUpStuff extends FlxTypedGroup<FunkinSprite>
 
       var fadeEase = noteStyle.isComboNumSpritePixel(digit) ? EaseUtil.stepped(2) : null;
 
-      FlxTween.tween(numScore, {alpha: 0}, 0.2, {
+      final digitKey:Int = digit;
+      FlxTween.tween(numScore, {
+        alpha: 0
+      }, 0.2, {
         onComplete: function(tween:FlxTween)
         {
-          remove(numScore, true);
-          numScore.destroy();
+          releaseComboNumSprite(digitKey, numScore);
         },
         startDelay: Conductor.instance.beatLengthMs * 0.002,
         ease: fadeEase

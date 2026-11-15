@@ -14,6 +14,9 @@ import android.os.Build.VERSION_CODES;
 import cpp.Float64;
 import cpp.UInt64;
 #end
+#if windows
+import codename.funkin.backend.utils.native.Windows;
+#end
 
 using StringTools;
 import codename.funkin.backend.system.macros.StringMacro;
@@ -63,26 +66,30 @@ class SystemInfo extends FramerateCategory {
 			if (osName != "")
 				osInfo = '${osName} ${osVersion}'.trim();
 		}
-		#elseif windows
-		var windowsCurrentVersionPath = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
-		var buildNumber = Std.parseInt(RegistryUtil.get(HKEY_LOCAL_MACHINE, windowsCurrentVersionPath, "CurrentBuildNumber"));
-		var edition = RegistryUtil.get(HKEY_LOCAL_MACHINE, windowsCurrentVersionPath, "ProductName");
-
-		var lcuKey = "WinREVersion"; // Last Cumulative Update Key On Older Windows Versions
-		if (buildNumber >= 22000) { // Windows 11 Initial Release Build Number
-			edition = edition.replace("Windows 10", "Windows 11");
-			lcuKey = "LCUVer"; // Last Cumulative Update Key On Windows 11
-		}
-
-		var lcuVersion = RegistryUtil.get(HKEY_LOCAL_MACHINE, windowsCurrentVersionPath, lcuKey);
-
-		osInfo = edition;
-
-		if (lcuVersion != null && lcuVersion != "")
-			osInfo += ' ${lcuVersion}';
-		else if (lime.system.System.platformVersion != null && lime.system.System.platformVersion != "")
-			osInfo += ' ${lime.system.System.platformVersion}';
 		#else
+		#if windows
+		final buildNumber = Windows.getBuildNumber();
+
+		if (buildNumber >= 9200) {
+			final windowsCurrentVersionPath = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+			var edition = RegistryUtil.get(HKEY_LOCAL_MACHINE, windowsCurrentVersionPath, "ProductName");
+
+			var lcuKey = "WinREVersion"; // Last Cumulative Update Key On Older Windows Versions
+			if (buildNumber >= 22000) {
+				edition = edition.replace("Windows 10", "Windows 11");
+				lcuKey = "LCUVer";
+			}
+
+			final lcuVersion = RegistryUtil.get(HKEY_LOCAL_MACHINE, windowsCurrentVersionPath, lcuKey);
+
+			osInfo = edition;
+			if (lcuVersion != null && lcuVersion != "")
+				osInfo += ' ${lcuVersion}';
+			else if (lime.system.System.platformVersion != null && lime.system.System.platformVersion != "")
+				osInfo += ' ${lime.system.System.platformVersion}';
+		}
+		else
+		#end
 		if (lime.system.System.platformLabel != null && lime.system.System.platformLabel != "" && lime.system.System.platformVersion != null && lime.system.System.platformVersion != "")
 			osInfo = '${lime.system.System.platformLabel.replace(lime.system.System.platformVersion, "").trim()} ${lime.system.System.platformVersion}';
 		else
@@ -95,7 +102,15 @@ class SystemInfo extends FramerateCategory {
 			#elseif ios
 			cpuName = lime.system.System.deviceModel;
 			#elseif windows
-			cpuName = RegistryUtil.get(HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", "ProcessorNameString");
+			if (buildNumber >= 9200) {
+				cpuName = RegistryUtil.get(HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", "ProcessorNameString");
+			}
+			else {
+				var process = new HiddenProcess("wmic", ["cpu", "get", "name"]);
+				if (process.exitCode() != 0) throw 'Could not fetch CPU information';
+
+				cpuName = process.stdout.readAll().toString().trim().split("\n")[1].trim();
+			}
 			#elseif (mac && !mobile)
 			var process = new HiddenProcess("sysctl -a | grep brand_string"); // Somehow this isn't able to use the args but it still works
 			if (process.exitCode() != 0) throw 'Could not fetch CPU information';
@@ -212,7 +227,7 @@ class SystemInfo extends FramerateCategory {
 	}
 
 	public override function __enterFrame(t:Float) {
-		if (alpha <= 0.05) return;
+		if (alpha <= 0.05 || !visible) return;
 
 		var buf = new StringBuf();
 		buf.add(__formattedSysText);

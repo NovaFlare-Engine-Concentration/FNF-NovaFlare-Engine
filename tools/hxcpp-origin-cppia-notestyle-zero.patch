@@ -1,0 +1,34 @@
+--- a/src/hx/cppia/Cppia.cpp
++++ b/src/hx/cppia/Cppia.cpp
+@@ -3322,16 +3322,22 @@
+       if (!replace && type->haxeBase)
+       {
+          ScriptNamedFunction func = type->haxeBase->findFunction(field.utf8_str());
+-         // Origin 0.9 changed this zero-argument method to return AssetPath.
+-         // Keep the historical String API and use its dedicated preview bridge.
++         // These 0.9 zero-argument methods return AssetPath; old host methods
++         // take an optional argument and return String. Route only this new shape.
+          if (!callSuperField && type->name==HX_CSTRING("funkin.play.notes.notestyle.NoteStyle") &&
+-             field==HX_CSTRING("getHoldNoteAssetPath") && args.empty() &&
+-             func.signature && !strcmp(func.signature,"so"))
+-         {
+-            ScriptNamedFunction bridge = type->haxeBase->findFunction("__nfPreviewHoldNoteAssetPath");
+-            if (!bridge.signature || strcmp(bridge.signature,"o"))
+-               throw "Missing Origin 0.9 NoteStyle CPPIA bridge";
+-            func = bridge;
++             args.empty() && func.signature && !strcmp(func.signature,"so"))
++         {
++            const char *bridgeName = 0;
++            if (field==HX_CSTRING("getNoteAssetPath")) bridgeName = "__nfPreviewNoteAssetPath";
++            else if (field==HX_CSTRING("getHoldNoteAssetPath")) bridgeName = "__nfPreviewHoldNoteAssetPath";
++            else if (field==HX_CSTRING("getStrumlineAssetPath")) bridgeName = "__nfPreviewStrumlineAssetPath";
++            if (bridgeName)
++            {
++               ScriptNamedFunction bridge = type->haxeBase->findFunction(bridgeName);
++               if (!bridge.signature || strcmp(bridge.signature,"o"))
++                  throw "Missing Origin 0.9 NoteStyle CPPIA bridge";
++               func = bridge;
++            }
+          }
+          if (func.signature)
+          {

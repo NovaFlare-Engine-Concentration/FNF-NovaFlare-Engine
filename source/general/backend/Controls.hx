@@ -134,27 +134,45 @@ class Controls
 	private function get_RESET()
 		return justPressed('reset');
 
-	// Gamepad, Keyboard & Mobile stuff
 	public var keyboardBinds:Map<String, Array<FlxKey>>;
+	public var gamepadBinds:Map<String, Array<FlxGamepadInputID>>;
 
 	public function justPressed(key:String)
 	{
 		var result:Bool = (FlxG.keys.anyJustPressed(keyboardBinds[key]) == true);
-
+		if (!result && gamepadBinds.exists(key))
+			for (button in gamepadBinds.get(key))
+				if (FlxG.gamepads.anyJustPressed(button))
+				{
+					result = true;
+					break;
+				}
 		return result;
 	}
 
 	public function pressed(key:String)
 	{
 		var result:Bool = (FlxG.keys.anyPressed(keyboardBinds[key]) == true);
-
+		if (!result && gamepadBinds.exists(key))
+			for (button in gamepadBinds.get(key))
+				if (FlxG.gamepads.anyPressed(button))
+				{
+					result = true;
+					break;
+				}
 		return result;
 	}
 
 	public function justReleased(key:String)
 	{
 		var result:Bool = (FlxG.keys.anyJustReleased(keyboardBinds[key]) == true);
-
+		if (!result && gamepadBinds.exists(key))
+			for (button in gamepadBinds.get(key))
+				if (FlxG.gamepads.anyJustReleased(button))
+				{
+					result = true;
+					break;
+				}
 		return result;
 	}
 
@@ -198,5 +216,6 @@ class Controls
 	public function new()
 	{
 		keyboardBinds = ClientPrefs.keyBinds;
+		gamepadBinds = ClientPrefs.gamepadBinds;
 	}
 }

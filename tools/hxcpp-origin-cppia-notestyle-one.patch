@@ -1,0 +1,32 @@
+--- a/src/hx/cppia/Cppia.cpp
++++ b/src/hx/cppia/Cppia.cpp
+@@ -3335,6 +3335,29 @@
+             {
+                ScriptNamedFunction bridge = type->haxeBase->findFunction(bridgeName);
+                if (!bridge.signature || strcmp(bridge.signature,"o"))
++                  throw "Missing Origin 0.9 NoteStyle CPPIA bridge";
++               func = bridge;
++            }
++         }
++         // One-argument 0.9 path APIs return AssetPath; their old host
++         // counterparts have a second optional argument and return String.
++         if (!callSuperField && type->name==HX_CSTRING("funkin.play.notes.notestyle.NoteStyle") &&
++             args.size()==1 && func.signature)
++         {
++            const char *bridgeName = 0;
++            const char *bridgeSignature = 0;
++            if (field==HX_CSTRING("getCountdownSoundPath") && !strcmp(func.signature,"soo"))
++            { bridgeName = "__nfPreviewCountdownSoundPath"; bridgeSignature = "oo"; }
++            else if (field==HX_CSTRING("buildJudgementSpritePath") && !strcmp(func.signature,"sso"))
++            { bridgeName = "__nfPreviewJudgementSpritePath"; bridgeSignature = "os"; }
++            else if (field==HX_CSTRING("buildComboNumSpritePath") && !strcmp(func.signature,"sio"))
++            { bridgeName = "__nfPreviewComboNumSpritePath"; bridgeSignature = "oi"; }
++            else if (field==HX_CSTRING("getHoldCoverDirectionAssetPath") && !strcmp(func.signature,"sio"))
++            { bridgeName = "__nfPreviewHoldCoverDirectionAssetPath"; bridgeSignature = "oi"; }
++            if (bridgeName)
++            {
++               ScriptNamedFunction bridge = type->haxeBase->findFunction(bridgeName);
++               if (!bridge.signature || strcmp(bridge.signature,bridgeSignature))
+                   throw "Missing Origin 0.9 NoteStyle CPPIA bridge";
+                func = bridge;
+             }

@@ -312,11 +312,39 @@ class ClientPrefs
 		'debug_2' => [EIGHT],
 		'fullscreen' => [F11]
 	];
+
+	//(男人叹气)(男人叹气)(男人叹气)(男人叹气)(男人叹气)(男人叹气)(男人叹气)(男人叹气)(男人叹气)
+	public static var gamepadBinds:Map<String, Array<FlxGamepadInputID>> = [
+		'0_key_0' => [DPAD_LEFT, X],
+
+		'1_key_0'	 => [DPAD_LEFT, X],
+		'1_key_1' 	 => [DPAD_DOWN, LEFT_STICK_DIGITAL_DOWN],
+
+		'2_key_0'	 => [DPAD_LEFT, X],
+		'2_key_1'	 => [DPAD_UP, Y],
+		'2_key_2'	 => [DPAD_DOWN, LEFT_STICK_DIGITAL_DOWN],
+
+		'note_up'    => [DPAD_UP, Y],
+		'note_left'  => [DPAD_LEFT, X],
+		'note_down'  => [DPAD_DOWN, A],
+		'note_right' => [DPAD_RIGHT, B],
+
+		'ui_up'      => [DPAD_UP, LEFT_STICK_DIGITAL_UP],
+		'ui_left'    => [DPAD_LEFT, LEFT_STICK_DIGITAL_LEFT],
+		'ui_down'    => [DPAD_DOWN, LEFT_STICK_DIGITAL_DOWN],
+		'ui_right'   => [DPAD_RIGHT, LEFT_STICK_DIGITAL_RIGHT],
+
+		'accept'     => [A, START],
+		'back'       => [B],
+		'pause'      => [START],
+		'reset'      => [BACK]
+	];
+	
 	public static var defaultMobileBinds:Map<String, Array<FlxKey>> = null;
 	public static var defaultKeys:Map<String, Array<FlxKey>> = null;
 	public static var defaultButtons:Map<String, Array<FlxGamepadInputID>> = null;
 
-	public static function resetKeys(controller:Null<Bool> = null) // Null = both, False = Keyboard, True = Controller
+	public static function resetKeys(controller:Null<Bool> = null)
 	{
 		if (controller != true)
 			for (key in keyBinds.keys())
@@ -325,6 +353,16 @@ class ClientPrefs
 					var arr = keyBinds.get(key);
 					arr.resize(0);
 					for (i in defaultKeys.get(key))
+						arr.push(i);
+				}
+
+		if (controller != false)
+			for (key in gamepadBinds.keys())
+				if (defaultButtons.exists(key))
+				{
+					var arr = gamepadBinds.get(key);
+					arr.resize(0);
+					for (i in defaultButtons.get(key))
 						arr.push(i);
 				}
 	}
@@ -336,9 +374,22 @@ class ClientPrefs
 			keyBind.remove(NONE);
 	}
 
+	public static function clearInvalidButtons(key:String)
+	{
+		var buttonBind:Array<FlxGamepadInputID> = gamepadBinds.get(key);
+		while (buttonBind != null && buttonBind.contains(FlxGamepadInputID.NONE))
+			buttonBind.remove(FlxGamepadInputID.NONE);
+	}
+
 	public static function loadDefaultKeys()
 	{
 		defaultKeys = [for (key => value in keyBinds) key => value.copy()];
+		loadDefaultButtons();
+	}
+
+	public static function loadDefaultButtons()
+	{
+		defaultButtons = [for (key => value in gamepadBinds) key => value.copy()];
 	}
 
 	public static function saveSettings()
@@ -364,6 +415,7 @@ class ClientPrefs
 		var save:FlxSave = new FlxSave();
 		save.bind('controls_v4', CoolUtil.getSavePath());
 		save.data.keyboard = keyBinds;
+		save.data.gamepad = gamepadBinds;
 
 		save.flush();
 		FlxG.log.add("Settings saved!");
@@ -492,16 +544,23 @@ class ClientPrefs
 
 			if (defaultKeys == null)
 				loadDefaultKeys();
+			if (defaultButtons == null)
+				loadDefaultButtons();
 
 			keyBinds.clear();
 			for (name => keys in defaultKeys)
 				keyBinds.set(name, keys.copy());
+
+			gamepadBinds.clear();
+			for (name => buttons in defaultButtons)
+				gamepadBinds.set(name, buttons.copy());
 
 			var controlSave:FlxSave = new FlxSave();
 			controlSave.bind('controls_v4', CoolUtil.getSavePath());
 			if (controlSave != null)
 			{
 				controlSave.data.keyboard = defaultKeys;
+				controlSave.data.gamepad = defaultButtons;
 				controlSave.flush();
 			}
 			reloadVolumeKeys();
@@ -516,7 +575,12 @@ class ClientPrefs
 					// here makes the later comparison oldVersion < targetVersion
 					// compare the old value with itself and silently skip migration.
 					key != 'performanceDefaultsVersion' && Reflect.hasField(FlxG.save.data, key))
-					Reflect.setField(data, key, Reflect.field(FlxG.save.data, key));
+				{
+					var savedValue:Dynamic = Reflect.field(FlxG.save.data, key);
+					// Older builds exposed this integer as a checkbox and may have saved a Bool.
+					if (key == 'fixLNL' && Std.isOfType(savedValue, Bool)) savedValue = savedValue ? 1 : 0;
+					Reflect.setField(data, key, savedValue);
+				}
 				else if (key == 'arrowRGB') 
 				{
 					loadArrowRGBData('arrowRGB.json', false, ExtraKeysHandler.instance.data.colors);
@@ -543,6 +607,18 @@ class ClientPrefs
 							var arr = keyBinds.get(control);
 							arr.resize(0);
 							for (i in keys)
+								arr.push(i);
+						}
+				}
+				if (save.data.gamepad != null)
+				{
+					var loadedButtons:Map<String, Array<FlxGamepadInputID>> = save.data.gamepad;
+					for (control => buttons in loadedButtons)
+						if (gamepadBinds.exists(control))
+						{
+							var arr = gamepadBinds.get(control);
+							arr.resize(0);
+							for (i in buttons)
 								arr.push(i);
 						}
 				}

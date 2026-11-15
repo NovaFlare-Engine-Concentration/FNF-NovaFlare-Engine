@@ -17,6 +17,7 @@ import funkin.modding.events.ScriptEvent;
 import funkin.ui.freeplay.charselect.PlayableCharacter;
 import funkin.data.freeplay.player.PlayerRegistry;
 import funkin.util.SortUtil;
+import funkin.assets.Paths.AssetPath;
 
 /**
  * This is a data structure managing information about the current song.
@@ -30,6 +31,12 @@ import funkin.util.SortUtil;
 @:nullSafety
 class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMetadata>
 {
+  /** External song scripts add cutscenes and other resources to this list. */
+  public function queryAssets(type:funkin.assets.Assets.AssetType):Array<funkin.assets.Paths.AssetPath>
+  {
+    return funkin.assets.Assets.listInPath('gameplay/songs/$id/', type);
+  }
+
   /**
    * The default value for the song's name
    */
@@ -67,6 +74,7 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
 
   // key = variation id, value = metadata
   final _metadata:Map<String, SongMetadata>;
+  var usesRawMetadata:Bool = false;
 
   /**
    * holds the difficulties (as in SongDifficulty) for each variation
@@ -103,6 +111,7 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
 
   function get_songName():String
   {
+    if (usesRawMetadata) return _metadata.get(Constants.DEFAULT_VARIATION)?.songName ?? DEFAULT_SONGNAME;
     if (_data != null) return _data?.songName ?? DEFAULT_SONGNAME;
     if (_metadata.size() > 0) return _metadata.get(Constants.DEFAULT_VARIATION)?.songName ?? DEFAULT_SONGNAME;
     return DEFAULT_SONGNAME;
@@ -115,6 +124,7 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
 
   function get_songArtist():String
   {
+    if (usesRawMetadata) return _metadata.get(Constants.DEFAULT_VARIATION)?.artist ?? DEFAULT_ARTIST;
     if (_data != null) return _data?.artist ?? DEFAULT_ARTIST;
     if (_metadata.size() > 0) return _metadata.get(Constants.DEFAULT_VARIATION)?.artist ?? DEFAULT_ARTIST;
     return DEFAULT_ARTIST;
@@ -127,6 +137,7 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
 
   function get_charter():String
   {
+    if (usesRawMetadata) return _metadata.get(Constants.DEFAULT_VARIATION)?.charter ?? Constants.DEFAULT_CHARTER;
     if (_data != null) return _data?.charter ?? 'Unknown';
     if (_metadata.size() > 0) return _metadata.get(Constants.DEFAULT_VARIATION)?.charter ?? 'Unknown';
     return Constants.DEFAULT_CHARTER;
@@ -145,7 +156,20 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
 
     difficulties = new Map<String, Map<String, SongDifficulty>>();
 
-    _data = _fetchData(id);
+    if (params?.debug ?? false)
+    {
+      try
+      {
+        _data = _fetchData(id);
+      }
+      catch (e)
+      {
+      }
+    }
+    else
+    {
+      _data = _fetchData(id);
+    }
 
     _metadata = _data == null ? [] : [
       Constants.DEFAULT_VARIATION => _data
@@ -181,7 +205,7 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
       return;
     }
 
-    populateDifficulties();
+    populateDifficulties(true);
   }
 
   /**
@@ -196,22 +220,36 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
    * @param validScore Whether the song is elegible for highscores.
    * @return The constructed song object.
    */
-  public static function buildRaw(songId:String, metadata:Array<SongMetadata>, variation:String, charts:Map<String, SongChartData>, includeScript:Bool = true,
-      validScore:Bool = false):Song
+  public static function buildRaw(songId:String,
+    metadata:Array<SongMetadata>,
+    variation:haxe.extern.EitherType<String, Array<String>>,
+    charts:Map<String, SongChartData>,
+    includeScript:Bool = true,
+    validScore:Bool = false):Song
   {
+    // The early API accepted a list here but did not use it to select an entry.
+    // Metadata and charts below still retain every supplied variation.
+    var variationId:String = Std.isOfType(variation, Array) ? Constants.DEFAULT_VARIATION : cast variation;
     @:privateAccess
     var result:Null<Song> = null;
 
-    if (includeScript && SongRegistry.instance.isScriptedEntry(songId, {variation: variation}))
+    if (includeScript && SongRegistry.instance.isScriptedEntry(songId, {
+      variation: variationId
+    }))
     {
-      var songClassName:Null<String> = SongRegistry.instance.getScriptedEntryClassName(songId, {variation: variation});
+      var songClassName:Null<String> = SongRegistry.instance.getScriptedEntryClassName(songId, {
+        variation: variationId
+      });
       @:privateAccess
       if (songClassName != null) result = SongRegistry.instance.createScriptedEntry(songClassName);
     }
     else
     {
       @:privateAccess
-      result = SongRegistry.instance.createEntry(songId);
+      result = new Song(songId, {
+        variation: variationId,
+        debug: true
+      });
     }
 
     if (result == null) throw 'ERROR: Could not build Song instance ($songId), is the attached script bad?';
@@ -221,6 +259,9 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
     {
       result._metadata.set(meta.variation, meta);
     }
+    // The constructor may have loaded an on-disk entry with this ID.
+    // Keep the display getters in sync with the metadata supplied by the editor.
+    result.usesRawMetadata = true;
 
     result.difficulties.clear();
     result.populateDifficulties();
@@ -248,7 +289,7 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
    * List the album IDs for each variation of the song.
    * @return A map of variation IDs to album IDs.
    */
-  public function listAlbums(variation:String):Map<String, String>
+  public function listAlbums(?variation:String):Map<String, String>
   {
     var result:Map<String, String> = new Map<String, String>();
 
@@ -293,7 +334,7 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
    * Populate the difficulty data from the provided metadata.
    * Does not load chart data (that is triggered later when we want to play the song).
    */
-  function populateDifficulties():Void
+  function populateDifficulties(legacyLayout:Bool = false):Void
   {
     if (_metadata == null || _metadata.size() == 0) return;
 
@@ -338,6 +379,9 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
         difficulty.noteStyle = metadata.playData.noteStyle;
 
         difficulty.characters = metadata.playData.characters;
+        #if sys
+        if (legacyLayout) originfunkin.compat.LegacySongLayout.applyDifficulty(difficulty);
+        #end
         difficultyMap.set(diffId, difficulty);
       }
       difficulties.set(metadata.variation, difficultyMap);
@@ -361,12 +405,12 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
       if (version == null) continue;
       var chart:Null<SongChartData> = SongRegistry.instance.parseEntryChartDataWithMigration(id, vari, version);
       if (chart == null) continue;
-      applyChartData(chart, vari);
+      applyChartData(chart, vari, true);
     }
     log('Cached ${variations.length} chart data files for song "$id"');
   }
 
-  function applyChartData(chartData:SongChartData, vari:String):Void
+  function applyChartData(chartData:SongChartData, vari:String, legacyLayout:Bool = false):Void
   {
     var chartNotes = chartData.notes;
 
@@ -408,6 +452,9 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
       difficulty.scrollSpeed = chartData.getScrollSpeed(diffId) ?? 1.0;
 
       difficulty.events = chartData.events;
+      #if sys
+      if (legacyLayout) originfunkin.compat.LegacySongLayout.applyDifficulty(difficulty, nullDiff == null);
+      #end
     }
   }
 
@@ -442,16 +489,18 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
    * @param possibleVariations
    * @return Null<String>
    */
-  public function getFirstValidVariation(?diffId:String, ?currentCharacter:PlayableCharacter, ?possibleVariations:Array<String>):Null<String>
+  public function getFirstValidVariation(?diffId:String,
+    ?currentCharacter:haxe.extern.EitherType<PlayableCharacter, Array<String>>,
+    ?possibleVariations:Array<String>):Null<String>
   {
-    if (possibleVariations == null)
-    {
-      possibleVariations = getVariationsByCharacter(currentCharacter);
-    }
+    var candidates:Array<String>;
+    if (possibleVariations != null) candidates = possibleVariations;
+    else if (Std.isOfType(currentCharacter, Array)) candidates = cast currentCharacter;
+    else candidates = getVariationsByCharacter(cast currentCharacter);
 
-    if (diffId == null) diffId = listDifficulties(null, possibleVariations)[0];
+    if (diffId == null) diffId = listDifficulties(null, candidates)[0];
 
-    for (variationId in possibleVariations)
+    for (variationId in candidates)
     {
       if (difficulties.get('$variationId')?.exists(diffId) ?? false) return variationId;
     }
@@ -460,8 +509,9 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
   }
 
   /**
-   * Given that this character is selected in the Freeplay menu,
+   * Given that this playable character is selected in the Freeplay menu,
    * which variations should be available?
+   *
    * @param char The playable character to query.
    * @return An array of available variations.
    */
@@ -494,13 +544,23 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
   }
 
   /**
-   * Nearly the same thing as getVariationsByCharacter, but takes a character ID instead.
-   * @param charId
-   * @return Array<String>
+   * Nearly the same thing as getVariationsByCharacter, but takes a playable character ID.
+   *
+   * @param char The playable character to query.
+   * @return An array of available variations.
    * @see getVariationsByCharacter
    */
+  /** Legacy v0.4 character-variation lookup, retained alongside the newer API. */
+  public function getVariationsByCharId(?charId:String):Array<String>
+  {
+    var id = charId ?? Constants.DEFAULT_CHARACTER;
+    var available = variations;
+    return available.indexOf(id) >= 0 ? [id] : available;
+  }
+
   public function getVariationsByCharacterId(?charId:String):Array<String>
   {
+    // Fetch the playable character by its ID.
     var charPlayer = PlayerRegistry.instance.fetchEntry(charId ?? '');
 
     return getVariationsByCharacter(charPlayer);
@@ -527,10 +587,7 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
     {
       var metadata = _metadata.get(variationId);
       return metadata?.playData?.difficulties ?? [];
-    })
-      .flatten()
-      .filterNull()
-      .distinct();
+    }).flatten().filterNull().distinct();
 
     diffFiltered = diffFiltered.filter(function(diffId:String):Bool
     {
@@ -561,8 +618,7 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
       var difficulties = listDifficulties(variation, null, showLocked, showHidden);
       for (difficulty in difficulties)
       {
-        var suffixedDifficulty = (variation != Constants.DEFAULT_VARIATION
-          && variation != 'erect') ? '$difficulty-${variation}' : difficulty;
+        var suffixedDifficulty = (variation != Constants.DEFAULT_VARIATION && variation != 'erect') ? '$difficulty-${variation}' : difficulty;
         result.push(suffixedDifficulty);
       }
     }
@@ -668,6 +724,10 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
   {
   };
 
+  public function onNoteHoldHit(event:HoldNoteScriptEvent)
+  {
+  }
+
   public function onNoteMiss(event:NoteScriptEvent):Void
   {
   };
@@ -681,6 +741,10 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
   };
 
   public function onSongEvent(event:SongEventScriptEvent):Void
+  {
+  };
+
+  public function onCustomEvent(event:CustomEventScriptEvent):Void
   {
   };
 
@@ -735,8 +799,6 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
     return meta;
   }
 
-  static final VARIATION_REGEX = ~/^[a-z][a-z0-9]+$/;
-
   /**
    * Validate that the variation ID is valid.
    * Auto-accept if it's one of the base game default variations.
@@ -746,7 +808,7 @@ class Song implements IPlayStateScriptedClass implements IRegistryEntry<SongMeta
   {
     if (Constants.DEFAULT_VARIATION_LIST.contains(variation)) return true;
 
-    return VARIATION_REGEX.match(variation);
+    return (~/^[a-z][a-z0-9]+$/).match(variation);
   }
 
   static function log(message:String):Void
@@ -799,12 +861,38 @@ class SongDifficulty
   public var album:Null<String> = null;
   public var stickerPack:Null<String> = null;
   public var discordRPCImage:Null<String> = null;
+  /** Present only for pre-registry charts; current metadata keeps its usual vocal resolution. */
+  public var legacyNeedsVoices:Null<Bool> = null;
+  public var legacyVoiceList:Null<Array<String>> = null;
 
   public function new(song:Song, diffId:String, variation:String)
   {
     this.song = song;
     this.difficulty = diffId;
     this.variation = variation;
+  }
+
+  /** Query the resources declared by this song difficulty and its scripts. */
+  public function queryAssets(type:funkin.assets.Assets.AssetType, instId:String = ''):Array<AssetPath>
+  {
+    var results:Array<AssetPath> = funkin.data.song.SongRegistry.instance.queryAssets(type, song.id, {variation: this.variation});
+    results = results.concat(funkin.data.notestyle.NoteStyleRegistry.instance.queryAssets(type, this.noteStyle));
+    if (events != null)
+      for (event in events) results = results.concat(funkin.data.event.SongEventRegistry.queryAssets(type, event));
+
+    switch (type)
+    {
+      case SOUND:
+        results.push(getPlaybackInstPath(instId));
+        results = results.concat(buildVoiceList());
+      case TEXT:
+        var subtitlesFile = 'gameplay/songs/${song.id}/subtitles/song-lyrics';
+        if (this.variation != 'default') subtitlesFile += '-${this.variation}';
+        var path = funkin.assets.Paths.srt(subtitlesFile, false);
+        if (path.exists()) results.push(path);
+      default:
+    }
+    return results;
   }
 
   public function clearChart():Void
@@ -827,38 +915,61 @@ class SongDifficulty
     return cast events;
   }
 
-  public function getInstPath(instrumental = ''):String
+  /**
+   * Get the asset path for the
+   * @param instId = ''
+   * @return String
+   */
+  public function getInstPath(instId = ''):AssetPath
   {
-    if (characters != null)
+    var suffix = if (instId != '')
     {
-      if (instrumental != '' && characters.altInstrumentals.contains(instrumental))
-      {
-        var instId = '-$instrumental';
-        return Paths.inst(this.song.id, instId);
-      }
-      else
-      {
-        // Fallback to default instrumental.
-        var instId = (characters.instrumental ?? '') != '' ? '-${characters.instrumental}' : '';
-        return Paths.inst(this.song.id, instId);
-      }
+      '-$instId';
+    }
+    else if (characters != null && (characters.instrumental ?? '') != '')
+    {
+      '-${characters?.instrumental ?? ''}';
     }
     else
     {
-      return Paths.inst(this.song.id);
-    }
+      '';
+    };
+
+    return funkin.assets.Paths.inst(this.song.id, suffix);
   }
 
+  /** The instrumental selected by PlayState, without metadata-only fallback. */
+  public function getPlaybackInstPath(?instId:String):AssetPath
+  {
+    var suffix = (instId != null && instId != '') ? '-$instId' : '';
+    return funkin.assets.Paths.inst(this.song.id, suffix);
+  }
+
+  /**
+   * Cache the instrumental for a given song variation.
+   * @param instrumental = ''
+   */
   public function cacheInst(instrumental = ''):Void
   {
-    funkin.FunkinMemory.cacheSound(getInstPath(instrumental));
+    funkin.assets.Assets.cacheSound(getPlaybackInstPath(instrumental));
   }
 
-  public function playInst(volume:Float = 1.0, instId:String = '', looped:Bool = false):Void
+  public function playInst(volume:Float = 1.0, ?instId:Dynamic, looped:Bool = false):Void
   {
-    var suffix:String = (instId != '') ? '-$instId' : '';
+    // Prior to v0.4.1 the second argument controlled looping directly.
+    if (Std.isOfType(instId, Bool))
+    {
+      looped = cast instId;
+      instId = '';
+    }
+    if (instId == null) instId = '';
+    if (!Std.isOfType(instId, String)) throw 'Invalid instrumental identifier';
+    var selectedInst:String = cast instId;
+    var suffix:String = (selectedInst != '') ? '-$selectedInst' : '';
+    var path:String = Paths.inst(this.song.id, suffix);
+    trace(' SONG '.bold().bg_note_down() + ' Playing instrumental track "$path" for song "${song.id}"');
 
-    FlxG.sound.music = FunkinSound.load(Paths.inst(this.song.id, suffix), volume, looped, false, true, false, null, null, true);
+    FlxG.sound.music = FunkinSound.load(path, volume, looped, false, true, false, null, null);
 
     // Workaround for a bug where FlxG.sound.music.update() was being called twice.
     FlxG.sound.list.remove(FlxG.sound.music);
@@ -866,15 +977,29 @@ class SongDifficulty
 
   /**
    * Cache the vocals for a given character.
-   * @param id The character we are about to play.
+   * @param i
    */
-  public function cacheVocals():Void
+  public function cacheVocals(instrumental = ''):Void
   {
     for (voice in buildVoiceList())
     {
       trace(' SONG '.bold().bg_note_down() + ' Caching vocal track "$voice" for song "${song.id}"');
-      funkin.FunkinMemory.cacheSound(voice);
+      funkin.assets.Assets.cacheSound(voice);
     }
+  }
+
+  /** Prefer variation-specific combined vocals, then the default combined track. */
+  function getCombinedVoicePath():Null<AssetPath>
+  {
+    var suffix:String = (variation != null && variation != '' && variation != 'default') ? '-$variation' : '';
+    var path = funkin.assets.Paths.voices(this.song.id, suffix, false);
+    if (funkin.assets.Assets.exists(path.toString())) return path;
+    if (suffix != '')
+    {
+      path = funkin.assets.Paths.voices(this.song.id, '', false);
+      if (funkin.assets.Assets.exists(path.toString())) return path;
+    }
+    return null;
   }
 
   /**
@@ -883,36 +1008,38 @@ class SongDifficulty
    *
    * @param id The character we are about to play.
    */
-  public function buildVoiceList():Array<String>
+  public function buildVoiceList():Array<AssetPath>
   {
-    var result:Array<String> = [];
+    var legacy = legacyVocalPaths();
+    if (legacy != null) return legacy;
+    var result:Array<AssetPath> = [];
     result = result.concat(buildPlayerVoiceList());
     result = result.concat(buildOpponentVoiceList());
     if (result.length == 0)
     {
-      var suffix:String = (variation != null && variation != '' && variation != 'default') ? '-$variation' : '';
-      // Try to use `Voices.ogg` if no other voices are found.
-      if (Assets.exists(Paths.voices(this.song.id, ''))) result.push(Paths.voices(this.song.id, '$suffix'));
+      var combined = getCombinedVoicePath();
+      if (combined != null) result.push(combined);
     }
     return result;
   }
 
-  public function buildPlayerVoiceList():Array<String>
+  public function buildPlayerVoiceList():Array<AssetPath>
   {
+    if (legacyNeedsVoices == false) return [];
     var suffix:String = (variation != null && variation != '' && variation != 'default') ? '-$variation' : '';
 
     if (characters.playerVocals != null)
     {
       // The metadata explicitly defines the list of voices.
       var playerIds:Array<String> = characters?.playerVocals ?? [characters.player];
-      var playerVoices:Array<String> = playerIds.map((id) -> Paths.voices(this.song.id, '-$id$suffix'));
+      var playerVoices:Array<AssetPath> = playerIds.map((id) -> funkin.assets.Paths.voices(this.song.id, '-$id$suffix', false));
       var validVoices:Bool = true;
 
       // Check if all voice paths exist before returning
       // If not, fallback to the default method for resolving voices
       for (voice in playerVoices)
       {
-        if (voice == null || !Assets.exists(voice)) validVoices = false;
+        if (voice == null || !funkin.assets.Assets.exists(voice.toString())) validVoices = false;
       }
       if (validVoices) return playerVoices;
     }
@@ -921,49 +1048,50 @@ class SongDifficulty
     // For example, if `Voices-bf-car-erect.ogg` does not exist, check for `Voices-bf-erect.ogg`.
     // Then, check for  `Voices-bf-car.ogg`, then `Voices-bf.ogg`.
     var playerId:String = characters.player;
-    var playerVoice:String = Paths.voices(this.song.id, '-${playerId}$suffix');
+    var playerVoice:AssetPath = funkin.assets.Paths.voices(this.song.id, '-${playerId}$suffix', false);
 
-    while (playerVoice != null && !Assets.exists(playerVoice))
+    while (playerVoice != null && !funkin.assets.Assets.exists(playerVoice.toString()))
     {
       // Remove the last suffix.
       // For example, bf-car becomes bf.
       playerId = playerId.split('-').slice(0, -1).join('-');
       // Try again.
-      playerVoice = playerId == '' ? null : Paths.voices(this.song.id, '-${playerId}$suffix');
+      playerVoice = playerId == '' ? null : funkin.assets.Paths.voices(this.song.id, '-${playerId}$suffix', false);
     }
     if (playerVoice == null)
     {
       // Try again without $suffix.
       playerId = characters.player;
-      playerVoice = Paths.voices(this.song.id, '-${playerId}');
-      while (playerVoice != null && !Assets.exists(playerVoice))
+      playerVoice = funkin.assets.Paths.voices(this.song.id, '-${playerId}', false);
+      while (playerVoice != null && !funkin.assets.Assets.exists(playerVoice.toString()))
       {
         // Remove the last suffix.
         playerId = playerId.split('-').slice(0, -1).join('-');
-        // Try again.
-        playerVoice = playerId == '' ? null : Paths.voices(this.song.id, '-${playerId}$suffix');
+        // This pass intentionally drops the variation suffix.
+        playerVoice = playerId == '' ? null : funkin.assets.Paths.voices(this.song.id, '-${playerId}', false);
       }
     }
 
     return playerVoice != null ? [playerVoice] : [];
   }
 
-  public function buildOpponentVoiceList():Array<String>
+  public function buildOpponentVoiceList():Array<AssetPath>
   {
+    if (legacyNeedsVoices == false) return [];
     var suffix:String = (variation != null && variation != '' && variation != 'default') ? '-$variation' : '';
 
     if (characters.opponentVocals != null)
     {
       // The metadata explicitly defines the list of voices.
       var opponentIds:Array<String> = characters?.opponentVocals ?? [characters.opponent];
-      var opponentVoices:Array<String> = opponentIds.map((id) -> Paths.voices(this.song.id, '-$id$suffix'));
+      var opponentVoices:Array<AssetPath> = opponentIds.map((id) -> funkin.assets.Paths.voices(this.song.id, '-$id$suffix', false));
       var validVoices:Bool = true;
 
       // Check if all voice paths exist before returning
       // If not, fallback to the default method for resolving voices
       for (voice in opponentVoices)
       {
-        if (voice == null || !Assets.exists(voice)) validVoices = false;
+        if (voice == null || !funkin.assets.Assets.exists(voice.toString())) validVoices = false;
       }
       if (validVoices) return opponentVoices;
     }
@@ -973,25 +1101,25 @@ class SongDifficulty
     // Then, check for  `Voices-bf-car.ogg`, then `Voices-bf.ogg`.
 
     var opponentId:String = characters.opponent;
-    var opponentVoice:String = Paths.voices(this.song.id, '-${opponentId}$suffix');
-    while (opponentVoice != null && !Assets.exists(opponentVoice))
+    var opponentVoice:AssetPath = funkin.assets.Paths.voices(this.song.id, '-${opponentId}$suffix', false);
+    while (opponentVoice != null && !funkin.assets.Assets.exists(opponentVoice.toString()))
     {
       // Remove the last suffix.
       opponentId = opponentId.split('-').slice(0, -1).join('-');
       // Try again.
-      opponentVoice = opponentId == '' ? null : Paths.voices(this.song.id, '-${opponentId}$suffix');
+      opponentVoice = opponentId == '' ? null : funkin.assets.Paths.voices(this.song.id, '-${opponentId}$suffix', false);
     }
     if (opponentVoice == null)
     {
       // Try again without $suffix.
       opponentId = characters.opponent;
-      opponentVoice = Paths.voices(this.song.id, '-${opponentId}');
-      while (opponentVoice != null && !Assets.exists(opponentVoice))
+      opponentVoice = funkin.assets.Paths.voices(this.song.id, '-${opponentId}', false);
+      while (opponentVoice != null && !funkin.assets.Assets.exists(opponentVoice.toString()))
       {
         // Remove the last suffix.
         opponentId = opponentId.split('-').slice(0, -1).join('-');
-        // Try again.
-        opponentVoice = opponentId == '' ? null : Paths.voices(this.song.id, '-${opponentId}$suffix');
+        // This pass intentionally drops the variation suffix.
+        opponentVoice = opponentId == '' ? null : funkin.assets.Paths.voices(this.song.id, '-${opponentId}', false);
       }
     }
 
@@ -1007,32 +1135,38 @@ class SongDifficulty
   {
     var result:VoicesGroup = new VoicesGroup();
 
-    var playerVoiceList:Array<String> = this.buildPlayerVoiceList();
-    var opponentVoiceList:Array<String> = this.buildOpponentVoiceList();
+    var legacy = legacyVocalPaths();
+    if (legacy != null)
+    {
+      for (voice in legacy)
+        if (funkin.assets.Assets.exists(voice.toString())) result.addPlayerVoice(FunkinSound.load(voice.toFlxSoundAsset(), 1.0));
+      result.legacyVoiceSystem = true;
+      result.legacyVoiceUsesPlayer = true;
+      result.playerVoicesOffset = offsets.getVocalOffset(characters.player, instId);
+      return result;
+    }
+
+    var playerVoiceList:Array<AssetPath> = this.buildPlayerVoiceList();
+    var opponentVoiceList:Array<AssetPath> = this.buildOpponentVoiceList();
 
     // Add player vocals.
     for (playerVoice in playerVoiceList)
     {
-      if (!Assets.exists(playerVoice)) continue;
-      result.addPlayerVoice(FunkinSound.load(playerVoice, 1.0, false, false, false, false, null, null, true));
+      if (!funkin.assets.Assets.exists(playerVoice.toString())) continue;
+      result.addPlayerVoice(FunkinSound.load(playerVoice.toFlxSoundAsset(), 1.0));
     }
 
     // Add opponent vocals.
     for (opponentVoice in opponentVoiceList)
     {
-      if (!Assets.exists(opponentVoice)) continue;
-      result.addOpponentVoice(FunkinSound.load(opponentVoice, 1.0, false, false, false, false, null, null, true));
+      if (!funkin.assets.Assets.exists(opponentVoice.toString())) continue;
+      result.addOpponentVoice(FunkinSound.load(opponentVoice.toFlxSoundAsset(), 1.0));
     }
 
     if (result.members.length == 0)
     {
-      var suffix:String = (variation != null && variation != '' && variation != 'default') ? '-$variation' : '';
-      // Try to use `Voices.ogg` if no other voices are found.
-      var legacyPath = Paths.voices(this.song.id, '$suffix');
-      if (Assets.exists(legacyPath))
-      {
-        result.addPlayerVoice(FunkinSound.load(legacyPath, 1.0, false, false, false, false, null, null, true));
-      }
+      var combined = getCombinedVoicePath();
+      if (combined != null) result.addPlayerVoice(FunkinSound.load(combined.toFlxSoundAsset(), 1.0));
     }
 
     if (result.members.length == 1) // It's legacy'ing somewhere and i can prove it
@@ -1041,13 +1175,29 @@ class SongDifficulty
       result.legacyVoiceUsesPlayer = result.getPlayerVoice(0) != null;
     }
 
-    // Sometimes the sounds don't set their important value to true, so we have to do this manually.
-    result.forEach((snd:FunkinSound) -> snd.important = true);
-
     result.playerVoicesOffset = offsets.getVocalOffset(characters.player, instId);
     result.opponentVoicesOffset = offsets.getVocalOffset(characters.opponent, instId);
 
     return result;
+  }
+
+  function legacyVocalPaths():Null<Array<AssetPath>>
+  {
+    if (legacyNeedsVoices == false) return [];
+    if (legacyVoiceList != null && (legacyVoiceList.length != 1 || legacyVoiceList[0] != ''))
+    {
+      // The first loader treated voiceList entries as literal suffixes and muted the group together.
+      return legacyVoiceList.map(suffix -> funkin.assets.Paths.voices(song.id, suffix))
+        .filter(path -> funkin.assets.Assets.exists(path.toString()));
+    }
+    if (variation != 'default' && variation != '') return null;
+    var combined = funkin.assets.Paths.voices(song.id, '', false);
+    if (!funkin.assets.Assets.exists(combined.toString())) return null;
+    #if sys
+    if (originfunkin.compat.LegacySongLayout.preferCombinedVoice(song.id,
+      buildPlayerVoiceList().concat(buildOpponentVoiceList()), legacyVoiceList != null)) return [combined];
+    #end
+    return null;
   }
 }
 
@@ -1056,5 +1206,10 @@ typedef SongParams =
   /**
    * The variation to use for this song.
    */
-  variation:String
+  variation:String,
+
+  /**
+   * Whether the song is currently part of a debug state
+   */
+  ?debug:Bool
 }

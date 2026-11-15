@@ -1,5 +1,6 @@
 package funkin.ui.charSelect;
 
+import funkin.assets.FunkinAssetCache;
 import flixel.FlxSprite;
 import flixel.FlxState;
 import flixel.group.FlxSpriteGroup;
@@ -8,12 +9,12 @@ import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
 import funkin.graphics.FunkinSprite;
 import flixel.util.FlxColor;
-import funkin.data.character.CharacterData.CharacterDataParser;
+import funkin.data.character.CharacterRegistry;
 import funkin.play.components.HealthIcon;
 import funkin.ui.freeplay.charselect.PlayableCharacter;
 import funkin.data.freeplay.player.PlayerRegistry;
 import funkin.ui.mainmenu.MainMenuState;
-#if mobile
+#if FEATURE_TOUCH_CONTROLS
 import funkin.util.TouchUtil;
 import funkin.util.DeviceUtil;
 #end
@@ -27,6 +28,29 @@ using flixel.util.FlxSpriteUtil;
 @:nullSafety
 class CharacterUnlockState extends MusicBeatState
 {
+  /** Query the same icon and optional Sparrow XML used by the unlock dialog. */
+  public static function queryAssets(type:funkin.assets.Assets.AssetType, characterId:String):Array<funkin.assets.Paths.AssetPath>
+  {
+    if (type != IMAGE && type != XML) return [];
+    var data = CharacterRegistry.instance.fetchCharacterData(characterId ?? Constants.DEFAULT_CHARACTER);
+    var iconId = data?.healthIcon?.id ?? Constants.DEFAULT_HEALTH_ICON;
+    var key = 'gameplay/characters/$iconId/icon-$iconId';
+    if (!funkin.assets.Paths.image(key, false).exists())
+    {
+      iconId = Constants.DEFAULT_HEALTH_ICON;
+      key = 'gameplay/characters/$iconId/icon-$iconId';
+    }
+    return switch (type)
+    {
+      case IMAGE: [funkin.assets.Paths.image(key)];
+      case XML:
+        var xml = funkin.assets.Paths.xml(key, false);
+        xml.exists() ? [xml] : [];
+      default: [];
+    }
+  }
+
+
   public var targetCharacterId:String = "";
   public var targetCharacterData:Null<PlayableCharacter>;
 
@@ -38,7 +62,8 @@ class CharacterUnlockState extends MusicBeatState
 
   var busy:Bool = false;
 
-  public function new(targetPlayableCharacter:String, ?nextState:FlxState)
+  public function new(targetPlayableCharacter:String,
+    ?nextState:FlxState)
   {
     super();
 
@@ -62,7 +87,7 @@ class CharacterUnlockState extends MusicBeatState
     var charName:String = targetCharacterData != null ? targetCharacterData.getName() : targetCharacterId.toTitleCase();
     // var dialogText:FlxText = new FlxText(0, 0, 0, 'You can now play as     $charName.\n\nCheck it out in Freeplay!');
     var dialogText:FlxText = new FlxText(0, 0, 0, 'You can now play as     $charName.');
-    dialogText.setFormat("VCR OSD Mono", 32, DIALOG_FONT_COLOR, LEFT);
+    dialogText.setFormat(funkin.assets.Paths.font('ui/fonts/VCR OSD Mono'), 32, DIALOG_FONT_COLOR, LEFT);
 
     // THEN we can size the dialog to match...
     var dialogBG:FlxSprite = new FlxSprite(0, 0);
@@ -80,7 +105,7 @@ class CharacterUnlockState extends MusicBeatState
     // HealthIcon handles getting the right frames for us,
     // but it has a bunch of overhead in it that makes it gross to work with outside the health bar.
     var healthIconCharacterId = targetCharacterData?.getOwnedCharacterIds()[0];
-    var baseCharacter = CharacterDataParser.fetchCharacter(healthIconCharacterId ?? Constants.DEFAULT_CHARACTER);
+    var baseCharacter = CharacterRegistry.instance.fetchEntry(healthIconCharacterId ?? Constants.DEFAULT_CHARACTER);
     var healthIcon:HealthIcon = new HealthIcon(healthIconCharacterId);
     @:privateAccess
     healthIcon.configure(baseCharacter?._data.healthIcon);
@@ -108,14 +133,14 @@ class CharacterUnlockState extends MusicBeatState
   function handleMusic():Void
   {
     FlxG.sound.music?.stop();
-    FlxG.sound.play(Paths.sound('confirmMenu'));
+    FlxG.sound.play(Paths.sound('ui/main-menu/confirm-menu'));
   }
 
   override function update(elapsed:Float):Void
   {
     super.update(elapsed);
 
-    if (controls.ACCEPT_P || controls.BACK_P #if mobile || TouchUtil.pressAction() #end && !busy)
+    if (controls.ACCEPT_P || controls.BACK_P #if FEATURE_TOUCH_CONTROLS || TouchUtil.pressAction() #end && !busy)
     {
       busy = true;
       startClose();
@@ -127,14 +152,31 @@ class CharacterUnlockState extends MusicBeatState
     // Fade to black, then switch state.
     FlxG.camera.fade(FlxColor.BLACK, 0.75, false, () ->
     {
-      funkin.FunkinMemory.clearFreeplay();
       #if ios
-      trace(DeviceUtil.iPhoneNumber);
-      if (DeviceUtil.iPhoneNumber > 12) funkin.FunkinMemory.purgeCache(true);
+      if (DeviceUtil.iPhoneNumber > 12)
+      {
+        FunkinAssetCache.instance.preparePurgeCache();
+        FlxG.signals.preStateSwitch.addOnce(() ->
+        {
+          FunkinAssetCache.instance.purgeCache(true);
+        });
+      }
       else
-        funkin.FunkinMemory.purgeCache();
+      {
+        FunkinAssetCache.instance.preparePurgeCache();
+        // TODO: In loading screens, you should be caching BETWEEN these.
+        FlxG.signals.preStateSwitch.addOnce(() ->
+        {
+          FunkinAssetCache.instance.purgeCache();
+        });
+      }
       #else
-      funkin.FunkinMemory.purgeCache(true);
+      FunkinAssetCache.instance.preparePurgeCache();
+      // TODO: In loading screens, you should be caching BETWEEN these.
+      FlxG.signals.preStateSwitch.addOnce(() ->
+      {
+        FunkinAssetCache.instance.purgeCache(true);
+      });
       #end
       FlxG.switchState(() -> nextState);
     });

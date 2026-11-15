@@ -113,7 +113,6 @@ class Main extends Sprite
 		codename.funkin.backend.system.updating.UpdateUtil.init();
 		#end
 		ShaderResizeFix.init();
-		Logs.init();
 		Paths.init();
 
 		hscript.Interp.importRedirects = codename.funkin.backend.scripting.Script.getDefaultImportRedirects();
@@ -168,6 +167,30 @@ class Main extends Sprite
 		initTransition();
 	}
 
+	public static function applySoundCurve(volume:Float) {
+		return Flags.USE_SOUND_VOLUME_CURVE ? Math.pow(volume, 1.75) : volume;
+	}
+
+	public static function reverseSoundCurve(curvedVolume:Float) {
+		return Flags.USE_SOUND_VOLUME_CURVE ? Math.pow(curvedVolume, 0.5714285714285714) : curvedVolume;
+	}
+
+	static var persistShaderKeys:Map<String, Bool>;
+
+	public static function refreshShaders() @:privateAccess {
+		if (persistShaderKeys == null) {
+			persistShaderKeys = [for (k in Lib.current.stage.context3D.__programs.keys()) k => true];
+		}
+		else {
+			for (key => program in Lib.current.stage.context3D.__programs) {
+				if (persistShaderKeys.get(key) || Type.resolveClass(key) != null) continue;
+
+				program.dispose();
+				Lib.current.stage.context3D.__programs.remove(key);
+			}
+		}
+	}
+
 	public static function refreshAssets() @:privateAccess {
 		FunkinCache.instance.clearSecondLayer();
 		#if !CODENAME_ENGINE_COMPAT
@@ -186,6 +209,8 @@ class Main extends Sprite
 
 		game.addChildAt(game.soundTray = daSndTray, index);
 		#end
+
+		refreshShaders();
 	}
 
 	public static function initTransition() {

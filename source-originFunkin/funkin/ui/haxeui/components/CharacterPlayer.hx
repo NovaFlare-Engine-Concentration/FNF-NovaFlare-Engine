@@ -7,7 +7,7 @@ import funkin.modding.events.ScriptEvent.HitNoteScriptEvent;
 import funkin.modding.events.ScriptEvent.SongTimeScriptEvent;
 import funkin.modding.events.ScriptEvent.UpdateScriptEvent;
 import funkin.play.character.BaseCharacter;
-import funkin.data.character.CharacterData.CharacterDataParser;
+import funkin.data.character.CharacterRegistry;
 import haxe.ui.containers.Box;
 import haxe.ui.core.Component;
 import haxe.ui.events.AnimationEvent;
@@ -87,7 +87,9 @@ class CharacterPlayer extends Box
     }
 
     // Prevent script issues by fetching with debug=true.
-    var newCharacter:BaseCharacter = CharacterDataParser.fetchCharacter(id, true);
+    var newCharacter:BaseCharacter = CharacterRegistry.instance.fetchEntry(id, {
+      debug: true
+    });
     if (newCharacter == null)
     {
       character = null;
@@ -178,13 +180,18 @@ class CharacterPlayer extends Box
     if (character != null) character.playAnimation(name, restart, ignoreOther, reversed);
   }
 
+  public function setBopSpeed(speed:Float = 1):Void
+  {
+    if (character != null) character.danceEvery = speed;
+  }
+
   override function repositionChildren():Void
   {
     super.repositionChildren();
 
     if (character == null) return;
-    character.x = this.cachedScreenX + (-character.globalOffsets[0] * character.scale.x);
-    character.y = this.cachedScreenY + (-character.globalOffsets[1] * character.scale.y);
+    character.x = this._cachedScreenX + (-character.globalOffsets[0] * character.scale.x);
+    character.y = this._cachedScreenY + (-character.globalOffsets[1] * character.scale.y);
   }
 
   /**
@@ -233,9 +240,10 @@ class CharacterPlayer extends Box
     {
       character.onNoteHit(event);
 
-      if ((event.note.noteData.getMustHitNote() && characterType == BF)
-        || (!event.note.noteData.getMustHitNote()
-          && characterType == DAD)) character.holdTimer = -event.note.noteData?.length / Constants.MS_PER_SEC;
+      if
+        ((event.note.noteData.getMustHitNote() && characterType == BF)
+          || (!event.note.noteData.getMustHitNote() && characterType == DAD)
+        ) character.holdTimer = -event.note.noteData?.length / Constants.MS_PER_SEC;
       // At least i tried yaknow?
     }
   }
@@ -271,7 +279,8 @@ class CharacterPlayer extends Box
   }
 }
 
-@:access(funkin.ui.haxeui.components.CharacterPlayer) @:access(funkin.play.character.BaseCharacter)
+@:access(funkin.ui.haxeui.components.CharacterPlayer)
+@:access(funkin.play.character.BaseCharacter)
 private class Layout extends DefaultLayout
 {
   override public function resizeChildren():Void

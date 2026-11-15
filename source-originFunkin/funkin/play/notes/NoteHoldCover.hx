@@ -15,10 +15,19 @@ class NoteHoldCover extends FlxTypedSpriteGroup<FlxSprite>
 
   var sparks:FlxSprite;
 
-  public function new(noteStyle:NoteStyle)
+  /** Preload the default style as the historical static API did. */
+  public static function preloadFrames():Void
+  {
+    var style = funkin.data.notestyle.NoteStyleRegistry.instance.fetchDefault();
+    if (!style.isHoldNoteCoverEnabled()) return;
+    @:privateAccess style.buildHoldCoverFrames();
+  }
+
+  public function new(?noteStyle:NoteStyle)
   {
     super(0, 0);
 
+    if (noteStyle == null) noteStyle = funkin.data.notestyle.NoteStyleRegistry.instance.fetchDefault();
     setupHoldNoteCover(noteStyle);
   }
 
@@ -70,8 +79,7 @@ class NoteHoldCover extends FlxTypedSpriteGroup<FlxSprite>
     super.kill();
 
     this.visible = false;
-
-    holdNote.cover = null;
+    if (holdNote != null) holdNote.cover = null;
 
     if (glow != null) glow.visible = false;
     if (sparks != null) sparks.visible = false;

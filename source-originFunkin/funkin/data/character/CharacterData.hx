@@ -1,446 +1,156 @@
 package funkin.data.character;
 
 import funkin.data.animation.AnimationData;
-import funkin.modding.events.ScriptEvent;
-import funkin.modding.events.ScriptEventDispatcher;
-import funkin.play.character.ScriptedCharacter.ScriptedAnimateAtlasCharacter;
-import funkin.play.character.ScriptedCharacter.ScriptedBaseCharacter;
-import funkin.play.character.ScriptedCharacter.ScriptedMultiSparrowCharacter;
-import funkin.play.character.ScriptedCharacter.ScriptedMultiAnimateAtlasCharacter;
-import funkin.play.character.ScriptedCharacter.ScriptedPackerCharacter;
-import funkin.play.character.ScriptedCharacter.ScriptedSparrowCharacter;
-import funkin.play.character.AnimateAtlasCharacter;
-import funkin.play.character.BaseCharacter;
-import funkin.play.character.SparrowCharacter;
-import funkin.play.character.MultiSparrowCharacter;
-import funkin.play.character.MultiAnimateAtlasCharacter;
-import funkin.play.character.PackerCharacter;
-import funkin.util.assets.DataAssets;
 import funkin.util.VersionUtil;
-import haxe.Json;
-import flixel.graphics.frames.FlxFrame;
 
 @:nullSafety
-class CharacterDataParser
+class CharacterData
 {
   /**
-   * The current version string for the stage data format.
-   * Handle breaking changes by incrementing this value
-   * and adding migration to the `migrateStageData()` function.
+   * The semantic version number of the character data JSON format.
+   */
+  public var version:String;
+
+  /**
+   * The readable name of the character.
+   */
+  public var name:String;
+
+  /**
+   * Behavior varies by render type:
+   * - SPARROW: Path to retrieve both the spritesheet and the XML data from.
+   * - PACKER: Path to retrieve both the spritesheet and the TXT data from.
+   */
+  public var assetPath:Null<String>;
+
+  /**
+   * The type of rendering system to use for the character.
+   * @default sparrow
+   */
+  @:optional
+  public var renderType:Null<CharacterRenderType>;
+
+  /**
+   * The scale of the graphic as a float.
+   * Pro tip: On pixel-art levels, save the sprites small and set this value to 6 or so to save memory.
+   * @default 1
+   */
+  @:optional
+  public var scale:Null<Float>;
+
+  /**
+   * Optional data about the health icon for the character.
+   */
+  @:optional
+  public var healthIcon:Null<HealthIconData>;
+
+  /**
+   * Optional data about the death animation for the character.
+   */
+  @:optional
+  public var death:Null<DeathData>;
+
+  /**
+   * The global offset to the character's position, in pixels.
+   * @default [0, 0]
+   */
+  @:optional
+  public var offsets:Null<Array<Float>>;
+
+  /**
+   * The amount to offset the camera by while focusing on this character.
+   * Default value focuses on the character directly.
+   * @default [0, 0]
+   */
+  @:optional
+  public var cameraOffsets:Null<Array<Float>>;
+
+  /**
+   * Setting this to true disables anti-aliasing for the character.
+   * @default false
+   */
+  @:optional
+  public var isPixel:Null<Bool>;
+
+  /**
+   * The frequency at which the character will play its idle animation, in beats.
+   * Increasing this number will make the character dance less often.
+   * Supports up to `0.25` precision.
+   * @default `1.0` on characters
+   */
+  @:optional @:default(1.0)
+  public var danceEvery:Null<Float>;
+
+  /**
+   * The minimum duration that a character will play a note animation for, in beats.
+   * If this number is too low, you may see the character start playing the idle animation between notes.
+   * If this number is too high, you may see the the character play the sing animation for too long after the notes are gone.
    *
-   * - Version 1.0.1 adds `death.cameraOffsets`
+   * Examples:
+   * - Daddy Dearest uses a value of `1.525`.
+   * @default 1.0
    */
-  public static final CHARACTER_DATA_VERSION:String = '1.0.2';
+  @:optional
+  public var singTime:Null<Float>;
 
   /**
-   * The current version rule check for the stage data format.
+   * An optional array of animations which the character can play.
    */
-  public static final CHARACTER_DATA_VERSION_RULE:String = '1.0.x';
-
-  static final characterCache:Map<String, CharacterData> = new Map<String, CharacterData>();
-  static final characterScriptedClass:Map<String, String> = new Map<String, String>();
-  static final DEFAULT_CHAR_ID:String = 'UNKNOWN';
+  @:optional
+  public var animations:Null<Array<AnimationData>>;
 
   /**
-   * Parses and preloads the game's stage data and scripts when the game starts.
+   * If animations are used, this is the name of the animation to play first.
+   * @default idle
+   */
+  @:optional
+  public var startingAnimation:Null<String>;
+
+  /**
+   * Whether or not the whole ass sprite is flipped by default.
+   * Useful for characters that could also be played (Pico)
    *
-   * If you want to force stages to be reloaded, you can just call this function again.
+   * @default false
    */
-  public static function loadCharacterCache():Void
-  {
-    // Clear any stages that are cached if there were any.
-    clearCharacterCache();
-    log(' INFO '.info() + 'Parsing all entries...');
+  @:optional
+  public var flipX:Null<Bool>;
 
-    //
-    // UNSCRIPTED CHARACTERS
-    //
-    var charIdList:Array<String> = DataAssets.listDataFilesInPath('characters/');
-    var unscriptedCharIds:Array<String> = charIdList.filter(function(charId:String):Bool
-    {
-      return !characterCache.exists(charId);
-    });
-    log('Fetching data for ${unscriptedCharIds.length} characters...');
-    for (charId in unscriptedCharIds)
-    {
-      try
-      {
-        var charData:Null<CharacterData> = parseCharacterData(charId);
-        if (charData != null)
-        {
-          log('Loaded character "${charId}"');
-          characterCache.set(charId, charData);
-        }
-      }
-      catch (e)
-      {
-        // Assume error was already logged.
-        continue;
-      }
-    }
-
-    //
-    // SCRIPTED CHARACTERS
-    //
-
-    // Fuck I wish scripted classes supported static functions.
-
-    var scriptedCharClassNames1:Array<String> = ScriptedSparrowCharacter.listScriptClasses();
-    if (scriptedCharClassNames1.length > 0)
-    {
-      log('Instantiating ${scriptedCharClassNames1.length} (Sparrow) scripted characters...');
-      for (charCls in scriptedCharClassNames1)
-      {
-        try
-        {
-          var character:SparrowCharacter = ScriptedSparrowCharacter.scriptInit(charCls, DEFAULT_CHAR_ID);
-          log('Loaded character ${character.characterName} (scripted: $charCls)');
-          characterScriptedClass.set(character.characterId, charCls);
-        }
-        catch (e)
-        {
-          log(' ERROR '.error() + 'Failed to initialize scripted Sparrow character: $charCls');
-          log(' ERROR '.error() + '$e');
-        }
-      }
-    }
-
-    var scriptedCharClassNames2:Array<String> = ScriptedPackerCharacter.listScriptClasses();
-    if (scriptedCharClassNames2.length > 0)
-    {
-      log('Instantiating ${scriptedCharClassNames2.length} (Packer) scripted characters...');
-      for (charCls in scriptedCharClassNames2)
-      {
-        try
-        {
-          var character:PackerCharacter = ScriptedPackerCharacter.scriptInit(charCls, DEFAULT_CHAR_ID);
-          log('Loaded character ${character.characterName} (scripted: $charCls)');
-          characterScriptedClass.set(character.characterId, charCls);
-        }
-        catch (e)
-        {
-          log(' ERROR '.error() + 'Failed to initialize scripted Packer character: $charCls');
-          log(' ERROR '.error() + '$e');
-        }
-      }
-    }
-
-    var scriptedCharClassNames3:Array<String> = ScriptedMultiSparrowCharacter.listScriptClasses();
-    if (scriptedCharClassNames3.length > 0)
-    {
-      log('Instantiating ${scriptedCharClassNames3.length} (Multi-Sparrow) scripted characters...');
-      for (charCls in scriptedCharClassNames3)
-      {
-        try
-        {
-          var character:MultiSparrowCharacter = ScriptedMultiSparrowCharacter.scriptInit(charCls, DEFAULT_CHAR_ID);
-          log('Loaded character ${character.characterName} (scripted: $charCls)');
-          characterScriptedClass.set(character.characterId, charCls);
-        }
-        catch (e)
-        {
-          log(' ERROR '.error() + 'Failed to initialize scripted Multi-Sparrow character: $charCls');
-          log(' ERROR '.error() + '$e');
-        }
-      }
-    }
-
-    var scriptedCharClassNames4:Array<String> = ScriptedAnimateAtlasCharacter.listScriptClasses();
-    if (scriptedCharClassNames4.length > 0)
-    {
-      log('Instantiating ${scriptedCharClassNames4.length} (Animate Atlas) scripted characters...');
-      for (charCls in scriptedCharClassNames4)
-      {
-        try
-        {
-          var character:AnimateAtlasCharacter = ScriptedAnimateAtlasCharacter.scriptInit(charCls, DEFAULT_CHAR_ID);
-          log('Loaded character ${character.characterName} (scripted: $charCls)');
-          characterScriptedClass.set(character.characterId, charCls);
-        }
-        catch (e)
-        {
-          log(' ERROR '.error() + 'Failed to initialize scripted Animate Atlas character: $charCls');
-          log(' ERROR '.error() + '$e');
-        }
-      }
-    }
-
-    var scriptedCharClassNames5:Array<String> = ScriptedMultiAnimateAtlasCharacter.listScriptClasses();
-    if (scriptedCharClassNames5.length > 0)
-    {
-      log('Instantiating ${scriptedCharClassNames5.length} (Multi-Animate Atlas) scripted characters...');
-      for (charCls in scriptedCharClassNames5)
-      {
-        try
-        {
-          var character:MultiAnimateAtlasCharacter = ScriptedMultiAnimateAtlasCharacter.scriptInit(charCls, DEFAULT_CHAR_ID);
-          log('Loaded character ${character.characterName} (scripted: $charCls)');
-          characterScriptedClass.set(character.characterId, charCls);
-        }
-        catch (e)
-        {
-          log(' ERROR '.error() + 'Failed to initialize scripted Multi-Animate Atlas character: $charCls');
-          log(' ERROR '.error() + '$e');
-        }
-      }
-    }
-
-    // NOTE: Only instantiate the ones not populated above.
-    // ScriptedBaseCharacter.listScriptClasses() will pick up scripts extending the other classes.
-    var scriptedCharClassNames:Array<String> = ScriptedBaseCharacter.listScriptClasses();
-    scriptedCharClassNames = scriptedCharClassNames.filter(function(charCls:String):Bool
-    {
-      return !(scriptedCharClassNames1.contains(charCls)
-        || scriptedCharClassNames2.contains(charCls)
-        || scriptedCharClassNames3.contains(charCls)
-        || scriptedCharClassNames4.contains(charCls)
-        || scriptedCharClassNames5.contains(charCls));
-    });
-
-    if (scriptedCharClassNames.length > 0)
-    {
-      log('Instantiating ${scriptedCharClassNames.length} (Base) scripted characters...');
-      for (charCls in scriptedCharClassNames)
-      {
-        var character:BaseCharacter = ScriptedBaseCharacter.scriptInit(charCls, DEFAULT_CHAR_ID, Custom);
-        if (character == null)
-        {
-          log(' ERROR '.error() + 'Failed to initialize scripted character: $charCls');
-          continue;
-        }
-        else
-        {
-          log('Loaded character ${character.characterName} (scripted: $charCls)');
-          characterScriptedClass.set(character.characterId, charCls);
-        }
-      }
-    }
-
-    log(' INFO '.info() + 'Successfully loaded ${characterCache.size()} stages.');
-  }
+  /** Optional vertical flip used by some external character definitions. */
+  @:optional
+  public var flipY:Null<Bool>;
 
   /**
-   * Fetches data for a character and returns a BaseCharacter instance,
-   * ready to be added to the scene.
-   * @param charId The character ID to fetch.
-   * @return The character instance, or null if the character was not found.
-   */
-  public static function fetchCharacter(charId:String, debug:Bool = false):Null<BaseCharacter>
-  {
-    if (charId == null || charId == '' || !characterCache.exists(charId))
-    {
-      // Gracefully handle songs that don't use this character,
-      // or throw an error if the character is missing.
-
-      if (charId != null && charId != '') trace('Failed to build character, not found in cache: ${charId}');
-      return null;
-    }
-
-    var charData:Null<CharacterData> = characterCache.get(charId);
-    var charScriptClass:Null<String> = characterScriptedClass.get(charId);
-
-    var char:Null<BaseCharacter> = null;
-
-    if (charScriptClass != null)
-    {
-      if (charData != null) switch (charData.renderType)
-      {
-        case CharacterRenderType.AnimateAtlas:
-          char = ScriptedAnimateAtlasCharacter.scriptInit(charScriptClass, charId);
-        case CharacterRenderType.MultiSparrow:
-          char = ScriptedMultiSparrowCharacter.scriptInit(charScriptClass, charId);
-        case CharacterRenderType.Sparrow:
-          char = ScriptedSparrowCharacter.scriptInit(charScriptClass, charId);
-        case CharacterRenderType.Packer:
-          char = ScriptedPackerCharacter.scriptInit(charScriptClass, charId);
-        case CharacterRenderType.MultiAnimateAtlas:
-          char = ScriptedMultiAnimateAtlasCharacter.scriptInit(charScriptClass, charId);
-        default:
-          // We're going to assume that the script class does the rendering.
-          char = ScriptedBaseCharacter.scriptInit(charScriptClass, charId, CharacterRenderType.Custom);
-      }
-    }
-    else
-    {
-      if (charData != null) switch (charData.renderType)
-      {
-        case CharacterRenderType.AnimateAtlas:
-          char = new AnimateAtlasCharacter(charId);
-        case CharacterRenderType.MultiSparrow:
-          char = new MultiSparrowCharacter(charId);
-        case CharacterRenderType.Sparrow:
-          char = new SparrowCharacter(charId);
-        case CharacterRenderType.Packer:
-          char = new PackerCharacter(charId);
-        case CharacterRenderType.MultiAnimateAtlas:
-          char = new MultiAnimateAtlasCharacter(charId);
-        default:
-          trace(' WARNING '.warning() + ' Creating character with undefined renderType ${charData.renderType}');
-          char = new BaseCharacter(charId, CharacterRenderType.Custom);
-      }
-    }
-
-    if (char == null)
-    {
-      trace('Failed to instantiate character: ${charId}');
-      return null;
-    }
-
-    trace('Successfully instantiated character (${debug ? 'debug' : 'stable'}): ${charId}');
-
-    char.debug = debug;
-
-    // Call onCreate only in the fetchCharacter() function, not at application initialization.
-    ScriptEventDispatcher.callEvent(char, new ScriptEvent(CREATE));
-
-    return char;
-  }
-
-  /**
-   * Fetches just the character data for a character.
-   * @param charId The character ID to fetch.
-   * @return The character data, or null if the character was not found.
-   */
-  public static function fetchCharacterData(charId:String):Null<CharacterData>
-  {
-    if (characterCache.exists(charId)) return characterCache.get(charId);
-
-    return null;
-  }
-
-  /**
-   * Lists all the valid character IDs.
-   * @return An array of character IDs.
-   */
-  public static function listCharacterIds():Array<String>
-  {
-    return characterCache.keys().array();
-  }
-
-  /**
-   * Returns the idle frame of a character.
-   */
-  public static function getCharPixelIconAsset(char:String):Null<FlxFrame>
-  {
-    var charPath:String = 'freeplay/icons/';
-
-    final charIDParts:Array<String> = char.split('-');
-    var iconName:String = '';
-    var lastValidIconName:String = '';
-    for (i in 0...charIDParts.length)
-    {
-      iconName += charIDParts[i];
-
-      if (Assets.exists(Paths.image(charPath + '${iconName}pixel')))
-      {
-        lastValidIconName = iconName;
-      }
-
-      if (i < charIDParts.length - 1) iconName += '-';
-    }
-
-    charPath += '${lastValidIconName}pixel';
-
-    if (!Assets.exists(Paths.image(charPath)))
-    {
-      trace(' WARNING '.warning() + ' Character ${char} has no freeplay icon.');
-      return null;
-    }
-
-    var isAnimated = Assets.exists(Paths.file('images/$charPath.xml'));
-    var frame:Null<FlxFrame> = null;
-
-    if (isAnimated)
-    {
-      var frames = Paths.getSparrowAtlas(charPath);
-
-      var idleFrame:Null<FlxFrame> = frames.frames.find(function(frame:FlxFrame):Bool
-      {
-        return frame.name.startsWith('idle');
-      });
-
-      if (idleFrame == null)
-      {
-        trace(' WARNING '.warning() + ' Character ${char} has no idle in their freeplay icon.');
-        return null;
-      }
-
-      // so, haxe.ui.backend.AssetsImpl uses the parent width and height, which makes the image go crazy when rendered
-      // so this is a work around so that it uses the actual width and height
-      var imageGraphic = flixel.graphics.FlxGraphic.fromFrame(idleFrame);
-
-      var imageFrame = flixel.graphics.frames.FlxImageFrame.fromImage(imageGraphic);
-      frame = imageFrame.frame;
-    }
-    else
-    {
-      var imageFrame = flixel.graphics.frames.FlxImageFrame.fromImage(Paths.image(charPath));
-      frame = imageFrame.frame;
-    }
-
-    return frame;
-  }
-
-  /**
-   * Clears the character data cache.
-   */
-  static function clearCharacterCache():Void
-  {
-    if (characterCache != null)
-    {
-      characterCache.clear();
-    }
-    if (characterScriptedClass != null)
-    {
-      characterScriptedClass.clear();
-    }
-  }
-
-  /**
-   * Load a character's JSON file and parse its data.
+   * NOTE: This only applies to animate atlas characters.
    *
-   * @param charId The character to load.
-   * @return The character data, or null if validation failed.
+   * Whether to apply the stage matrix, if it was exported from a symbol instance.
+   * Also positions the Texture Atlas as it displays in Animate.
+   * Turning this on is only recommended if you prepositioned the character in Animate.
+   * For other cases, it should be turned off to act similarly to a normal FlxSprite.
    */
-  public static function parseCharacterData(charId:String):Null<CharacterData>
-  {
-    var rawJson:String = loadCharacterFile(charId);
+  @:optional
+  public var applyStageMatrix:Null<Bool>;
 
-    var charData:Null<CharacterData> = migrateCharacterData(rawJson, charId);
+  /**
+   * Various settings for the prop.
+   * Only available for texture atlases.
+   */
+  @:optional
+  public var atlasSettings:Null<funkin.data.stage.StageData.TextureAtlasData>;
 
-    return validateCharacterData(charId, charData);
-  }
+  /** Runtime ownership policy; an authored JSON field must not enable this. */
+  @:jignored @:optional
+  public var legacyAtlasPlacement:Bool = false;
 
-  static function loadCharacterFile(charPath:String):String
-  {
-    var charFilePath:String = Paths.json('characters/${charPath}');
-    var rawJson = Assets.getText(charFilePath).trim();
+  /** Runtime ownership policy for the old atlas stage instance transform. */
+  @:jignored @:optional
+  public var legacyAtlasStageMatrix:Bool = false;
 
-    while (!StringTools.endsWith(rawJson, '}'))
-    {
-      rawJson = rawJson.substr(0, rawJson.length - 1);
-    }
-
-    return rawJson;
-  }
-
-  static function migrateCharacterData(rawJson:String, charId:String):Null<CharacterData>
-  {
-    // If you update the character data format in a breaking way,
-    // handle migration here by checking the `version` value.
-
-    try
-    {
-      var charData:CharacterData = cast Json.parse(rawJson);
-      return charData;
-    }
-    catch (e)
-    {
-      trace(' Error parsing data for character: ${charId}');
-      trace('   ${e}');
-      return null;
-    }
-  }
+  /**
+   * An external image link for the health icon.
+   * This is used for Discord Rich Presence.
+   */
+  @:optional
+  public var discordRPCImage:Null<String>;
 
   /**
    * The default time the character should sing for, in steps.
@@ -471,8 +181,15 @@ class CharacterDataParser
     cacheOnLoad: false,
     filterQuality: 1,
     applyStageMatrix: false,
-    useRenderTexture: false
+    useRenderTexture: false,
+    postStageMatrixApply: false
   };
+
+  public function new(name:String)
+  {
+    this.version = CharacterRegistry.CHARACTER_DATA_VERSION;
+    this.name = name;
+  }
 
   /**
    * Set unspecified parameters to their defaults.
@@ -481,7 +198,7 @@ class CharacterDataParser
    * @param input
    * @return The validated character data
    */
-  static function validateCharacterData(id:String, input:Null<CharacterData>):Null<CharacterData>
+  public static function validateCharacterData(id:String, input:Null<CharacterData>):Null<CharacterData>
   {
     if (input == null)
     {
@@ -491,13 +208,13 @@ class CharacterDataParser
 
     if (input.version == null)
     {
-      trace('WARN: No semantic version specified for character data file "$id", assuming ${CHARACTER_DATA_VERSION}');
-      input.version = CHARACTER_DATA_VERSION;
+      trace('WARN: No semantic version specified for character data file "$id", assuming ${CharacterRegistry.CHARACTER_DATA_VERSION}');
+      input.version = CharacterRegistry.CHARACTER_DATA_VERSION;
     }
 
-    if (!VersionUtil.validateVersionStr(input.version, CHARACTER_DATA_VERSION_RULE))
+    if (!VersionUtil.validateVersionStr(input.version, CharacterRegistry.CHARACTER_DATA_VERSION_RULE))
     {
-      trace('ERROR: Could not load character data for "$id": bad version (got ${input.version}, expected ${CHARACTER_DATA_VERSION_RULE})');
+      trace('ERROR: Could not load character data for "$id": bad version (got ${input.version}, expected ${CharacterRegistry.CHARACTER_DATA_VERSION_RULE})');
       return null;
     }
 
@@ -606,14 +323,39 @@ class CharacterDataParser
       input.flipX = DEFAULT_FLIPX;
     }
 
+    if (input.atlasSettings == null)
+    {
+      if (input.applyStageMatrix == null)
+      {
+        input.atlasSettings = DEFAULT_ATLASSETTINGS;
+      }
+      else
+      {
+        // The older top-level field is explicit; preserve it when creating the
+        // newer nested settings without changing the shared default object.
+        input.atlasSettings = {
+          swfMode: DEFAULT_ATLASSETTINGS.swfMode,
+          cacheOnLoad: DEFAULT_ATLASSETTINGS.cacheOnLoad,
+          filterQuality: DEFAULT_ATLASSETTINGS.filterQuality,
+          applyStageMatrix: input.applyStageMatrix,
+          useRenderTexture: DEFAULT_ATLASSETTINGS.useRenderTexture,
+          postStageMatrixApply: DEFAULT_ATLASSETTINGS.postStageMatrixApply
+        };
+      }
+    }
+
+    else if (input.applyStageMatrix != null && Reflect.field(input.atlasSettings, 'applyStageMatrix') == null)
+    {
+      // A partial nested object can set other options while inheriting the
+      // explicitly authored top-level matrix choice.
+      var settings:funkin.data.stage.StageData.TextureAtlasData = cast Reflect.copy(input.atlasSettings);
+      settings.applyStageMatrix = input.applyStageMatrix;
+      input.atlasSettings = settings;
+    }
+
     if (input.applyStageMatrix == null)
     {
       input.applyStageMatrix = DEFAULT_APPLYSTAGEMATRIX;
-    }
-
-    if (input.atlasSettings == null)
-    {
-      input.atlasSettings = DEFAULT_ATLASSETTINGS;
     }
 
     if (input.animations.length == 0 && input.startingAnimation != null)
@@ -707,127 +449,6 @@ enum abstract CharacterRenderType(String) from String to String
 }
 
 /**
- * The JSON data schema used to define a character.
- */
-typedef CharacterData =
-{
-  /**
-   * The semantic version number of the character data JSON format.
-   */
-  var version:String;
-
-  /**
-   * The readable name of the character.
-   */
-  var name:String;
-
-  /**
-   * The type of rendering system to use for the character.
-   * @default sparrow
-   */
-  var renderType:CharacterRenderType;
-
-  /**
-   * Behavior varies by render type:
-   * - SPARROW: Path to retrieve both the spritesheet and the XML data from.
-   * - PACKER: Path to retrieve both the spritesheet and the TXT data from.
-   */
-  var assetPath:String;
-
-  /**
-   * The scale of the graphic as a float.
-   * Pro tip: On pixel-art levels, save the sprites small and set this value to 6 or so to save memory.
-   * @default 1
-   */
-  var scale:Null<Float>;
-
-  /**
-   * Optional data about the health icon for the character.
-   */
-  var healthIcon:Null<HealthIconData>;
-
-  /**
-   * Optional data about the death animation for the character.
-   */
-  var death:Null<DeathData>;
-
-  /**
-   * The global offset to the character's position, in pixels.
-   * @default [0, 0]
-   */
-  var offsets:Null<Array<Float>>;
-
-  /**
-   * The amount to offset the camera by while focusing on this character.
-   * Default value focuses on the character directly.
-   * @default [0, 0]
-   */
-  var cameraOffsets:Array<Float>;
-
-  /**
-   * Setting this to true disables anti-aliasing for the character.
-   * @default false
-   */
-  var isPixel:Null<Bool>;
-
-  /**
-   * The frequency at which the character will play its idle animation, in beats.
-   * Increasing this number will make the character dance less often.
-   * Supports up to `0.25` precision.
-   * @default `1.0` on characters
-   */
-  @:optional @:default(1.0)
-  var danceEvery:Null<Float>;
-
-  /**
-   * The minimum duration that a character will play a note animation for, in beats.
-   * If this number is too low, you may see the character start playing the idle animation between notes.
-   * If this number is too high, you may see the the character play the sing animation for too long after the notes are gone.
-   *
-   * Examples:
-   * - Daddy Dearest uses a value of `1.525`.
-   * @default 1.0
-   */
-  var singTime:Null<Float>;
-
-  /**
-   * An optional array of animations which the character can play.
-   */
-  var animations:Array<AnimationData>;
-
-  /**
-   * If animations are used, this is the name of the animation to play first.
-   * @default idle
-   */
-  var startingAnimation:Null<String>;
-
-  /**
-   * Whether or not the whole ass sprite is flipped by default.
-   * Useful for characters that could also be played (Pico)
-   *
-   * @default false
-   */
-  var flipX:Null<Bool>;
-
-  /**
-   * NOTE: This only applies to animate atlas characters.
-   *
-   * Whether to apply the stage matrix, if it was exported from a symbol instance.
-   * Also positions the Texture Atlas as it displays in Animate.
-   * Turning this on is only recommended if you prepositioned the character in Animate.
-   * For other cases, it should be turned off to act similarly to a normal FlxSprite.
-   */
-  var applyStageMatrix:Null<Bool>;
-
-  /**
-   * Various settings for the prop.
-   * Only available for texture atlases.
-   */
-  @:optional
-  var atlasSettings:funkin.data.stage.StageData.TextureAtlasData;
-};
-
-/**
  * The JSON data schema used to define the health icon for a character.
  */
 typedef HealthIconData =
@@ -836,36 +457,36 @@ typedef HealthIconData =
    * The ID to use for the health icon.
    * @default The character's ID
    */
-  var id:Null<String>;
+  var ?id:Null<String>;
 
   /**
    * Whether the health icon should bop or not.
    * @default true
    */
-  var shouldBop:Null<Bool>;
+  var ?shouldBop:Null<Bool>;
 
   /**
    * The scale of the health icon.
    */
-  var scale:Null<Float>;
+  var ?scale:Null<Float>;
 
   /**
    * Whether to flip the health icon horizontally.
    * @default false
    */
-  var flipX:Null<Bool>;
+  var ?flipX:Null<Bool>;
 
   /**
    * Multiply scale by 6 and disable antialiasing
    * @default false
    */
-  var isPixel:Null<Bool>;
+  var ?isPixel:Null<Bool>;
 
   /**
    * The offset of the health icon, in pixels.
    * @default [0, 25]
    */
-  var offsets:Null<Array<Float>>;
+  var ?offsets:Null<Array<Float>>;
 }
 
 typedef DeathData =

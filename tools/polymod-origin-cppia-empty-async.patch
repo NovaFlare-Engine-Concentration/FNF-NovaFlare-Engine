@@ -1,0 +1,13 @@
+--- a/polymod/Polymod.hx
++++ b/polymod/Polymod.hx
+@@ -1198,7 +1198,9 @@
+       }
+     }
+ 
+-    return lime.app.Promise.allSettled(futures).then((results) ->
++    // PromiseUtil.allSettled never completes an empty array.
++    var settled = futures.length == 0 ? lime.app.Future.withValue(futures) : lime.app.Promise.allSettled(futures);
++    return settled.then((results) ->
+     {
+       #if POLYMOD_CPPIA
+       polymod.hscript._internal.PolymodCppiaClassReference.unloadInactiveModules();

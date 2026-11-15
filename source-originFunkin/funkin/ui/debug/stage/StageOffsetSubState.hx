@@ -35,27 +35,35 @@ class StageOffsetSubState extends HaxeUISubState
   var uiStuff:Component;
   var outlineShader:StrokeShader;
 
-  static final STAGE_EDITOR_LAYOUT = Paths.ui('stage-editor/stage-editor-view');
+  static final STAGE_EDITOR_LAYOUT = funkin.assets.ValidatedPaths.xml('ui/editors/stage-editor/stage-editor-view').toString();
 
   public function new()
   {
     super(STAGE_EDITOR_LAYOUT);
   }
 
+  override function destroy():Void
+  {
+    funkin.input.Cursor.hide();
+    general.objects.screen.MouseEffect.leaveEditor();
+    super.destroy();
+  }
+
   override function create()
   {
+    general.objects.screen.MouseEffect.enterEditor();
     super.create();
 
     var playState = PlayState.instance;
 
-    FlxG.mouse.visible = true;
+    funkin.input.Cursor.show();
     playState.pauseMusic();
     playState.cancelAllCameraTweens();
     FlxG.camera.target = null;
 
     setupUIListeners();
 
-    // var str = Paths.xml('ui/stage-editor-view');
+    // var str = Paths.xml('ui/editors/stage-editor-view');
     // uiStuff = RuntimeComponentBuilder.fromAsset(str);
 
     // uiStuff.findComponent("lol").onClick = saveCharacterCompile;
@@ -70,7 +78,7 @@ class StageOffsetSubState extends HaxeUISubState
 
     outlineShader = new StrokeShader(0xFFFFFFFF, 4, 4);
 
-    var layerList:ListView = findComponent("prop-layers");
+    var layerList:ListView = findComponent('prop-layers');
 
     for (thing in playState.currentStage)
     {
@@ -120,7 +128,7 @@ class StageOffsetSubState extends HaxeUISubState
           spr.ID = 0;
           spr.alpha = 1;
         }
-      });
+      }, false, true, false);
     }
   }
 
@@ -249,7 +257,7 @@ class StageOffsetSubState extends HaxeUISubState
       if (FlxG.keys.justPressed.DOWN) performCommand(new MovePropCommand(0, zoomShitLol));
     }
 
-    FlxG.mouse.visible = true;
+    if (!FlxG.mouse.visible) funkin.input.Cursor.show();
 
     MouseUtil.mouseCamDrag();
 
@@ -270,7 +278,7 @@ class StageOffsetSubState extends HaxeUISubState
       // uiStuff = null;
       PlayState.instance.disableKeys = false;
       PlayState.instance.resetCamera();
-      FlxG.mouse.visible = false;
+      funkin.input.Cursor.hide();
       close();
     }
   }

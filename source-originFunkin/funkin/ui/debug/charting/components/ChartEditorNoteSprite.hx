@@ -21,7 +21,8 @@ import haxe.ui.tooltips.ToolTipManager;
  * A sprite that can be used to display a note in a chart.
  * Designed to be used and reused efficiently. Has no gameplay functionality.
  */
-@:nullSafety @:access(funkin.ui.debug.charting.ChartEditorState)
+@:nullSafety
+@:access(funkin.ui.debug.charting.ChartEditorState)
 class ChartEditorNoteSprite extends FlxSprite
 {
   /**
@@ -105,7 +106,7 @@ class ChartEditorNoteSprite extends FlxSprite
       addNoteStyleAnimations(fetchNoteStyle(entry));
     }
 
-    kindIndicator.setFormat("VCR OSD Mono", 24, FlxColor.YELLOW, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+    kindIndicator.setFormat(funkin.assets.Paths.font('ui/fonts/VCR OSD Mono'), 24, FlxColor.YELLOW, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
   }
 
   static var noteFrameCollection:Null<FlxFramesCollection> = null;
@@ -218,7 +219,9 @@ class ChartEditorNoteSprite extends FlxSprite
   {
     if (this.noteData == null) return;
     if (this.isGhost) return;
-    this.tooltip.tipData = {text: this.noteData.buildTooltip()};
+    this.tooltip.tipData = {
+      text: this.noteData.buildTooltip()
+    };
   }
 
   public function updateTooltipPosition():Void
@@ -244,19 +247,19 @@ class ChartEditorNoteSprite extends FlxSprite
     }
   }
 
-  override public function draw()
+  override public function draw():Void
   {
     super.draw();
 
     if (!parentState.showNoteKindIndicators) return;
-    if ((this.noteData?.kind ?? "").length == 0) return; // Do not render the note kind indicator if the note kind is default.
+    if ((this.noteData?.kind ?? '').length == 0) return; // Do not render the note kind indicator if the note kind is default.
 
     kindIndicator.x = this.x;
     kindIndicator.y = this.y;
     kindIndicator.draw();
   }
 
-  override public function kill()
+  override public function kill():Void
   {
     super.kill();
 

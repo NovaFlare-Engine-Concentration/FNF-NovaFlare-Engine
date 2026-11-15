@@ -14,7 +14,8 @@ class FNFLegacyImporter
 {
   public static function parseLegacyDataRaw(input:String, fileName:String = 'raw'):Null<FNFLegacyData>
   {
-    var parser = new json2object.JsonParser<FNFLegacyData>();
+    // The original loader cast the JSON object and ignored unrelated editor fields.
+    var parser = new json2object.JsonParser<FNFLegacyData>({ignoreUnknownVariables:true});
     parser.fromJson(input, fileName);
 
     if (parser.errors.length > 0)
@@ -35,12 +36,14 @@ class FNFLegacyImporter
   {
     trace('Migrating song metadata from FNF Legacy.');
 
-    var songMetadata:SongMetadata = new SongMetadata('Import', Constants.DEFAULT_ARTIST, Constants.DEFAULT_CHARTER, Constants.DEFAULT_VARIATION);
+    var songMetadata:SongMetadata = new SongMetadata('Import', "", "", Constants.DEFAULT_VARIATION);
 
     // Set generatedBy string for debugging.
     songMetadata.generatedBy = 'Chart Editor Import (FNF Legacy)';
 
-    songMetadata.playData.stage = songData.song?.stageDefault ?? 'mainStage';
+    var stage = legacyStageId(songData.song.stage ?? songData.song.stageDefault ?? inferLegacyStage(songData.song.song));
+    songMetadata.playData.stage = stage;
+    if (stage == 'school' || stage == 'schoolEvil') songMetadata.playData.noteStyle = 'pixel';
     songMetadata.songName = songData.song?.song ?? 'Import';
     songMetadata.playData.difficulties = [];
 
@@ -60,11 +63,57 @@ class FNFLegacyImporter
 
     songMetadata.playData.songVariations = [];
 
-    songMetadata.timeChanges = rebuildTimeChanges(songData);
+    songMetadata.timeChanges = rebuildTimeChanges(songData, difficulty);
 
-    songMetadata.playData.characters = new SongCharacterData(songData.song?.player1 ?? 'bf', 'gf', songData.song?.player2 ?? 'dad');
+    var girlfriend = songData.song.gfVersion ?? switch (stage)
+    {
+      case 'school' | 'schoolEvil': 'gf-pixel';
+      case 'limoRide': 'gf-car';
+      case 'mallXmas' | 'mallEvil': 'gf-christmas';
+      case 'tankmanBattlefield': 'gf-tankmen';
+      default: 'gf';
+    };
+    if (songData.song.gfVersion == null)
+    {
+      if (songData.song.player1 == 'pico') girlfriend = 'nene';
+      if (songData.song.song.toLowerCase() == 'stress') girlfriend = 'pico-speaker';
+    }
+    songMetadata.playData.characters = new SongCharacterData(songData.song?.player1 ?? 'bf', girlfriend,
+      songData.song?.player2 ?? 'dad', '', [], null, null);
 
     return songMetadata;
+  }
+
+  static function legacyStageId(stage:String):String
+  {
+    return switch (stage)
+    {
+      case 'stage': 'mainStage';
+      case 'spooky': 'spookyMansion';
+      case 'philly': 'phillyTrain';
+      case 'limo': 'limoRide';
+      case 'mall': 'mallXmas';
+      case 'tank': 'tankmanBattlefield';
+      default: stage;
+    };
+  }
+
+  /** Original PlayState selected stages by song ID before charts carried stage metadata. */
+  static function inferLegacyStage(song:String):String
+  {
+    return switch (song.toLowerCase())
+    {
+      case 'spookeez' | 'monster' | 'south': 'spooky';
+      case 'pico' | 'blammed' | 'philly': 'philly';
+      case 'milf' | 'satin-panties' | 'high': 'limo';
+      case 'cocoa' | 'eggnog': 'mall';
+      case 'winter-horrorland': 'mallEvil';
+      case 'senpai' | 'roses': 'school';
+      case 'thorns': 'schoolEvil';
+      case 'guns' | 'stress' | 'ugh': 'tank';
+      case 'darnell': 'phillyStreets';
+      default: 'stage';
+    };
   }
 
   public static function migrateChartData(songData:FNFLegacyData, difficulty:String = 'normal'):SongChartData
@@ -88,7 +137,7 @@ class FNFLegacyImporter
     }
 
     // Import event data.
-    songChartData.events = rebuildEventData(songData);
+    songChartData.events = rebuildEventData(songData, difficulty);
 
     switch (songData.song.speed)
     {
@@ -108,78 +157,72 @@ class FNFLegacyImporter
    * FNF Legacy doesn't have song events, but without them the song won't look right,
    * so we insert camera events when the character changes.
    */
-  static function rebuildEventData(songData:FNFLegacyData):Array<SongEventData>
+  static function rebuildEventData(songData:FNFLegacyData, difficulty:String):Array<SongEventData>
   {
     var result:Array<SongEventData> = [];
-
-    var noteSections = [];
-    switch (songData.song.notes)
-    {
-      case Left(notes):
-        // All difficulties will use the one scroll speed.
-        noteSections = notes;
-      case Right(difficulties):
-        if (difficulties.normal != null) noteSections = difficulties.normal;
-        if (difficulties.hard != null) noteSections = difficulties.hard;
-        if (difficulties.easy != null) noteSections = difficulties.easy;
-    }
-
-    if (noteSections == null || noteSections.length == 0) return result;
-
-    // Add camera events.
     var lastSectionWasMustHit:Null<Bool> = null;
-    for (section in noteSections)
+    visitSections(songData, difficulty, (section, time, beat, bpm) ->
     {
-      // Skip empty sections.
-      if (section.sectionNotes.length == 0) continue;
-
       if (section.mustHitSection != lastSectionWasMustHit)
       {
         lastSectionWasMustHit = section.mustHitSection;
-
-        var firstNote:LegacyNote = section.sectionNotes[0];
-
-        result.push(new SongEventData(firstNote.time, 'FocusCamera', {char: section.mustHitSection ? 0 : 1}));
+        result.push(new SongEventData(time, 'FocusCamera', {
+          char: section.mustHitSection ? 0 : 1
+        }));
       }
-    }
-
+    });
     return result;
   }
 
   /**
    * Port over time changes from FNF Legacy.
-   * If a section contains a BPM change, it will be applied at the timestamp of the first note in that section.
+   * The original Conductor applies changes at the section boundary, even in empty sections.
    */
-  static function rebuildTimeChanges(songData:FNFLegacyData):Array<SongTimeChange>
+  static function rebuildTimeChanges(songData:FNFLegacyData, difficulty:String):Array<SongTimeChange>
   {
-    var result:Array<SongTimeChange> = [];
-
-    result.push(new SongTimeChange(0, songData.song?.bpm ?? Constants.DEFAULT_BPM));
-
-    var noteSections = [];
-    switch (songData.song.notes)
+    var result:Array<SongTimeChange> = [new SongTimeChange(0, songData.song.bpm, 4, 4, 0)];
+    visitSections(songData, difficulty, (_, time, beat, bpm) ->
     {
-      case Left(notes):
-        // All difficulties will use the one scroll speed.
-        noteSections = notes;
-      case Right(difficulties):
-        if (difficulties.normal != null) noteSections = difficulties.normal;
-        if (difficulties.hard != null) noteSections = difficulties.hard;
-        if (difficulties.easy != null) noteSections = difficulties.easy;
-    }
-
-    if (noteSections == null || noteSections.length == 0) return result;
-
-    for (noteSection in noteSections)
-    {
-      if (noteSection.changeBPM ?? false)
-      {
-        var firstNote:LegacyNote = noteSection.sectionNotes[0];
-        if (firstNote != null) result.push(new SongTimeChange(firstNote.time, noteSection.bpm ?? Constants.DEFAULT_BPM));
-      }
-    }
-
+      var previous = result[result.length - 1];
+      if (previous.bpm == bpm) return;
+      var change = new SongTimeChange(time, bpm, 4, 4, beat);
+      if (previous.timeStamp == time) result[result.length - 1] = change;
+      else result.push(change);
+    });
     return result;
+  }
+
+  static function sectionsForDifficulty(songData:FNFLegacyData, difficulty:String):Array<LegacyNoteSection>
+  {
+    return switch (songData.song.notes)
+    {
+      case Left(notes): notes;
+      case Right(difficulties):
+        switch (difficulty)
+        {
+          case 'easy': difficulties.easy ?? difficulties.normal ?? difficulties.hard ?? [];
+          case 'hard': difficulties.hard ?? difficulties.normal ?? difficulties.easy ?? [];
+          default: difficulties.normal ?? difficulties.hard ?? difficulties.easy ?? [];
+        }
+    };
+  }
+
+  static function visitSections(songData:FNFLegacyData, difficulty:String, visitor:(LegacyNoteSection, Float, Float, Float)->Void):Void
+  {
+    var bpm = songData.song.bpm;
+    var time = 0.0;
+    var beat = 0.0;
+    if (!Math.isFinite(bpm) || bpm <= 0) throw 'Invalid legacy song BPM: $bpm';
+    for (section in sectionsForDifficulty(songData, difficulty))
+    {
+      if (section.changeBPM ?? false) bpm = section.bpm ?? bpm;
+      if (!Math.isFinite(bpm) || bpm <= 0) throw 'Invalid legacy section BPM: $bpm';
+      var steps = section.lengthInSteps ?? 16;
+      if (steps < 0) throw 'Invalid legacy section length: $steps';
+      visitor(section, time, beat, bpm);
+      time += steps * 60000.0 / (bpm * 4);
+      beat += steps / 4.0;
+    }
   }
 
   static final STRUMLINE_SIZE = 4;

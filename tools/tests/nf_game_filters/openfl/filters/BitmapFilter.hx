@@ -1,0 +1,1 @@
+package openfl.filters; class BitmapFilter { public function new() {} }

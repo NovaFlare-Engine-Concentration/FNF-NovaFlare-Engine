@@ -106,12 +106,6 @@ class Conductor
    */
   public var songPosition(default, null):Float = 0;
 
-  /**
-   * The offset between frame time and music time.
-   * Used in `getTimeWithDelta()` to get a more accurate music time when on higher framerates.
-   */
-  var songPositionDelta(default, null):Float = 0;
-
   var prevTimestamp:Float = 0;
   var prevTime:Float = 0;
 
@@ -274,12 +268,18 @@ class Conductor
    */
   public var globalOffset(get, never):Int;
 
+  /** Earlier Origin releases exposed this saved input offset under this name. */
+  public var inputOffset(get, set):Int;
+
+  function get_inputOffset():Int return Preferences.globalOffset;
+  function set_inputOffset(value:Int):Int return Preferences.globalOffset = value;
+
   /**
    * An offset set by the user to compensate for audio/visual lag
    * No matter if you're using a local conductor or not, this always loads
    * to/from the save file
    */
-  public var audioVisualOffset(get, never):Int;
+  public var audioVisualOffset(get, set):Int;
 
   function get_globalOffset():Int
   {
@@ -291,11 +291,18 @@ class Conductor
     return Save?.instance?.options?.audioVisualOffset ?? 0;
   }
 
+  function set_audioVisualOffset(value:Int):Int
+  {
+    Save.instance.options.audioVisualOffset = value;
+    Save.system.flush();
+    return value;
+  }
+
   public var combinedOffset(get, never):Float;
 
   function get_combinedOffset():Float
   {
-    return instrumentalOffset + formatOffset + globalOffset;
+    return instrumentalOffset + formatOffset - globalOffset;
   }
 
   /**
@@ -440,7 +447,6 @@ class Conductor
     if (FlxG.sound.music != null && FlxG.sound.music.playing)
     {
       this.songPosition = Math.min(this.combinedOffset, 0).clamp(songPos, currentLength);
-      this.songPositionDelta += FlxG.elapsed * 1000 * FlxG.sound.music.pitch;
     }
     else
     {
@@ -460,15 +466,13 @@ class Conductor
       }
     }
 
-    if (currentTimeChange == null && bpmOverride == null && FlxG.sound.music != null)
-    {
-      log(' WARNING '.warning() + 'Conductor is broken, timeChanges is empty.');
-    }
-    else if (currentTimeChange != null && this.songPosition > 0.0)
+    if (currentTimeChange != null && this.songPosition > 0.0)
     {
       // roundDecimal prevents representing 8 as 7.9999999
-      this.currentStepTime = FlxMath.roundDecimal((currentTimeChange.beatTime * Constants.STEPS_PER_BEAT)
-        + (this.songPosition - currentTimeChange.timeStamp) / stepLengthMs, 6);
+      this.currentStepTime = FlxMath.roundDecimal(
+        (currentTimeChange.beatTime * Constants.STEPS_PER_BEAT) + (this.songPosition - currentTimeChange.timeStamp) / stepLengthMs,
+        6
+      );
       this.currentBeatTime = currentStepTime / Constants.STEPS_PER_BEAT;
       this.currentMeasureTime = getTimeInMeasures(this.songPosition);
       this.currentStep = Math.floor(currentStepTime);
@@ -506,8 +510,6 @@ class Conductor
     // which it doesn't do every frame!
     if (prevTime != this.songPosition)
     {
-      this.songPositionDelta = 0;
-
       // Update the timestamp for use in-between frames
       prevTime = this.songPosition;
       prevTimestamp = Std.int(Timer.stamp() * 1000);
@@ -520,9 +522,10 @@ class Conductor
    * Returns a more accurate music time for higher framerates.
    * @return Float
    */
+  @:deprecated('Use songPosition directly instead.')
   public function getTimeWithDelta():Float
   {
-    return this.songPosition + this.songPositionDelta;
+    return this.songPosition;
   }
 
   /**
@@ -538,7 +541,7 @@ class Conductor
     if (soundToCheck == null) soundToCheck = FlxG.sound.music;
 
     @:privateAccess
-    this.songPosition = soundToCheck._channel.position;
+    this.songPosition = soundToCheck.time;
     return this.songPosition;
   }
 
@@ -572,10 +575,13 @@ class Conductor
         if (songTimeChange.timeStamp > 0.0 && timeChanges.length > 0)
         {
           var prevTimeChange:SongTimeChange = timeChanges[timeChanges.length - 1];
-          songTimeChange.beatTime = FlxMath.roundDecimal(prevTimeChange.beatTime
-            +
-            ((songTimeChange.timeStamp - prevTimeChange.timeStamp) * prevTimeChange.bpm / Constants.SECS_PER_MIN / Constants.MS_PER_SEC * (prevTimeChange.timeSignatureDen / 4)),
-            4);
+          songTimeChange.beatTime = FlxMath.roundDecimal(
+            prevTimeChange.beatTime + ((
+              songTimeChange.timeStamp
+              - prevTimeChange.timeStamp
+            ) * prevTimeChange.bpm / Constants.SECS_PER_MIN / Constants.MS_PER_SEC * (prevTimeChange.timeSignatureDen / 4)),
+            4
+          );
         }
       }
 

@@ -64,7 +64,7 @@ class CharterNoteHoverer extends CharterNote {
 								default: 0; // how is that even possible
 							};
 
-							sustainSpr.scale.set(10, (40 * draggingNote.susLength) + (height/2));
+							sustainSpr.scale.set(10, (40 * (draggingNote.susLength-1)) + (height/2));
 							sustainSpr.color = CharterNote.colors[animation.curAnim.curFrame];
 							sustainSpr.updateHitbox(); sustainSpr.alpha = alpha; sustainSpr.follow(this, 15, 20);
 							sustainSpr.exists = draggingNote.susLength != 0;

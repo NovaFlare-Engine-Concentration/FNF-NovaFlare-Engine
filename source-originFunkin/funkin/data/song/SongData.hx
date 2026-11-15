@@ -1,5 +1,7 @@
 package funkin.data.song;
 
+import json2object.JsonWriterParams;
+import funkin.util.tools.ISerializable;
 import funkin.ui.debug.charting.ChartEditorState;
 import funkin.data.event.SongEventRegistry;
 import funkin.play.event.SongEvent;
@@ -16,7 +18,7 @@ import funkin.play.notes.notekind.NoteKindManager;
  * Data which is only necessary in-game should be stored in the SongChartData.
  */
 @:nullSafety
-class SongMetadata implements ICloneable<SongMetadata>
+class SongMetadata implements ICloneable<SongMetadata> implements ISerializable
 {
   /**
    * A semantic versioning string for the song data format.
@@ -107,7 +109,7 @@ class SongMetadata implements ICloneable<SongMetadata>
    * or formatted with tabs (true)
    * @return The JSON string.
    */
-  public function serialize(pretty:Bool = true):String
+  public function serialize(pretty:Bool = true, ?params:json2object.JsonWriterParams):String
   {
     // Update generatedBy and version before writing.
     updateVersionToLatest();
@@ -124,16 +126,13 @@ class SongMetadata implements ICloneable<SongMetadata>
     }
     #end
 
-    #if ORIGIN_FUNKIN_COMPAT
-    return funkin.util.SerializerUtil.toJSON(this, pretty);
-    #else
     var ignoreNullOptionals = true;
-    var writer = new json2object.JsonWriter<SongMetadata>(ignoreNullOptionals);
+    var writer = new json2object.JsonWriter<SongMetadata>(params ?? {ignoreNullOptionals: true, ignoreDefaults: true});
     // I believe @:jignored should be ignored by the writer?
     // var output = this.clone();
     // output.variation = null; // Not sure how to make a field optional on the reader and ignored on the writer.
     return writer.write(this, pretty ? ' ' : null);
-    #end
+
   }
 
   public function updateVersionToLatest():Void
@@ -160,9 +159,9 @@ enum abstract SongTimeFormat(String) from String to String
 
 class SongTimeChange implements ICloneable<SongTimeChange>
 {
+  static final DEFAULT_BEAT_TUPLETS:Array<Int> = [4, 4, 4, 4];
   public static final DEFAULT_SONGTIMECHANGE:SongTimeChange = new SongTimeChange(0, 100);
   public static final DEFAULT_SONGTIMECHANGES:Array<SongTimeChange> = [DEFAULT_SONGTIMECHANGE];
-  static final DEFAULT_BEAT_TUPLETS:Array<Int> = [4, 4, 4, 4];
   static final DEFAULT_BEAT_TIME:Null<Float> = null; // Later, null gets detected and recalculated.
 
   /**
@@ -214,12 +213,13 @@ class SongTimeChange implements ICloneable<SongTimeChange>
     this.timeSignatureDen = timeSignatureDen;
 
     this.beatTime = beatTime == null ? DEFAULT_BEAT_TIME : beatTime;
-    this.beatTuplets = beatTuplets == null ? DEFAULT_BEAT_TUPLETS : beatTuplets;
+    this.beatTuplets = beatTuplets == null ? DEFAULT_BEAT_TUPLETS.copy() : beatTuplets;
   }
 
   public function clone():SongTimeChange
   {
-    return new SongTimeChange(this.timeStamp, this.bpm, this.timeSignatureNum, this.timeSignatureDen, this.beatTime, this.beatTuplets);
+    return new SongTimeChange(this.timeStamp, this.bpm, this.timeSignatureNum, this.timeSignatureDen, this.beatTime,
+      this.beatTuplets == null ? null : this.beatTuplets.copy());
   }
 
   /**
@@ -300,7 +300,7 @@ class SongOffsets implements ICloneable<SongOffsets>
 
   public function getVocalOffset(charId:String, ?instrumental:String):Float
   {
-    if (instrumental == null)
+    if (instrumental == null || instrumental == '')
     {
       if (!this.vocals.exists(charId)) return 0.0;
       return this.vocals.get(charId);
@@ -324,6 +324,7 @@ class SongOffsets implements ICloneable<SongOffsets>
     var result:SongOffsets = new SongOffsets(this.instrumental);
     result.altInstrumentals = this.altInstrumentals.clone();
     result.vocals = this.vocals.clone();
+    result.altVocals = this.altVocals.clone();
 
     return result;
   }
@@ -397,7 +398,7 @@ class SongMusicData implements ICloneable<SongMusicData>
     result.version = this.version;
     result.timeFormat = this.timeFormat;
     result.divisions = this.divisions;
-    result.timeChanges = this.timeChanges.clone();
+    result.timeChanges = [for (change in this.timeChanges) change.clone()];
     result.looped = this.looped;
     result.generatedBy = this.generatedBy;
 
@@ -501,6 +502,8 @@ class SongPlayData implements ICloneable<SongPlayData>
     result.noteStyle = this.noteStyle;
     result.ratings = this.ratings.clone();
     result.album = this.album;
+    result.discordRPCImage = this.discordRPCImage;
+    result.stickerPack = this.stickerPack;
     result.previewStart = this.previewStart;
     result.previewEnd = this.previewEnd;
 
@@ -537,8 +540,7 @@ class SongCharacterData implements ICloneable<SongCharacterData>
   @:optional
   public var playerVocals:Null<Array<String>> = null;
 
-  public function new(player:String = '', girlfriend:String = '', opponent:String = '', instrumental:String = '', ?altInstrumentals:Array<String>,
-      ?opponentVocals:Array<String>, ?playerVocals:Array<String>)
+  public function new(player:String = '', girlfriend:String = '', opponent:String = '', instrumental:String = '', ?altInstrumentals:Array<String>, ?opponentVocals:Array<String>, ?playerVocals:Array<String>)
   {
     this.player = player;
     this.girlfriend = girlfriend;
@@ -546,17 +548,18 @@ class SongCharacterData implements ICloneable<SongCharacterData>
     this.instrumental = instrumental;
 
     this.altInstrumentals = altInstrumentals ?? [];
-    this.opponentVocals = opponentVocals;
-    this.playerVocals = playerVocals;
-
-    if (opponentVocals == null) this.opponentVocals = [opponent];
-    if (playerVocals == null) this.playerVocals = [player];
+    this.opponentVocals = opponentVocals ?? [opponent];
+    this.playerVocals = playerVocals ?? [player];
   }
 
   public function clone():SongCharacterData
   {
     var result:SongCharacterData = new SongCharacterData(this.player, this.girlfriend, this.opponent, this.instrumental);
-    result.altInstrumentals = this.altInstrumentals.clone();
+
+    if (this.altInstrumentals != null) result.altInstrumentals = this.altInstrumentals.clone();
+    // Null means use legacy vocal discovery; an empty list means no vocals.
+    result.opponentVocals = this.opponentVocals == null ? null : this.opponentVocals.clone();
+    result.playerVocals = this.playerVocals == null ? null : this.playerVocals.clone();
 
     return result;
   }
@@ -570,7 +573,7 @@ class SongCharacterData implements ICloneable<SongCharacterData>
   }
 }
 
-class SongChartData implements ICloneable<SongChartData>
+class SongChartData implements ICloneable<SongChartData> implements ISerializable
 {
   @:jcustomparse(funkin.data.DataParse.semverVersion) @:jcustomwrite(funkin.data.DataWrite.semverVersion)
   public var version:Version;
@@ -578,7 +581,21 @@ class SongChartData implements ICloneable<SongChartData>
   public var scrollSpeed:Map<String, Float>;
   public var events:Array<SongEventData>;
   @:order(funkin.util.Constants.DEFAULT_DIFFICULTY_LIST_FULL)
+  @:jcustomparse(funkin.data.DataParse.songNotesMap)
   public var notes:Map<String, Array<SongNoteData>>;
+
+  /**
+   * Data used by the ingame editors, not necessary for gameplay.
+   * @default `null`, to be populated only when needed by the game.
+   */
+  @:alias("_editor") @:optional
+  public var editorData:Null<SongChartEditorData>;
+
+  /**
+   * Provides info about the song that output this chart.
+   * When exporting, this should always be re-updated to `SongRegistry.DEFAULT_GENERATEDBY`,
+   * so we know the last version that modified it.
+   */
   public var generatedBy:String;
 
   /**
@@ -629,20 +646,43 @@ class SongChartData implements ICloneable<SongChartData>
   }
 
   /**
+   * Remove any difficulties in this chart which contain no notes.
+   * You can add a blank difficulty back later from the Chart Editor Difficulty Toolbox.
+   */
+  public function removeEmptyDifficulties():Void
+  {
+    var difficultiesToRemove:Array<String> = [];
+    for (key in this.notes.keys())
+    {
+      var difficultyNotes = this.notes.get(key);
+      if (difficultyNotes == null || difficultyNotes.length == 0)
+      {
+        difficultiesToRemove.push(key);
+      }
+    }
+
+    for (diff in difficultiesToRemove)
+    {
+      this.notes.remove(diff);
+      this.scrollSpeed.remove(diff);
+    }
+  }
+
+  /**
    * Convert this SongChartData into a JSON string.
    */
-  public function serialize(pretty:Bool = true):String
+  public function serialize(pretty:Bool = true, ?params:json2object.JsonWriterParams):String
   {
     // Update generatedBy and version before writing.
     updateVersionToLatest();
+    // Sanitize a copy so saving does not remove empty editor difficulties.
+    var sanitizedOutput = this.clone();
+    sanitizedOutput.removeEmptyDifficulties();
 
-    #if ORIGIN_FUNKIN_COMPAT
-    return funkin.util.SerializerUtil.toJSON(this, pretty);
-    #else
     var ignoreNullOptionals = true;
-    var writer = new json2object.JsonWriter<SongChartData>(ignoreNullOptionals);
-    return writer.write(this, pretty ? ' ' : null);
-    #end
+    var writer = new json2object.JsonWriter<SongChartData>(params ?? {ignoreNullOptionals: true, ignoreDefaults: true});
+    return writer.write(sanitizedOutput, pretty ? ' ' : null);
+
   }
 
   public function updateVersionToLatest():Void
@@ -653,20 +693,89 @@ class SongChartData implements ICloneable<SongChartData>
 
   public function clone():SongChartData
   {
-    // We have to manually perform the deep clone here because Map.deepClone() doesn't work.
+    // Chart values are JSON data. Copy each editable object, including nested
+    // event values and note parameters, without changing note equality rules.
     var noteDataClone:Map<String, Array<SongNoteData>> = new Map<String, Array<SongNoteData>>();
     for (key in this.notes.keys())
     {
-      noteDataClone.set(key, this.notes.get(key).deepClone());
+      var sourceNotes:Null<Array<SongNoteData>> = this.notes.get(key);
+      if (sourceNotes == null)
+      {
+        noteDataClone.set(key, cast null);
+        continue;
+      }
+      var copiedNotes:Array<SongNoteData> = [];
+      for (note in sourceNotes)
+      {
+        if (note == null)
+        {
+          copiedNotes.push(cast null);
+          continue;
+        }
+        var copy:SongNoteData = note.clone();
+        copy.params = note.cloneParams();
+        for (param in copy.params) param.value = copyChartValue(param.value);
+        copiedNotes.push(copy);
+      }
+      noteDataClone.set(key, copiedNotes);
     }
-    var eventDataClone:Array<SongEventData> = this.events.deepClone();
+    var eventDataClone:Array<SongEventData> = [];
+    for (event in this.events)
+    {
+      if (event == null)
+      {
+        eventDataClone.push(cast null);
+        continue;
+      }
+      var copy:SongEventData = event.clone();
+      copy.value = copyChartValue(event.value);
+      eventDataClone.push(copy);
+    }
 
     var result:SongChartData = new SongChartData(this.scrollSpeed.clone(), eventDataClone, noteDataClone);
     result.version = this.version;
     result.generatedBy = this.generatedBy;
     result.variation = this.variation;
+    result.editorData = this.editorData?.clone();
 
     return result;
+  }
+
+  /** Copy the JSON-compatible arrays and anonymous objects used in chart data. */
+  static function copyChartValue(value:Dynamic):Dynamic
+  {
+    if (Std.isOfType(value, Array))
+    {
+      var values:Array<Dynamic> = cast value;
+      return [for (item in values) copyChartValue(item)];
+    }
+    return switch (Type.typeof(value))
+    {
+      case TObject:
+        var result:Dynamic = {};
+        for (field in Reflect.fields(value)) Reflect.setField(result, field, copyChartValue(Reflect.field(value, field)));
+        result;
+      default: value;
+    }
+  }
+
+  /** Return the first event validation errors, or an empty array if all are valid. */
+  public function validateChartEvents(?difficulty:String):Array<String>
+  {
+    for (event in this.events)
+    {
+      if (event == null) continue;
+      var errors:Array<String> = validateChartEvent(event, difficulty);
+      if (errors.length > 0) return errors;
+    }
+    return [];
+  }
+
+  /** Validate one event against its registered handler. */
+  public function validateChartEvent(event:SongEventData, ?difficulty:String):Array<String>
+  {
+    var eventHandler:Null<SongEvent> = event.getHandler();
+    return eventHandler == null ? [] : eventHandler.validate(event, this, difficulty);
   }
 
   /**
@@ -676,6 +785,106 @@ class SongChartData implements ICloneable<SongChartData>
   {
     return 'SongChartData(${this.events.length} events, ${this.notes.size()} difficulties, ${generatedBy})';
   }
+}
+
+/**
+ * The chart data used by the Chart Editor and other debug editors.
+ * Located in `_editor`; the `_` prefix indicates optional debug data that isn't needed
+ */
+class SongChartEditorData implements ICloneable<SongChartEditorData>
+{
+  /**
+   * A list of data for each layer in the Camera Editor.
+   */
+  public var eventLayers:Array<EventLayerData>;
+
+  public var comments:Array<CommentData>;
+
+  @:optional
+  @:default([])
+  public var subBeats:Array<Float>;
+  @:optional
+  public var subBeatSnaps:Null<Map<String, Int>>;
+
+  public function new()
+  {
+    this.eventLayers = [];
+    this.comments = [];
+    this.subBeats = [];
+    this.subBeatSnaps = new Map<String, Int>();
+  }
+
+  /**
+   * Creates an independent copy of the data, with the same underlying data.
+   * @return The cloned data.
+   */
+  public function clone():SongChartEditorData
+  {
+    var result:SongChartEditorData = new SongChartEditorData();
+
+    result.eventLayers = [for (layer in this.eventLayers) cast Reflect.copy(layer)];
+    result.comments = [for (comment in this.comments) cast Reflect.copy(comment)];
+    result.subBeats = (this.subBeats ?? []).copy();
+    var snaps:Null<Map<String, Int>> = this.subBeatSnaps;
+    result.subBeatSnaps = snaps != null ? snaps.copy() : new Map<String, Int>();
+
+    return result;
+  }
+
+  /**
+   * Creates an instance with default data, for use when no data is available.
+   * @return The default data.
+   */
+  public static function buildDefault():SongChartEditorData
+  {
+    var result = new SongChartEditorData();
+
+    result.eventLayers.push({
+      name: 'Layer 1',
+      color: '#FF0000'
+    });
+
+    return result;
+  }
+
+  public function toString():String
+  {
+    return 'SongChartEditorData(${eventLayers.length} layers, ${comments.length} comments})';
+  }
+}
+
+/**
+ * Provides the data for a layer in the Camera Editor.
+ */
+typedef EventLayerData =
+{
+  /**
+   * The name of the layer.
+   */
+  var name:String;
+
+  /**
+   * The color associated with the layer.
+   */
+  var color:String;
+}
+
+typedef CommentData =
+{
+  /**
+   * The timestamp of the comment. The timestamp is in the format of the song's time format.
+   */
+  var time:Float;
+
+  /**
+   * The text of the comment.
+   */
+  var text:String;
+
+  /**
+   * The color associated with the comment.
+   */
+  var color:String;
 }
 
 /**
@@ -707,7 +916,7 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
   /**
    * The data for the event.
    * This can allow the event to include information used for custom behavior.
-   * Data type depends on the event kind. It can be anything that's JSON serializable.
+   * This is usually a struct containing multiple fields as defined in the event schema.
    */
   @:alias("v")
   @:optional
@@ -715,19 +924,28 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
   @:jcustomparse(funkin.data.DataParse.dynamicValue)
   @:jcustomwrite(funkin.data.DataWrite.dynamicValue)
   public var value:Dynamic = null;
+  /**
+   * The name of the layer this event appears on in the Camera Editor.
+   * @default `null`, excluded from chart data unless explicitly set by the editor.
+   */
+  @:alias("_layer") @:optional
+  public var editorLayer:Null<String>;
 
   /**
    * Whether this event has been activated.
    * This is only used internally by the game during gameplay. It should not be serialized.
    */
   @:jignored
-  public var activated:Bool = false;
+  public var activated:Bool;
 
-  public function new(time:Float, eventKind:String, value:Dynamic = null)
+  public function new(time:Float, eventKind:String, ?value:Dynamic, ?editorLayer:Null<String>)
   {
     this.time = time;
     this.eventKind = eventKind;
     this.value = value;
+    this.editorLayer = editorLayer;
+
+    this.activated = false;
   }
 
   /**
@@ -743,11 +961,36 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
    * @param force Force the value to be recalculated.
    * @return The position of the event in the song, in steps.
    */
-  public function getStepTime(force:Bool = false):Float
+  public function getStepTime(?conductor:Dynamic, force:Bool = false):Float
   {
+    // The first argument was formerly the force flag; newer callers pass a conductor.
+    if (Std.isOfType(conductor, Bool))
+    {
+      force = cast conductor;
+      conductor = null;
+    }
+    if (conductor != null && !Std.isOfType(conductor, Conductor)) throw 'Invalid conductor for song event step time';
     if (_stepTime != null && !force) return _stepTime;
 
-    return _stepTime = Conductor.instance.getTimeInSteps(this.time);
+    var activeConductor:Conductor = conductor == null ? Conductor.instance : cast conductor;
+    return _stepTime = activeConductor.getTimeInSteps(this.time);
+  }
+
+  @:jignored
+  var _activationTime:Null<Float> = null;
+
+  @:jignored
+  var _validationErrors:Null<Array<String>> = null;
+
+  /**
+   * Get the timestamp at which `handleEvent()` should be called for this event.
+   * This may be offset relative to `time`, which indicates where the event is placed in the chart.
+   *
+   * @return The position of the event in the song, in milliseconds.
+   */
+  public function getActivationTime(?conductor:Conductor):Float
+  {
+    return _activationTime = this.getHandler()?.calculateActivationTime(this, conductor ?? Conductor.instance) ?? this.time;
   }
 
   /**
@@ -756,37 +999,39 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
    */
   public function clone():SongEventDataRaw
   {
-    return new SongEventDataRaw(this.time, this.eventKind, this.value);
+    return new SongEventDataRaw(this.time, this.eventKind, this.value, this.editorLayer);
   }
 
-  public function valueAsStruct(?defaultKey:String = "key"):Dynamic
+  /**
+   * If the value is an anonymous structure, return it as a struct.
+   * Otherwise, return the value as a struct with the current value as the value of
+   *   the first key in the event schema.
+   * Good for compatibility with older charts, where event values were a single number.
+   *
+   * @return The value as a struct.
+   */
+  public function valueAsStruct(?defaultKey:String):Dynamic
   {
-    if (this.value == null) return
-    {
-    };
-    if (Std.isOfType(this.value, Array))
-    {
-      var result:haxe.DynamicAccess<Dynamic> = {};
-      result.set(defaultKey, this.value);
-      return cast result;
-    }
-    else if (Reflect.isObject(this.value))
+    if (this.value == null) return ({
+    });
+
+    if (!Std.isOfType(this.value, Array) && Reflect.isObject(this.value))
     {
       // We enter this case if the value is a struct.
       return cast this.value;
     }
     else
     {
+      // Value is not a struct, it must be converted.
+      var fieldName:String = defaultKey ?? getSchema()?.getFirstField()?.name ?? 'key';
+
       var result:haxe.DynamicAccess<Dynamic> = {};
-      result.set(defaultKey, this.value);
+      result.set(fieldName, this.value);
+
       return cast result;
     }
   }
 
-  /**
-   * Retrieve the SongEvent handler class for this event.
-   * @return The handler class, or `null` if not found.
-   */
   public function getHandler():Null<SongEvent>
   {
     return SongEventRegistry.getEvent(this.eventKind);
@@ -808,7 +1053,11 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
    */
   public function getDynamic(key:String):Null<Dynamic>
   {
-    return this.value == null ? null : Reflect.field(this.value, key);
+    if (this.value == null) return null;
+
+    var valueStruct:haxe.DynamicAccess<Dynamic> = valueAsStruct();
+
+    return valueStruct.get(key);
   }
 
   /**
@@ -818,7 +1067,14 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
    */
   public function getBool(key:String):Null<Bool>
   {
-    return this.value == null ? null : cast Reflect.field(this.value, key);
+    var result:Dynamic = getDynamic(key);
+
+    if (result == null) return null;
+    if (Std.isOfType(result, Bool)) return result;
+    if (result == 'true') return true;
+    if (result == 'false') return false;
+
+    return cast result;
   }
 
   /**
@@ -828,11 +1084,11 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
    */
   public function getInt(key:String):Null<Int>
   {
-    if (this.value == null) return null;
-    var result:Any = Reflect.field(this.value, key);
+    var result:Dynamic = getDynamic(key);
     if (result == null) return null;
     if (Std.isOfType(result, Int)) return result;
     if (Std.isOfType(result, String)) return Std.parseInt(cast result);
+
     return cast result;
   }
 
@@ -843,11 +1099,11 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
    */
   public function getFloat(key:String):Null<Float>
   {
-    if (this.value == null) return null;
-    var result:Any = Reflect.field(this.value, key);
+    var result:Dynamic = getDynamic(key);
     if (result == null) return null;
     if (Std.isOfType(result, Float)) return result;
     if (Std.isOfType(result, String)) return Std.parseFloat(cast result);
+
     return cast result;
   }
 
@@ -858,7 +1114,11 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
    */
   public function getString(key:String):String
   {
-    return this.value == null ? null : cast Reflect.field(this.value, key);
+    var result:Dynamic = getDynamic(key);
+    if (result == null) return null;
+    if (Std.isOfType(result, String)) return result;
+
+    return '${result}';
   }
 
   /**
@@ -868,7 +1128,9 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
    */
   public function getArray(key:String):Array<Dynamic>
   {
-    return this.value == null ? null : cast Reflect.field(this.value, key);
+    var result:Dynamic = getDynamic(key);
+    if (result == null) return null;
+    return cast result;
   }
 
   /**
@@ -878,7 +1140,9 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
    */
   public function getBoolArray(key:String):Array<Bool>
   {
-    return this.value == null ? null : cast Reflect.field(this.value, key);
+    var result:Dynamic = getDynamic(key);
+    if (result == null) return null;
+    return cast result;
   }
 
   /**
@@ -888,7 +1152,9 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
    */
   public function getFloatArray(key:String):Array<Float>
   {
-    return this.value == null ? null : cast Reflect.field(this.value, key);
+    var result:Dynamic = getDynamic(key);
+    if (result == null) return null;
+    return cast result;
   }
 
   /**
@@ -896,9 +1162,23 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
    * @param key The name of the field to retrieve.
    * @return The field value, or `null` if not provided.
    */
-  public function getStringArray(key:String):Array<Float>
+  public function getStringArray(key:String):Array<String>
   {
-    return this.value == null ? null : cast Reflect.field(this.value, key);
+    var result:Dynamic = getDynamic(key);
+    if (result == null) return null;
+    return cast result;
+  }
+
+  /**
+   * Assign a field from this event's data.
+   * @param key The name of the field to assign.
+   * @param newValue The new value to assign.
+   */
+  public function set(key:String, newValue:Dynamic):Void
+  {
+    var valueStruct:haxe.DynamicAccess<Dynamic> = valueAsStruct();
+    valueStruct.set(key, newValue);
+    this.value = valueStruct;
   }
 
   /**
@@ -914,8 +1194,7 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
 
     var result = '${eventHandler.getTitle()}';
 
-    var defaultKey = eventSchema.getFirstField()?.name;
-    var valueStruct:haxe.DynamicAccess<Dynamic> = valueAsStruct(defaultKey);
+    var valueStruct:haxe.DynamicAccess<Dynamic> = valueAsStruct();
 
     for (fieldName in eventSchema.listAllFieldNames())
     {
@@ -941,20 +1220,30 @@ class SongEventDataRaw implements ICloneable<SongEventDataRaw>
       result += '\n- ${title}: ${valueStr}';
     }
 
+    if (_validationErrors != null && _validationErrors.length > 0)
+    {
+      result += '\n\nERRORS:';
+      for (error in _validationErrors) result += '\n- ${error}';
+    }
+
     return result;
+  }
+
+  public function toString():String
+  {
+    return 'SongEventData(${this.time}ms, ${this.eventKind} [${this.value}])';
   }
 }
 
 /**
  * Wrap SongEventData in an abstract so we can overload operators.
  */
-@:forward(time, eventKind, value, activated, getStepTime, clone, getHandler, getSchema, getDynamic, getBool, getInt, getFloat, getString, getArray,
-  getBoolArray, buildTooltip, valueAsStruct)
+@:forward(time, eventKind, value, activated, editorLayer, getStepTime, editorLayer, getActivationTime, clone, getHandler, getSchema, getDynamic, getBool, getInt, getFloat, getString, getArray, getBoolArray, getFloatArray, getStringArray, set, buildTooltip, valueAsStruct)
 abstract SongEventData(SongEventDataRaw) from SongEventDataRaw to SongEventDataRaw
 {
-  public function new(time:Float, eventKind:String, value:Dynamic = null)
+  public function new(time:Float, eventKind:String, ?value:Dynamic, ?editorLayer:String)
   {
-    this = new SongEventDataRaw(time, eventKind, value);
+    this = new SongEventDataRaw(time, eventKind, value, editorLayer);
   }
 
   /**
@@ -963,7 +1252,22 @@ abstract SongEventData(SongEventDataRaw) from SongEventDataRaw to SongEventDataR
    */
   public function clone():SongEventData
   {
-    return new SongEventData(this.time, this.eventKind, this.value);
+    var result:SongEventData = new SongEventData(this.time, this.eventKind, this.value, this.editorLayer);
+    result.editorLayer = this.editorLayer;
+    return result;
+  }
+
+  /** Return validation errors cached for this event by the editor. */
+  public function getValidationErrors():Array<String>
+  {
+    @:privateAccess
+    return this._validationErrors ?? [];
+  }
+
+  function cacheValidationErrors(errors:Array<String>):Void
+  {
+    @:privateAccess
+    this._validationErrors = errors;
   }
 
   /**
@@ -976,6 +1280,8 @@ abstract SongEventData(SongEventDataRaw) from SongEventDataRaw to SongEventDataR
   @:op(A == B)
   public function op_equals(other:SongEventData):Bool
   {
+    if (this == null) return other == null;
+    if (other == null) return false;
     return this.time == other.time && this.eventKind == other.eventKind && this.value == other.value;
   }
 
@@ -989,6 +1295,8 @@ abstract SongEventData(SongEventDataRaw) from SongEventDataRaw to SongEventDataR
   @:op(A != B)
   public function op_notEquals(other:SongEventData):Bool
   {
+    if (this == null) return other != null;
+    if (other == null) return true;
     return this.time != other.time || this.eventKind != other.eventKind || this.value != other.value;
   }
 
@@ -1049,7 +1357,7 @@ abstract SongEventData(SongEventDataRaw) from SongEventDataRaw to SongEventDataR
    */
   public function toString():String
   {
-    return 'SongEventData(${this.time}ms, ${this.eventKind}: ${this.value})';
+    return 'SongEventData(${this.editorLayer ?? 'Default'}: ${this.time}ms, ${this.eventKind}: ${this.value})';
   }
 }
 
@@ -1067,6 +1375,7 @@ class SongNoteDataRaw implements ICloneable<SongNoteDataRaw>
   function set_time(value:Float):Float
   {
     _stepTime = null;
+    _stepLength = null;
     return time = value;
   }
 
@@ -1217,7 +1526,7 @@ class SongNoteDataRaw implements ICloneable<SongNoteDataRaw>
 
     if (_stepLength != null && !force) return _stepLength;
 
-    return _stepLength = Conductor.instance.getTimeInSteps(this.time + this.length) - getStepTime();
+    return _stepLength = Conductor.instance.getTimeInSteps(this.time + this.length) - getStepTime(force);
   }
 
   /**
@@ -1268,7 +1577,10 @@ class SongNoteDataRaw implements ICloneable<SongNoteDataRaw>
 
   public function toString():String
   {
-    return 'SongNoteData(${this.time}ms, ' + (this.length > 0 ? '[${this.length}ms hold]' : '') + ' ${this.data}'
+    return
+      'SongNoteData(${this.time}ms, '
+      + (this.length > 0 ? '[${this.length}ms hold]' : '')
+      + ' ${this.data}'
       + (this.kind != '' ? ' [kind: ${this.kind}])' : ')');
   }
 
@@ -1350,14 +1662,9 @@ abstract SongNoteData(SongNoteDataRaw) from SongNoteDataRaw to SongNoteDataRaw
     if (this == null) return other == null;
     if (other == null) return false;
 
-    if (this.kind == null || this.kind == '')
-    {
-      if (other.kind != '' && this.kind != null) return false;
-    }
-    else
-    {
-      if (other.kind == '' || this.kind == null) return false;
-    }
+    // The getter normalizes an empty kind to null. Distinct non-empty kinds
+    // must not collapse into the same note when editor commands match them.
+    if (this.kind != other.kind) return false;
 
     return this.time == other.time && this.data == other.data && this.length == other.length && this.params == other.params;
   }
@@ -1365,20 +1672,7 @@ abstract SongNoteData(SongNoteDataRaw) from SongNoteDataRaw to SongNoteDataRaw
   @:op(A != B)
   public function op_notEquals(other:SongNoteData):Bool
   {
-    // Handle the case where one value is null.
-    if (this == null) return other == null;
-    if (other == null) return false;
-
-    if (this.kind == '')
-    {
-      if (other.kind != '') return true;
-    }
-    else
-    {
-      if (other.kind == '') return true;
-    }
-
-    return this.time != other.time || this.data != other.data || this.length != other.length || this.params != other.params;
+    return !op_equals(other);
   }
 
   @:op(A > B)
@@ -1423,7 +1717,10 @@ abstract SongNoteData(SongNoteDataRaw) from SongNoteDataRaw to SongNoteDataRaw
    */
   public function toString():String
   {
-    return 'SongNoteData(${this.time}ms, ' + (this.length > 0 ? '[${this.length}ms hold]' : '') + ' ${this.data}'
+    return
+      'SongNoteData(${this.time}ms, '
+      + (this.length > 0 ? '[${this.length}ms hold]' : '')
+      + ' ${this.data}'
       + (this.kind != '' ? ' [kind: ${this.kind}])' : ')');
   }
 }

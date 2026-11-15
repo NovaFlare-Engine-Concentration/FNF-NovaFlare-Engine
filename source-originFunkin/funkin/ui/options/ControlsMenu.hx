@@ -48,14 +48,13 @@ class ControlsMenu extends Page<OptionsState.OptionsMenuPageName>
     [
       #if FEATURE_DEBUG_MENU DEBUG_MENU, #end
       #if FEATURE_CHART_EDITOR DEBUG_CHART, #end
+      #if FEATURE_CAMERA_EDITOR DEBUG_CAMERA, #end
       #if FEATURE_STAGE_EDITOR DEBUG_STAGE, #end
       DEBUG_DISPLAY
     ]
   ];
 
-  var itemGroups:Array<Array<InputItem>> = [
-    for (i in 0...controlGroups.length) []
-  ];
+  var itemGroups:Array<Array<InputItem>> = [for (i in 0...controlGroups.length) []];
   var controlGrid:MenuTypedList<InputItem>;
   var deviceList:TextMenuList;
   var menuCamera:FlxCamera;
@@ -195,9 +194,7 @@ class ControlsMenu extends Page<OptionsState.OptionsMenuPageName>
       camFollow.y = selected.y;
 
       labels.forEach((label) -> label.alpha = 0.6);
-      labels.members[
-        Std.int(controlGrid.selectedIndex / COLUMNS)
-      ].alpha = 1.0;
+      labels.members[Std.int(controlGrid.selectedIndex / COLUMNS)].alpha = 1.0;
     });
 
     prompt = new Prompt("\nPress any key to rebind\n\n\nBackspace to unbind\n    Escape to cancel", None);
@@ -271,9 +268,7 @@ class ControlsMenu extends Page<OptionsState.OptionsMenuPageName>
   function goToDeviceList():Void
   {
     controlGrid.selectedItem.idle();
-    labels.members[
-      Std.int(controlGrid.selectedIndex / COLUMNS)
-    ].alpha = 0.6;
+    labels.members[Std.int(controlGrid.selectedIndex / COLUMNS)].alpha = 0.6;
     controlGrid.enabled = false;
     deviceList.enabled = true;
     canExit = true;
@@ -301,9 +296,7 @@ class ControlsMenu extends Page<OptionsState.OptionsMenuPageName>
     }
 
     controlGrid.selectedItem.select();
-    labels.members[
-      Std.int(controlGrid.selectedIndex / COLUMNS)
-    ].alpha = 1.0;
+    labels.members[Std.int(controlGrid.selectedIndex / COLUMNS)].alpha = 1.0;
     controlGrid.enabled = true;
     deviceList.enabled = false;
     deviceListSelected = false;
@@ -432,8 +425,10 @@ class ControlsMenu extends Page<OptionsState.OptionsMenuPageName>
     var leftItem = controlGrid.members[controlGrid.selectedIndex - 1];
     var rightItem = controlGrid.members[controlGrid.selectedIndex + 1];
 
+    var otherItem = controlGrid.selectedIndex % 2 == 1 ? leftItem : rightItem;
+
     // check if all keybinds are being removed and this is a UI control, prevent removing last keybind for this
-    if (input == FlxKey.NONE && controlGrid.selectedIndex != 1 && rightItem.input == FlxKey.NONE)
+    if (input == FlxKey.NONE && otherItem != null && otherItem.input == FlxKey.NONE)
     {
       for (group in itemGroups)
       {

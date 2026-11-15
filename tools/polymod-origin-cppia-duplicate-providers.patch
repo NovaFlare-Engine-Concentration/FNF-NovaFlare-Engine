@@ -1,0 +1,33 @@
+--- a/polymod/hscript/_internal/PolymodCppiaClassReference.hx
++++ b/polymod/hscript/_internal/PolymodCppiaClassReference.hx
+@@ -200,23 +200,18 @@
+ 
+   static function recordDependencies(loaded:LoadedCppiaModule, path:String, types:Array<String>):Void
+   {
+-    var providers:Map<String, String> = new Map<String, String>();
+-    for (otherPath => other in loadedModules)
+-    {
+-      if (otherPath == path) continue;
+-      for (name in other.names)
+-        providers.set(name, otherPath);
+-    }
+-
+     for (type in types)
+     {
+       var name:String = normalizeTypeName(type);
+       if (loaded.names.contains(name)) continue;
+ 
+-      var from:Null<String> = providers.get(name);
+-      if (from == null || loaded.dependencies.exists(from)) continue;
+-
+-      loaded.dependencies.set(from, loadedModules.get(from).serial);
++      // Duplicate exports make the actual native provider ambiguous here.
++      // Keep every matching provider alive until this dependent is unloaded.
++      for (otherPath => other in loadedModules)
++      {
++        if (otherPath == path || !other.names.contains(name) || loaded.dependencies.exists(otherPath)) continue;
++        loaded.dependencies.set(otherPath, other.serial);
++      }
+     }
+   }
+ 

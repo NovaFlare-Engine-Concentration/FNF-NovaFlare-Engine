@@ -1,0 +1,20 @@
+--- a/polymod/hscript/_internal/PolymodCppiaClassReference.hx
++++ b/polymod/hscript/_internal/PolymodCppiaClassReference.hx
+@@ -122,7 +122,16 @@
+       {
+         var loaded:LoadedCppiaModule = loadedModules.get(path);
+         var active:Array<String> = loaded.names.filter(name -> registry.exists(name));
+-        if (active.length == loaded.names.length) continue;
++        if (active.length > 0 && active.length == loaded.names.length) continue;
++        // Empty exports can still contain internal classes used by another module.
++        // Without a complete dependency graph, only unload them when alone.
++        if (loaded.names.length == 0)
++        {
++          var otherLoaded:Bool = false;
++          for (otherPath in loadedModules.keys())
++            if (otherPath != path) { otherLoaded = true; break; }
++          if (otherLoaded) continue;
++        }
+         if (active.length > 0)
+         {
+           Polymod.warning(SCRIPT_PARSE_FAILED,

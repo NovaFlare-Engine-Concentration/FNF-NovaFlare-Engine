@@ -11,6 +11,14 @@ import flixel.graphics.FlxGraphic;
 @:nullSafety
 class Album implements IRegistryEntry<AlbumData>
 {
+  /** Query the resources used by a freeplay entry. */
+  public static function queryAssets(type:funkin.assets.Assets.AssetType, entryId:String,
+    ?params:Dynamic):Array<funkin.assets.Paths.AssetPath>
+  {
+    var entry = funkin.data.freeplay.album.AlbumRegistry.instance.fetchEntry(entryId, params);
+    return funkin.data.freeplay.album.AlbumRegistry.queryEntryAssets(type, entry);
+  }
+
   public function new(id:String, ?params:Dynamic)
   {
     this.id = id;
@@ -45,7 +53,7 @@ class Album implements IRegistryEntry<AlbumData>
    */
   public function getAlbumArtAssetKey():String
   {
-    return _data?.albumArtAsset ?? 'freeplay/albumRoll/volume1"';
+    return funkin.assets.Paths.formatRelative(_data?.albumArtAsset ?? 'ui/freeplay/albums/volume1', 'ui/freeplay/albums', Constants.EXT_IMAGE);
   }
 
   /**
@@ -62,7 +70,7 @@ class Album implements IRegistryEntry<AlbumData>
    */
   public function getAlbumTitleAssetKey():String
   {
-    return _data?.albumTitleAsset ?? "freeplay/albumRoll/volume1-text";
+    return funkin.assets.Paths.formatRelative(_data?.albumTitleAsset ?? "ui/freeplay/albums/volume1-text", 'ui/freeplay/albums', Constants.EXT_IMAGE);
   }
 
   /**

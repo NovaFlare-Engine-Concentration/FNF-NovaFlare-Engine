@@ -32,12 +32,14 @@ class Options
 	public static var volumeMusic:Float = 1;
 	public static var volumeSFX:Float = 1;
 	public static var week6PixelPerfect:Bool = true;
+	public static var discordRPC:Bool = true;
 	public static var gameplayShaders:Bool = true;
 	public static var colorHealthBar:Bool = true;
 	public static var lowMemoryMode:Bool = false;
 	public static var devMode:Bool = false;
 	public static var betaUpdates:Bool = false;
 	public static var splashesEnabled:Bool = true;
+	public static var legacyModMenuNames:Bool = false;
 	@:dox(hide) @:doNotSave public static var hitWindow:Float = 250; // DEPRECATED
 	public static var songOffset:Float = 0;
 	public static var framerate:Int = #if mobile 60 #else 120 #end;
@@ -115,6 +117,7 @@ class Options
 	public static var charterAutoSaveTime:Float = 60*5;
 	public static var charterAutoSaveWarningTime:Float = 5;
 	public static var charterAutoSavesSeparateFolder:Bool = false;
+	public static var charterPauseQuant:Bool = false;
 
 	/**
 	 * CHARACTER EDITOR

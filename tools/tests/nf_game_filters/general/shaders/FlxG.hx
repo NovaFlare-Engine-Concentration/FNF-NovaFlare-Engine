@@ -1,0 +1,1 @@
+package general.shaders; class Game { public var _filters:Array<openfl.filters.BitmapFilter>; public var filtersEnabled:Bool=true; public function new() {} public function setFilters(f:Array<openfl.filters.BitmapFilter>) _filters=f; } class FlxG { public static var game:Game=new Game(); }

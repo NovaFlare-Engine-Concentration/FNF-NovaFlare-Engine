@@ -17,7 +17,7 @@ import funkin.ui.options.items.CheckboxPreferenceItem;
 import funkin.ui.options.items.NumberPreferenceItem;
 import funkin.ui.options.items.EnumPreferenceItem;
 import funkin.ui.debug.FunkinDebugDisplay.DebugDisplayMode;
-#if mobile
+#if FEATURE_TOUCH_CONTROLS
 import funkin.mobile.ui.FunkinBackButton;
 import funkin.mobile.input.ControlsHandler;
 import funkin.mobile.ui.FunkinHitbox.FunkinHitboxControlSchemes;
@@ -103,7 +103,7 @@ class PreferencesMenu extends Page<OptionsState.OptionsMenuPageName>
   {
     itemDescBox.makeSolidColor(1, 1, FlxColor.BLACK);
     itemDescBox.alpha = 0.6;
-    itemDesc.setFormat(Paths.font('vcr.ttf'), 32, FlxColor.WHITE, FlxTextAlign.CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+    itemDesc.setFormat(funkin.assets.Paths.font('ui/fonts/VCR OSD Mono'), 32, FlxColor.WHITE, FlxTextAlign.CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
     itemDesc.borderSize = 3;
 
     // Update the text.
@@ -188,11 +188,15 @@ class PreferencesMenu extends Page<OptionsState.OptionsMenuPageName>
       Preferences.hapticsIntensityMultiplier = value;
     }, null, Preferences.hapticsIntensityMultiplier, 0.1, 5, 0.1, 1);
     #end
-    createPrefItemCheckbox('Flashing Lights', 'When disabled, flashing effects are dampened. Useful for people with photosensitive epilepsy.',
+    createPrefItemCheckbox(
+      'Flashing Lights',
+      'When disabled, flashing effects are dampened. Useful for people with photosensitive epilepsy.',
       function(value:Bool):Void
       {
         Preferences.flashingLights = value;
-      }, Preferences.flashingLights);
+      },
+      Preferences.flashingLights
+    );
     createPrefItemCheckbox('Camera Zooms', 'When enabled, the camera bounces during songs.', function(value:Bool):Void
     {
       Preferences.zoomCamera = value;
@@ -245,7 +249,14 @@ class PreferencesMenu extends Page<OptionsState.OptionsMenuPageName>
       function(value:Float)
       {
         Preferences.framerate = Std.int(value);
-      }, null, Preferences.framerate, 30, 500, 5, 0);
+      },
+      null,
+      Preferences.framerate,
+      30,
+      500,
+      5,
+      0
+    );
     #end
 
     #if FEATURE_SCREENSHOTS
@@ -324,8 +335,12 @@ class PreferencesMenu extends Page<OptionsState.OptionsMenuPageName>
   function createPrefItemCheckbox(prefName:String, prefDesc:String, onChange:Bool->Void, defaultValue:Bool,
       available:Bool = true):CheckboxPreferenceItem
   {
-    var checkbox:CheckboxPreferenceItem = new CheckboxPreferenceItem(funkin.ui.FullScreenScaleMode.gameNotchSize.x, 120 * (items.length - 1 + 1),
-      defaultValue, available);
+    var checkbox:CheckboxPreferenceItem = new CheckboxPreferenceItem(
+      funkin.ui.FullScreenScaleMode.gameNotchSize.x,
+      120 * (items.length - 1 + 1),
+      defaultValue,
+      available
+    );
 
     items.createItem(0, (120 * items.length) + 30, prefName, AtlasFont.BOLD, function()
     {
@@ -349,11 +364,28 @@ class PreferencesMenu extends Page<OptionsState.OptionsMenuPageName>
    * @param step The value to increment/decrement by (default = 0.1)
    * @param precision Rounds decimals up to a `precision` amount of digits (ex: 4 -> 0.1234, 2 -> 0.12)
    */
-  function createPrefItemNumber(prefName:String, prefDesc:String, onChange:Float->Void, ?valueFormatter:Float->String, defaultValue:Float, min:Float,
-      max:Float, step:Float = 0.1, precision:Int):Void
+  function createPrefItemNumber(prefName:String,
+    prefDesc:String,
+    onChange:Float->Void,
+    ?valueFormatter:Float->String,
+    defaultValue:Float,
+    min:Float,
+    max:Float,
+    step:Float = 0.1,
+    precision:Int):Void
   {
-    var item = new NumberPreferenceItem(funkin.ui.FullScreenScaleMode.gameNotchSize.x, (120 * items.length) + 30, prefName, defaultValue, min, max, step,
-      precision, onChange, valueFormatter);
+    var item = new NumberPreferenceItem(
+      funkin.ui.FullScreenScaleMode.gameNotchSize.x,
+      (120 * items.length) + 30,
+      prefName,
+      defaultValue,
+      min,
+      max,
+      step,
+      precision,
+      onChange,
+      valueFormatter
+    );
     items.addItem(prefName, item);
     preferenceItems.add(item.lefthandText);
     preferenceDesc.push(prefDesc);
@@ -376,8 +408,18 @@ class PreferencesMenu extends Page<OptionsState.OptionsMenuPageName>
     {
       return '${value}%';
     };
-    var item = new NumberPreferenceItem(funkin.ui.FullScreenScaleMode.gameNotchSize.x, (120 * items.length) + 30, prefName, defaultValue, min, max, 10, 0,
-      newCallback, formatter);
+    var item = new NumberPreferenceItem(
+      funkin.ui.FullScreenScaleMode.gameNotchSize.x,
+      (120 * items.length) + 30,
+      prefName,
+      defaultValue,
+      min,
+      max,
+      10,
+      0,
+      newCallback,
+      formatter
+    );
     items.addItem(prefName, item);
     preferenceItems.add(item.lefthandText);
     preferenceDesc.push(prefDesc);

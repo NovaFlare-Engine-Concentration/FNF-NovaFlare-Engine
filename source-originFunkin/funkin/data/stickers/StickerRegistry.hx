@@ -2,10 +2,11 @@ package funkin.data.stickers;
 
 import funkin.data.stickers.StickerData;
 import funkin.ui.transition.stickers.StickerPack;
-import funkin.ui.transition.stickers.ScriptedStickerPack;
+import funkin.util.tools.ISingleton;
+import funkin.data.DefaultRegistryImpl;
 
 @:nullSafety
-class StickerRegistry extends BaseRegistry<StickerPack, StickerData, StickerEntryParams>
+class StickerRegistry extends BaseRegistry<StickerPack, StickerData, StickerEntryParams> implements ISingleton implements DefaultRegistryImpl
 {
   /**
    * The current version string for the sticker pack data format.
@@ -15,11 +16,15 @@ class StickerRegistry extends BaseRegistry<StickerPack, StickerData, StickerEntr
   public static final STICKER_DATA_VERSION:thx.semver.Version = '1.0.0';
 
   public static final STICKER_DATA_VERSION_RULE:thx.semver.VersionRule = '1.0.x';
-  public static final instance:StickerRegistry = new StickerRegistry();
 
   public function new()
   {
-    super('STICKER', 'stickerpacks', STICKER_DATA_VERSION_RULE);
+    super({
+      registryId: 'STICKER',
+      dataFilePath: 'ui/loading/stickers/stickerpacks/',
+      nestedEntries: false,
+      versionRule: STICKER_DATA_VERSION_RULE
+    });
   }
 
   public function fetchDefault():StickerPack
@@ -29,31 +34,25 @@ class StickerRegistry extends BaseRegistry<StickerPack, StickerData, StickerEntr
     return stickerPack;
   }
 
-  /**
-   * Read, parse, and validate the JSON data and produce the corresponding data object.
-   * @param id The ID of the entry to load.
-   * @return The parsed data object.
-   */
-  public function parseEntryData(id:String):Null<StickerData>
+  @:nullSafety(Off)
+  override function queryDefaultAssets(type:funkin.assets.Assets.AssetType, id:String,
+    ?params:StickerEntryParams):Array<funkin.assets.Paths.AssetPath>
   {
-    // JsonParser does not take type parameters,
-    // otherwise this function would be in BaseRegistry.
-    var parser:json2object.JsonParser<StickerData> = new json2object.JsonParser<StickerData>();
-
-    switch (loadEntryFile(id))
+    if (type != IMAGE) return [];
+    @:privateAccess var entry = this.entries.get(id);
+    if (entry == null) return [];
+    var result:Array<funkin.assets.Paths.AssetPath> = [];
+    var seen:Map<String, Bool> = [];
+    for (sticker in entry.getStickers())
     {
-      case {fileName: fileName, contents: contents}:
-        parser.fromJson(contents, fileName);
-      default:
-        return null;
+      if (sticker == null || sticker == '') continue;
+      var key = funkin.assets.Paths.formatRelative(sticker, 'ui/loading/stickers/stickerpacks', 'png');
+      var path = funkin.assets.Paths.image(key, false);
+      if (seen.exists(path.toString())) continue;
+      seen.set(path.toString(), true);
+      result.push(path);
     }
-
-    if (parser.errors.length > 0)
-    {
-      printErrors(parser.errors, id);
-      return null;
-    }
-    return parser.value;
+    return result;
   }
 
   /**
@@ -77,14 +76,14 @@ class StickerRegistry extends BaseRegistry<StickerPack, StickerData, StickerEntr
     return parser.value;
   }
 
-  function createScriptedEntry(clsName:String):StickerPack
+  override function createScriptedEntry(clsName:String):Null<StickerPack>
   {
-    return ScriptedStickerPack.scriptInit(clsName, 'unknown');
+    return StickerPack.scriptInit(clsName, 'unknown');
   }
 
   function getScriptedClassNames():Array<String>
   {
-    return ScriptedStickerPack.listScriptClasses();
+    return StickerPack.listScriptClasses();
   }
 }
 

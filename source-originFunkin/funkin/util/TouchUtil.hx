@@ -93,8 +93,9 @@ class TouchUtil
     if (object == null || touch == null) return false;
 
     if (camera == null) camera = object.cameras[0];
+
     @:privateAccess
-    if (object._point != null) return object.overlapsPoint(touch.getWorldPosition(camera, object._point), true, camera);
+    return object.overlapsPoint(touch.getWorldPosition(camera, object._point), true, camera);
 
     return false;
   }

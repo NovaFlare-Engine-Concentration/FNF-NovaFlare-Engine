@@ -37,6 +37,8 @@ class HScript extends Script {
 		super.onCreate(path);
 
 		interp = new Interp();
+		// Legacy mods also read static fields through live instances.
+		interp.useRedirects = true;
 
 		try {
 			if(Assets.exists(rawPath)) code = Assets.getText(rawPath);
@@ -79,12 +81,14 @@ class HScript extends Script {
 	}
 
 	static function normalizeCodeNameImports(code:String):String {
-		if (code == null || code.indexOf("funkin.") == -1)
-			return code;
-		var declaration = ~/\b(import|using|package|extends|implements)(\s+)funkin\./g;
-		return declaration.map(code, function(match:EReg):String {
-			return match.matched(1) + match.matched(2) + "codename.funkin.";
-		});
+		if (code == null) return code;
+		if (code.indexOf("funkin.") != -1) {
+			var declaration = ~/\b(import|using|package|extends|implements)(\s+)funkin\./g;
+			code = declaration.map(code, function(match:EReg):String {
+				return match.matched(1) + match.matched(2) + "codename.funkin.";
+			});
+		}
+		return LegacySyntaxCompat.normalizeUntypedCatch(code);
 	}
 
 	private function importFailedCallback(cl:Array<String>, ?asName:String):Bool {
@@ -160,8 +164,31 @@ class HScript extends Script {
 		], WARNING);
 	}
 
+	private var guardedPlayStateAdd:Dynamic;
+	private var warnedInvalidPlayStateAdd:Bool = false;
+
+	/** Avoid an unsafe native cast when legacy scripts pass non-FlxBasic values. */
+	public static function safeStateAdd(state:flixel.FlxState, value:Dynamic):Dynamic {
+		if (value == null || !Std.isOfType(value, flixel.FlxBasic)) return null;
+		return state.add(cast value);
+	}
+
 	public override function setParent(parent:Dynamic) {
+		if (guardedPlayStateAdd != null && interp.variables.get("add") == guardedPlayStateAdd)
+			interp.variables.remove("add");
+		guardedPlayStateAdd = null;
 		interp.scriptObject = parent;
+		if (Std.isOfType(parent, codename.funkin.game.PlayState) && !interp.variables.exists("add")) {
+			var state:flixel.FlxState = cast parent;
+			guardedPlayStateAdd = function(value:Dynamic):Dynamic {
+				if (value != null && !Std.isOfType(value, flixel.FlxBasic) && !warnedInvalidPlayStateAdd) {
+					warnedInvalidPlayStateAdd = true;
+					Logs.warn('Ignoring non-FlxBasic add() argument from $fileName');
+				}
+				return safeStateAdd(state, value);
+			};
+			interp.variables.set("add", guardedPlayStateAdd);
+		}
 		interp.invalidateCache();
 	}
 
@@ -190,14 +217,22 @@ class HScript extends Script {
 			}
 		}
 		var oldParent = interp.scriptObject;
+		var oldPublicVariables = interp.publicVariables;
+		var oldImportScript = interp.variables.get("importScript");
 		returnParser(parser);
 		onCreate(path);
 
 		for(k=>e in defaultVars)
 			set(k, e);
-
-		load();
+		setPublicMap(oldPublicVariables);
+		if (oldImportScript != null) set("importScript", oldImportScript);
+		set("disableScript", () -> { active = false; });
+		set("__script__", this);
 		setParent(oldParent);
+		// The original Script instance was already loaded. The new interpreter
+		// must execute once with its parent and shared variables in place.
+		@:privateAccess this.didLoad = false;
+		load();
 
 		for(k=>e in savedVariables)
 			interp.variables.set(k, e);

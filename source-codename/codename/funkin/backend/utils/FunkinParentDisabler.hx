@@ -18,27 +18,29 @@ class FunkinParentDisabler extends FlxBasic {
 	var __cameras:Array<FlxCamera>;
 	var __timers:Array<FlxTimer>;
 	var __sounds:Array<FlxSound>;
+	var __excludeList:Array<ParentDisableable>;
 	var __replaceUponDestroy:Bool;
 	var __restoreUponDestroy:Bool;
-	public function new(replaceUponDestroy:Bool = false, restoreUponDestroy:Bool = true) {
+	public function new(replaceUponDestroy:Bool = false, restoreUponDestroy:Bool = true, ?excludeList:Array<ParentDisableable>) {
 		super();
 		__replaceUponDestroy = replaceUponDestroy;
 		__restoreUponDestroy = restoreUponDestroy;
+		__excludeList = excludeList == null ? [] : excludeList;
 		@:privateAccess {
 			// tweens
-			__tweens = FlxTween.globalManager._tweens.copy();
-			FlxTween.globalManager._tweens = [];
+			__tweens = FlxTween.globalManager._tweens.filter(t -> !__excludeList.contains(t));
+			FlxTween.globalManager._tweens = FlxTween.globalManager._tweens.filter(t -> __excludeList.contains(t));
 
 			// timers
-			__timers = FlxTimer.globalManager._timers.copy();
-			FlxTimer.globalManager._timers = [];
+			__timers = FlxTimer.globalManager._timers.filter(t -> !__excludeList.contains(t));
+			FlxTimer.globalManager._timers = FlxTimer.globalManager._timers.filter(t -> __excludeList.contains(t));
 
 			// cameras
-			__cameras = [for(c in FlxG.cameras.list) if (!c.paused) c];
+			__cameras = [for(c in FlxG.cameras.list) if (!__excludeList.contains(c) && !c.paused) c];
 			for(c in __cameras) c.paused = true;
 
 			// sounds
-			__sounds = [for(s in FlxG.sound.list) if (s.playing && !s.persist) s];
+			__sounds = [for(s in FlxG.sound.list) if (!__excludeList.contains(s) && s.playing && !s.persist) s];
 			for(s in __sounds) s.pause();
 		}
 	}
@@ -50,6 +52,7 @@ class FunkinParentDisabler extends FlxBasic {
 		__cameras = [];
 		__timers = [];
 		__sounds = [];
+		__excludeList = [];
 	}
 
 	public override function destroy() {
@@ -61,8 +64,9 @@ class FunkinParentDisabler extends FlxBasic {
 				return;
 			}
 			if (__replaceUponDestroy) {
-				FlxTween.globalManager._tweens = __tweens;
-				FlxTimer.globalManager._timers = __timers;
+				// Keep excluded objects that are still managed; don't resurrect ones that finished while paused.
+				FlxTween.globalManager._tweens = __tweens.concat(FlxTween.globalManager._tweens.filter(t -> __excludeList.contains(t)));
+				FlxTimer.globalManager._timers = __timers.concat(FlxTimer.globalManager._timers.filter(t -> __excludeList.contains(t)));
 			} else {
 				for(t in __tweens) FlxTween.globalManager._tweens.push(t);
 				for(t in __timers) FlxTimer.globalManager._timers.push(t);
@@ -71,4 +75,11 @@ class FunkinParentDisabler extends FlxBasic {
 			for(s in __sounds) s.play();
 		}
 	}
+}
+
+abstract ParentDisableable(Any) {
+	@:from static inline function tween(t:FlxTween):ParentDisableable return cast t;
+	@:from static inline function timer(t:FlxTimer):ParentDisableable return cast t;
+	@:from static inline function camera(c:FlxCamera):ParentDisableable return cast c;
+	@:from static inline function sound(s:FlxSound):ParentDisableable return cast s;
 }

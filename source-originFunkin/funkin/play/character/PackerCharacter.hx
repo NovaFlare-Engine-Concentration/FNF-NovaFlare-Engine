@@ -31,9 +31,11 @@ class PackerCharacter extends BaseCharacter
 
   function loadSpritesheet():Void
   {
-    trace('Loading assets for Packer character "${characterId}"', flixel.util.FlxColor.fromString("#89CFF0"));
+    trace('Loading assets for Packer character "${characterId}"');
 
-    var tex:FlxFramesCollection = Paths.getPackerAtlas(_data.assetPath);
+    var assetPath:String = funkin.assets.Paths.formatRelative(_data.assetPath, 'gameplay/characters/$characterId', Constants.EXT_IMAGE);
+
+    var tex:FlxFramesCollection = Paths.getPackerAtlas(assetPath);
     if (tex == null)
     {
       trace('Could not load Packer sprite: ${_data.assetPath}');
@@ -78,5 +80,10 @@ class PackerCharacter extends BaseCharacter
 
     var animNames = this.animation.getNameList();
     trace('[PACKERCHAR] Successfully loaded ${animNames.length} animations for ${characterId}');
+  }
+
+  public override function toString():String
+  {
+    return 'PackerCharacter($characterName ($characterId), pos=[$x, $y])';
   }
 }

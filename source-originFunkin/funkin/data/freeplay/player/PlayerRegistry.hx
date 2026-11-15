@@ -13,9 +13,9 @@ class PlayerRegistry extends BaseRegistry<PlayableCharacter, PlayerData, PlayerE
    * Handle breaking changes by incrementing this value
    * and adding migration to the `migratePlayerData()` function.
    */
-  public static final PLAYER_DATA_VERSION:thx.semver.Version = '1.0.0';
+  public static final PLAYER_DATA_VERSION:thx.semver.Version = '1.1.0';
 
-  public static final PLAYER_DATA_VERSION_RULE:thx.semver.VersionRule = '1.0.x';
+  public static final PLAYER_DATA_VERSION_RULE:thx.semver.VersionRule = '>=1.0.x <1.2.0';
 
   /**
    * A mapping between stage character IDs and Freeplay playable character IDs.
@@ -24,13 +24,58 @@ class PlayerRegistry extends BaseRegistry<PlayableCharacter, PlayerData, PlayerE
 
   public function new()
   {
-    super('PLAYER', 'players', PLAYER_DATA_VERSION_RULE);
+    super({
+      registryId: 'PLAYER',
+      dataFilePath: 'gameplay/playable-characters/',
+      nestedEntries: true,
+      versionRule: PLAYER_DATA_VERSION_RULE
+    });
+  }
+
+  override public function parseEntryDataWithMigration(id:String, version:Null<thx.semver.Version>):Null<PlayerData>
+  {
+    // v0.5.0 used the same authored animation list for PERFECT and PERFECT_GOLD.
+    // Keep raw parsing strict, and only supply this missing field for schema 1.0.
+    if (version != null && funkin.util.VersionUtil.validateVersion(version, '1.0.x'))
+    {
+      var file = loadEntryFile(id);
+      var json:Dynamic = try haxe.Json.parse(file.contents) catch (_:Dynamic) null;
+      var results:Dynamic = Reflect.field(json, 'results');
+      if (results != null && !Reflect.hasField(results, 'perfectGold') && Std.isOfType(Reflect.field(results, 'perfect'), Array))
+      {
+        Reflect.setField(results, 'perfectGold', Reflect.field(results, 'perfect'));
+      }
+      if (json != null)
+      {
+        var data = parseEntryDataRaw(haxe.Json.stringify(json), file.fileName);
+        originfunkin.compat.LegacyPlayerResults.markLayout(data, json);
+        return data;
+      }
+    }
+    return super.parseEntryDataWithMigration(id, version);
   }
 
   override public function loadEntries():Void
   {
     super.loadEntries();
 
+    populateReverseCharMap();
+  }
+
+  override public function loadEntriesAsync():lime.app.Future<BaseRegistry.LoadEntriesResult>
+  {
+    return super.loadEntriesAsync().then((result) ->
+    {
+      populateReverseCharMap();
+      return lime.app.Future.withValue(result);
+    });
+  }
+
+  /**
+   * Create a `song => level` map for easy lookup.
+   */
+  function populateReverseCharMap():Void
+  {
     for (playerId in listEntryIds())
     {
       var player = fetchEntry(playerId);
@@ -43,8 +88,18 @@ class PlayerRegistry extends BaseRegistry<PlayableCharacter, PlayerData, PlayerE
       }
     }
 
-    log('Loaded ${countEntries()} playable characters with ${ownedCharacterIds.size()} associations.');
+    log('Loaded ${countEntries()} playable characters with ${ownedCharacterIds.size()} associated characters.');
   }
+
+  override function clearEntries():Void
+  {
+    super.clearEntries();
+    ownedCharacterIds.clear();
+  }
+
+  /** Historical names use the current registry's base/modded partition. */
+  public function listBaseGamePlayerIds():Array<String> return listBaseGameEntryIds();
+  public function listModdedPlayerIds():Array<String> return listModdedEntryIds();
 
   public function countUnlockedCharacters():Int
   {

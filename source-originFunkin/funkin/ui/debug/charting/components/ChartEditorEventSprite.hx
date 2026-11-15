@@ -46,6 +46,15 @@ class ChartEditorEventSprite extends FlxSprite
     return overrideStepTime;
   }
 
+  public var overlappingEventDatas(default, set):Null<Array<SongEventData>> = null;
+
+  function set_overlappingEventDatas(value:Null<Array<SongEventData>>):Null<Array<SongEventData>>
+  {
+    overlappingEventDatas = value;
+    updateTooltipText();
+    return value;
+  }
+
   public function new(parent:ChartEditorState, isGhost:Bool = false)
   {
     super();
@@ -74,7 +83,7 @@ class ChartEditorEventSprite extends FlxSprite
     if (eventFrames == null) throw 'Failed to initialize empty event frames.';
 
     // Push the default event as a frame.
-    var defaultFrames:FlxAtlasFrames = Paths.getSparrowAtlas('ui/chart-editor/events/$DEFAULT_EVENT');
+    var defaultFrames:FlxAtlasFrames = Paths.getSparrowAtlas('ui/editors/chart-editor/events/$DEFAULT_EVENT');
     defaultFrames.parent.persist = true;
     for (frame in defaultFrames.frames)
     {
@@ -84,10 +93,10 @@ class ChartEditorEventSprite extends FlxSprite
     // Push all the other events as frames.
     for (eventName in SongEventRegistry.listEventIds())
     {
-      var exists:Bool = Assets.exists(Paths.image('ui/chart-editor/events/$eventName'));
+      var exists:Bool = Assets.exists(Paths.image('ui/editors/chart-editor/events/$eventName'));
       if (!exists) continue; // No graphic for this event.
 
-      var frames:FlxAtlasFrames = Paths.getSparrowAtlas('ui/chart-editor/events/$eventName');
+      var frames:FlxAtlasFrames = Paths.getSparrowAtlas('ui/editors/chart-editor/events/$eventName');
       if (frames == null) continue; // Could not load graphic for this event.
 
       frames.parent.persist = true;
@@ -181,7 +190,40 @@ class ChartEditorEventSprite extends FlxSprite
   {
     if (this.eventData == null) return;
     if (this.isGhost) return;
-    this.tooltip.tipData = {text: this.eventData.buildTooltip()};
+
+    var tooltipText:String = '';
+    if (overlappingEventDatas == null || overlappingEventDatas.length == 0)
+    {
+      tooltipText = this.eventData.buildTooltip();
+    }
+    else
+    {
+      tooltipText = '${overlappingEventDatas.length + 1} Event(s)\n\n';
+      tooltipText += this.eventData.buildTooltip();
+
+      static var MAX_EVENT_LIMIT = 3;
+      var eventCount:Int = 1; // Start with 1 to include the base event.
+      for (event in overlappingEventDatas)
+      {
+        eventCount++;
+
+        tooltipText += '\n\n';
+
+        // Cut off the tooltip when we're showing 3 events.
+        if (eventCount > MAX_EVENT_LIMIT)
+        {
+          tooltipText += '... (${(overlappingEventDatas.length + 1) - MAX_EVENT_LIMIT} event(s) not showing)';
+          break;
+        }
+        else
+        {
+          tooltipText += event.buildTooltip();
+        }
+      }
+    }
+    this.tooltip.tipData = {
+      text: tooltipText
+    };
   }
 
   public function updateTooltipPosition():Void
@@ -210,6 +252,8 @@ class ChartEditorEventSprite extends FlxSprite
   override public function kill()
   {
     super.kill();
+
+    overlappingEventDatas = null;
 
     // Remove the tooltip to prevent recently deleted events from showing a tooltip.
     ToolTipManager.instance.unregisterTooltipRegion(this.tooltip);

@@ -32,7 +32,9 @@ class ABotVis extends FlxTypedSpriteGroup<FlxSprite>
     var visCount = pixel ? (BAR_COUNT + 1) : (BAR_COUNT + 1);
     var visScale = pixel ? 6 : 1;
 
-    var visFrms:FlxAtlasFrames = Paths.getSparrowAtlas(pixel ? 'characters/abotPixel/aBotVizPixel' : 'characters/abot/aBotViz');
+    var visFrms:FlxAtlasFrames = Paths.getSparrowAtlas(
+      pixel ? 'gameplay/characters/nene-pixel/abot-pixel/abot-pixel-viz' : 'gameplay/characters/nene/abot-viz'
+    );
 
     // these are the differences in X position, from left to right
     var positionX:Array<Float> = pixel ? [
@@ -95,9 +97,12 @@ class ABotVis extends FlxTypedSpriteGroup<FlxSprite>
   public function initAnalyzer():Void
   {
     if (snd == null) return;
+    @:privateAccess
+    var source:Null<lime.media.AudioSource> = snd._source;
+    if (source == null) return;
 
     @:privateAccess
-    analyzer = new SpectralAnalyzer(snd._channel.__audioSource, BAR_COUNT, 0.1, 40);
+    analyzer = new SpectralAnalyzer(source, BAR_COUNT, 0.1, 40);
     // A-Bot tuning...
     analyzer.minDb = -65;
     analyzer.maxDb = -25;
@@ -173,7 +178,10 @@ class ABotVis extends FlxTypedSpriteGroup<FlxSprite>
 
     for (i in 0...BAR_COUNT)
     {
-      result.push({value: 0, peak: 0.0});
+      result.push({
+        value: 0,
+        peak: 0.0
+      });
     }
 
     return result;

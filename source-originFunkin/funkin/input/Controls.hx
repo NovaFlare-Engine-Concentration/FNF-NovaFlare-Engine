@@ -47,6 +47,9 @@ class Controls extends FlxActionSet
   #if FEATURE_CHART_EDITOR
   var _debug_chart:FunkinAction = new FunkinAction(Action.DEBUG_CHART);
   #end
+  #if FEATURE_CAMERA_EDITOR
+  var _debug_camera:FunkinAction = new FunkinAction(Action.DEBUG_CAMERA);
+  #end
   #if FEATURE_STAGE_EDITOR
   var _debug_stage:FunkinAction = new FunkinAction(Action.DEBUG_STAGE);
   #end
@@ -393,6 +396,15 @@ class Controls extends FlxActionSet
   }
   #end
 
+  #if FEATURE_CAMERA_EDITOR
+  public var DEBUG_CAMERA(get, never):Bool;
+
+  inline function get_DEBUG_CAMERA():Bool
+  {
+    return _debug_camera.check();
+  }
+  #end
+
   #if FEATURE_STAGE_EDITOR
   public var DEBUG_STAGE(get, never):Bool;
 
@@ -457,6 +469,7 @@ class Controls extends FlxActionSet
     add(_cutscene_advance);
     #if FEATURE_DEBUG_MENU add(_debug_menu); #end
     #if FEATURE_CHART_EDITOR add(_debug_chart); #end
+    #if FEATURE_CAMERA_EDITOR add(_debug_camera); #end
     #if FEATURE_STAGE_EDITOR add(_debug_stage); #end
     add(_debug_display);
     add(_volume_up);
@@ -493,12 +506,12 @@ class Controls extends FlxActionSet
     var action = byName[name];
     if (gamepadOnly)
     {
-      if(action.checkFiltered(trigger, GAMEPAD)) action.updateLastDeviceUsed();
+      if (action.checkFiltered(trigger, GAMEPAD)) action.updateLastDeviceUsed();
       return action.checkFiltered(trigger, GAMEPAD);
     }
     else
     {
-      if(action.checkFiltered(trigger)) action.updateLastDeviceUsed();
+      if (action.checkFiltered(trigger)) action.updateLastDeviceUsed();
       return action.checkFiltered(trigger);
     }
   }
@@ -572,6 +585,24 @@ class Controls extends FlxActionSet
     return getDialogueName(getActionFromControl(control), ignoreSurrounding);
   }
 
+  public function getDeviceFromName(name:String):Device
+  {
+    return switch (name.toUpperCase())
+    {
+      case 'KEYS':
+        Keys;
+      case 'GAMEPAD':
+        Gamepad(0); // later
+      case device:
+        throw 'unhandled device: $device';
+    }
+  }
+
+  public function getControlFromName(name:String):Control
+  {
+    return Control.createByName(name.toUpperCase());
+  }
+
   function getActionFromControl(control:Control):FlxActionDigital
   {
     return switch (control)
@@ -627,6 +658,10 @@ class Controls extends FlxActionSet
       #if FEATURE_CHART_EDITOR
       case DEBUG_CHART:
         _debug_chart;
+      #end
+      #if FEATURE_CAMERA_EDITOR
+      case DEBUG_CAMERA:
+        _debug_camera;
       #end
       #if FEATURE_STAGE_EDITOR
       case DEBUG_STAGE:
@@ -727,6 +762,10 @@ class Controls extends FlxActionSet
       #if FEATURE_CHART_EDITOR
       case DEBUG_CHART:
         func(_debug_chart, JUST_PRESSED);
+      #end
+      #if FEATURE_CAMERA_EDITOR
+      case DEBUG_CAMERA:
+        func(_debug_camera, JUST_PRESSED);
       #end
       #if FEATURE_STAGE_EDITOR
       case DEBUG_STAGE:
@@ -953,6 +992,9 @@ class Controls extends FlxActionSet
     #if FEATURE_CHART_EDITOR
     bindKeys(Control.DEBUG_CHART, getDefaultKeybinds(scheme, Control.DEBUG_CHART));
     #end
+    #if FEATURE_CAMERA_EDITOR
+    bindKeys(Control.DEBUG_CAMERA, getDefaultKeybinds(scheme, Control.DEBUG_CAMERA));
+    #end
     #if FEATURE_STAGE_EDITOR
     bindKeys(Control.DEBUG_STAGE, getDefaultKeybinds(scheme, Control.DEBUG_STAGE));
     #end
@@ -1019,6 +1061,10 @@ class Controls extends FlxActionSet
           #end
           #if FEATURE_CHART_EDITOR
           case Control.DEBUG_CHART:
+            return [];
+          #end
+          #if FEATURE_CAMERA_EDITOR
+          case Control.DEBUG_CAMERA:
             return [];
           #end
           #if FEATURE_STAGE_EDITOR
@@ -1089,6 +1135,10 @@ class Controls extends FlxActionSet
           case Control.DEBUG_CHART:
             return [];
           #end
+          #if FEATURE_CAMERA_EDITOR
+          case Control.DEBUG_CAMERA:
+            return [];
+          #end
           #if FEATURE_STAGE_EDITOR
           case Control.DEBUG_STAGE:
             return [];
@@ -1155,6 +1205,10 @@ class Controls extends FlxActionSet
           #end
           #if FEATURE_CHART_EDITOR
           case Control.DEBUG_CHART:
+            return [];
+          #end
+          #if FEATURE_CAMERA_EDITOR
+          case Control.DEBUG_CAMERA:
             return [];
           #end
           #if FEATURE_STAGE_EDITOR
@@ -1248,6 +1302,7 @@ class Controls extends FlxActionSet
       Control.VOLUME_MUTE => getDefaultGamepadBinds(Control.VOLUME_MUTE),
       #if FEATURE_DEBUG_MENU Control.DEBUG_MENU => getDefaultGamepadBinds(Control.DEBUG_MENU), #end
       #if FEATURE_CHART_EDITOR Control.DEBUG_CHART => getDefaultGamepadBinds(Control.DEBUG_CHART), #end
+      #if FEATURE_CAMERA Control.DEBUG_CAMERA => getDefaultGamepadBinds(Control.DEBUG_CAMERA), #end
       #if FEATURE_STAGE_EDITOR Control.DEBUG_STAGE => getDefaultGamepadBinds(Control.DEBUG_STAGE), #end
       Control.DEBUG_DISPLAY => getDefaultGamepadBinds(Control.DEBUG_DISPLAY),
     ]);
@@ -1313,6 +1368,10 @@ class Controls extends FlxActionSet
       #end
       #if FEATURE_CHART_EDITOR
       case Control.DEBUG_CHART:
+        [];
+      #end
+      #if FEATURE_CAMERA_EDITOR
+      case Control.DEBUG_CAMERA:
         [];
       #end
       #if FEATURE_STAGE_EDITOR
@@ -1517,6 +1576,8 @@ class FunkinAction extends FlxActionDigital
   var cache:Map<String,
     {timestamp:Float, value:Bool}> = [];
 
+  var lastInputUpdateTimestamp:Float = -1;
+
   public function new(?name:String = '', ?namePressed:String, ?nameReleased:String)
   {
     super(name);
@@ -1649,6 +1710,9 @@ class FunkinAction extends FlxActionDigital
       return cacheEntry.value;
     }
 
+    var shouldUpdateInputs:Bool = lastInputUpdateTimestamp != FlxG.game.ticks;
+    if (shouldUpdateInputs) lastInputUpdateTimestamp = FlxG.game.ticks;
+
     _x = null;
     _y = null;
 
@@ -1667,8 +1731,7 @@ class FunkinAction extends FlxActionDigital
         continue;
       }
 
-      // Update the input.
-      input.update();
+      if (shouldUpdateInputs) input.update();
 
       // Check whether the input is the right trigger.
       if (filterTrigger != null && input.trigger != filterTrigger)
@@ -1689,7 +1752,10 @@ class FunkinAction extends FlxActionDigital
       }
     }
 
-    cache.set(key, {timestamp: FlxG.game.ticks, value: triggered});
+    cache.set(key, {
+      timestamp: FlxG.game.ticks,
+      value: triggered
+    });
 
     return triggered;
   }
@@ -1720,7 +1786,7 @@ class FunkinAction extends FlxActionDigital
 
 /**
  * Since, in many cases multiple actions should use similar keys, we don't want the
- * rebinding UI to list every action. ActionBinders are what the user perceives as
+ * rebinding UI to list every action. ActionBinders are what the user percieves as
  * an input so, for instance, they can't set jump-press and jump-release to different keys.
  */
 enum Control
@@ -1758,6 +1824,7 @@ enum Control
   // DEBUG
   #if FEATURE_DEBUG_MENU DEBUG_MENU; #end
   #if FEATURE_CHART_EDITOR DEBUG_CHART; #end
+  #if FEATURE_CAMERA_EDITOR DEBUG_CAMERA; #end
   #if FEATURE_STAGE_EDITOR DEBUG_STAGE; #end
   DEBUG_DISPLAY;
 }
@@ -1802,6 +1869,9 @@ enum abstract Action(String) to String from String
   #end
   #if FEATURE_CHART_EDITOR
   var DEBUG_CHART = 'debug_chart';
+  #end
+  #if FEATURE_CAMERA_EDITOR
+  var DEBUG_CAMERA = 'debug_camera';
   #end
   #if FEATURE_STAGE_EDITOR
   var DEBUG_STAGE = 'debug_stage';

@@ -17,6 +17,15 @@ using funkin.data.song.migrator.SongDataMigrator; // Does this even work lol?
  */
 class SongDataMigrator
 {
+  static function legacyNoteStyleId(noteSkin:String):String
+  {
+    return switch (noteSkin)
+    {
+      case 'Normal': Constants.DEFAULT_NOTE_STYLE;
+      case 'Pixel': 'pixel';
+      default: noteSkin;
+    };
+  }
   public static overload extern inline function migrate(input:SongData_v2_1_0.SongMetadata_v2_1_0):SongMetadata
   {
     return migrate_SongMetadata_v2_1_0(input);
@@ -50,7 +59,7 @@ class SongDataMigrator
     result.characters = input.characters;
 
     // Renamed
-    result.noteStyle = input.noteSkin;
+    result.noteStyle = legacyNoteStyleId(input.noteSkin);
 
     // Added
     result.ratings = ['default' => 1];
@@ -95,7 +104,7 @@ class SongDataMigrator
     result.album = null;
 
     // Renamed
-    result.noteStyle = input.noteSkin;
+    result.noteStyle = legacyNoteStyleId(input.noteSkin);
 
     // Fetch the first playable character and migrate it.
     var firstCharKey:Null<String> = input.playableChars.size() == 0 ? null : input.playableChars.keys().array()[0];

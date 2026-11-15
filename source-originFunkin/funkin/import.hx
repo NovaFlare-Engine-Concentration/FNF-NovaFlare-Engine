@@ -1,14 +1,15 @@
 package;
 
 #if !macro
-// Only import these when we aren't in a macro.
-import funkin.util.Constants;
-import funkin.Assets;
-import funkin.Paths;
-import funkin.Preferences;
+import haxe.ds.Option;
 import flixel.FlxG; // This one in particular causes a compile error if you're using macros.
 import flixel.system.debug.watch.Tracker;
-import haxe.ds.Option;
+// Only import these when we aren't in a macro.
+import funkin.Assets;
+import funkin.Paths;
+import funkin.memory.FunkinMemory;
+import funkin.Preferences;
+import funkin.util.Constants;
 
 // These are great.
 using Lambda;
@@ -25,4 +26,8 @@ using funkin.util.tools.SongEventDataArrayTools;
 using funkin.util.tools.SongNoteDataArrayTools;
 using funkin.util.tools.StringTools;
 using funkin.util.AnsiUtil;
+#if FEATURE_MULTITHREADING
+using funkin.util.tools.SynchronizedArrayTools;
+using funkin.util.tools.SynchronizedMapTools;
+#end
 #end

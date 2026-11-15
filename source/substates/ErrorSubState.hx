@@ -38,18 +38,20 @@ class ErrorSubState extends FlxSubState
 
 		subcameras = new FlxCamera();
 
-		bg = new FlxSprite().loadGraphic(Paths.image('egg'));
+		bg = originfunkin.OriginFunkinMode.active
+			? new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK)
+			: new FlxSprite().loadGraphic(Paths.image('egg'));
 		bg.width = FlxG.width;
 		bg.height = FlxG.height;
 		bg.alpha = 0;
 		add(bg);
 
 		errorText = new FlxText(0, 0, FlxG.width, error, 50);
-		errorText.font = Paths.font('Lang-ZH.ttf');
+		if (!originfunkin.OriginFunkinMode.active) errorText.font = Paths.font('Lang-ZH.ttf');
 		add(errorText);
 
 		tips = new FlxText(0, 0, FlxG.width, 'Wait 10 second or press back / ENTER\nstate will close', 25);
-		tips.font = Paths.font('Lang-ZH.ttf');
+		if (!originfunkin.OriginFunkinMode.active) tips.font = Paths.font('Lang-ZH.ttf');
 		tips.x = FlxG.width - tips.width;
 		tips.alignment = FlxTextAlign.RIGHT;
 		add(tips);
@@ -108,6 +110,12 @@ class ErrorSubState extends FlxSubState
 		if (exiting) return;
 		exiting = true;
 		if (exitTimer != null) exitTimer.cancel();
+		if (originfunkin.OriginFunkinMode.active)
+		{
+			originfunkin.OriginFunkinMode.reportRuntimeError(error);
+			FlxG.switchState(() -> new originfunkin.OriginFunkinErrorState());
+			return;
+		}
 
 		// Leave the failed state frozen until the replacement is ready. Both
 		// timeout and keyboard dismissal follow the same engine-specific route.

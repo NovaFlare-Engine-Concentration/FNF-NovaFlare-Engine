@@ -1,0 +1,23 @@
+--- a/src/hx/cppia/Cppia.cpp
++++ b/src/hx/cppia/Cppia.cpp
+@@ -3339,9 +3339,17 @@
+                CPPIALOG("Warning - calling super host '%s' from cppia can lead to infinte recursion\n", field.utf8_str());
+ 
+             //CPPIALOG(" found function %s\n", func.signature );
+-            // Origin 0.9 adds an optional blend target. Accept only its default null.
+-            if (type->name==HX_CSTRING("flixel.FlxCamera") && field==HX_CSTRING("drawTriangles") &&
+-                !strcmp(func.signature,"vooooooooooo") && args.size()==12 && !strcmp(args.back()->getName(),"NullVal"))
++            // Origin 0.9 adds an optional blend target to these camera methods.
++            // Only discard its literal default; a non-null target has different semantics.
++            const bool originCameraDefaultBlendTarget = type->name==HX_CSTRING("flixel.FlxCamera") &&
++               ((field==HX_CSTRING("drawTriangles") && !strcmp(func.signature,"vooooooooooo")) ||
++                (field==HX_CSTRING("drawPixels") && !strcmp(func.signature,"vooooooo")) ||
++                (field==HX_CSTRING("copyPixels") && !strcmp(func.signature,"voooooooo")) ||
++                (field==HX_CSTRING("startTrianglesBatch") && !strcmp(func.signature,"ooooooo")) ||
++                (field==HX_CSTRING("getNewDrawTrianglesItem") && !strcmp(func.signature,"ooooooo")) ||
++                (field==HX_CSTRING("startQuadBatch") && !strcmp(func.signature,"ooioooo")));
++            if (originCameraDefaultBlendTarget && args.size()==strlen(func.signature) &&
++                !strcmp(args.back()->getName(),"NullVal"))
+             {
+                delete args.back();
+                args.pop_back();

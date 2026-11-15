@@ -18,7 +18,6 @@ using StringTools;
 @:nullSafety
 class AnsiTrace
 {
-  private static final HEADER_REGEX = ~/^\s*\[(.*?)\]\s*(.*)$/;
   #if (sys && FEATURE_DEBUG_FILE_LOGGING)
   private static final logFilePath:String = 'logs/log-${DateUtil.generateTimestamp()}.txt';
   private static var logFile:Null<FileOutput> = null;
@@ -61,13 +60,20 @@ class AnsiTrace
 
       if (!logFileClosed) logFile = File.write(logFilePath);
 
-      lime.app.Application.current.onExit.add((_) ->
+      lime.app.Application.current.onExit.add(function(_):Void
       {
-        if (logFile != null && !logFileClosed) logFile.close();
-        logFileClosed = true;
+        if (logFile != null && !logFileClosed)
+        {
+          logFile.close();
+          logFileClosed = true;
+        }
       }, true, FlxMath.MIN_VALUE_INT);
     }
-    if (logFile != null && !logFileClosed) logFile.writeString(logStr);
+    if (logFile != null && !logFileClosed)
+    {
+      logFile.writeString(logStr);
+      logFile.flush();
+    }
     #end
     Sys.println(str);
     #else
@@ -78,8 +84,7 @@ class AnsiTrace
   /**
    * Returns our terminals support for color output
    */
-  public static var colorSupported:Bool = #if sys (Sys.getEnv("TERM")?.startsWith('xterm')
-    || Sys.getEnv("ANSICON") != null) #else false #end;
+  public static var colorSupported:Bool = #if sys (Sys.getEnv("TERM")?.startsWith('xterm') || Sys.getEnv("ANSICON") != null) #else false #end;
 
   /**
    * Format the output to use ANSI colors.
@@ -105,6 +110,7 @@ class AnsiTrace
     var header:String = "";
     var body:String = str;
 
+    final HEADER_REGEX = ~/^\s*\[(.*?)\]\s*(.*)$/;
     if (HEADER_REGEX.match(str))
     {
       header = ' ${HEADER_REGEX.matched(1)} ';

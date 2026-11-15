@@ -1,5 +1,7 @@
 package funkin.util.tools;
 
+import haxe.Utf8;
+
 /**
  * A static extension which provides utility functions for Strings.
  */
@@ -12,7 +14,7 @@ class StringTools
    * @param value The string to check.
    * @return True... or False...
    */
-  public static function isBlank(value:String):Bool
+  public static function isBlank(?value:String):Bool
   {
     return value == null || value.trim().length == 0;
   }
@@ -92,18 +94,36 @@ class StringTools
   }
 
   /**
-   * The regular expression to sanitize strings.
-   */
-  static final SANTIZE_REGEX:EReg = ~/[^-a-zA-Z0-9]/g;
-
-  /**
    * Remove all instances of symbols other than alpha-numeric characters (and dashes)from a string.
    * @param value The string to sanitize.
    * @return The sanitized string.
    */
   public static function sanitize(value:String):String
   {
+    final SANTIZE_REGEX:EReg = ~/[^-a-zA-Z0-9]/g;
     return SANTIZE_REGEX.replace(value, '');
+  }
+
+  /**
+   * Whether the given string is upper case.
+   *
+   * @param value The value to compare.
+   * @return Whether the given string is upper case.
+   */
+  public static function isUpperCase(value:String):Bool
+  {
+    return value == value.toUpperCase();
+  }
+
+  /**
+   * Whether the given string is lower case.
+   *
+   * @param value The value to compare.
+   * @return Whether the given string is lower case.
+   */
+  public static function isLowerCase(value:String):Bool
+  {
+    return value == value.toLowerCase();
   }
 
   /**
@@ -117,5 +137,13 @@ class StringTools
   public static function parseJSON(value:String):Dynamic
   {
     return SerializerUtil.fromJSON(value);
+  }
+
+  @:haxe.warning('-WDeprecated')
+  public static function fromUTF8CharCode(value:Int):String
+  {
+    var result = new Utf8();
+    result.addChar(value);
+    return result.toString();
   }
 }

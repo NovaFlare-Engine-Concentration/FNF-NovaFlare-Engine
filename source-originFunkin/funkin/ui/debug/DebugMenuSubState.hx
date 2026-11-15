@@ -36,7 +36,7 @@ class DebugMenuSubState extends MusicBeatSubState
     FlxG.camera.follow(camFocusPoint, null, 0.06);
 
     // Create the green background.
-    var menuBG = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
+    var menuBG = new FlxSprite().loadGraphic(Paths.image('ui/main-menu/menu-desat'));
     menuBG.color = 0xFF4CAF50;
     menuBG.setGraphicSize(Std.int(menuBG.width * 1.1 * FullScreenScaleMode.wideScale.x));
     menuBG.updateHitbox();
@@ -56,6 +56,12 @@ class DebugMenuSubState extends MusicBeatSubState
     // Call onMenuChange when the first item is created to move the camera .
     #if FEATURE_CHART_EDITOR
     createItem("CHART EDITOR", openChartEditor);
+    #end
+    #if FEATURE_CAMERA_EDITOR
+    createItem("CAMERA EDITOR", openCameraEditor);
+    #end
+    #if FEATURE_POLYMOD_MODS
+    createItem("MOD MENU", openModMenu);
     #end
     #if FEATURE_ANIMATION_EDITOR
     createItem("ANIMATION EDITOR", openAnimationEditor);
@@ -89,7 +95,7 @@ class DebugMenuSubState extends MusicBeatSubState
 
     if (controls.BACK_P)
     {
-      FunkinSound.playOnce(Paths.sound('cancelMenu'));
+      FunkinSound.playOnce(Paths.sound('ui/main-menu/cancel-menu'));
       exitDebugMenu();
     }
   }
@@ -113,7 +119,7 @@ class DebugMenuSubState extends MusicBeatSubState
 
   function openCharSelect():Void
   {
-    FlxG.switchState(() -> new funkin.ui.charSelect.CharSelectSubState());
+    FlxG.switchState(() -> new funkin.ui.charSelect.CharacterSelectState());
   }
 
   #if FEATURE_ANIMATION_EDITOR
@@ -136,6 +142,20 @@ class DebugMenuSubState extends MusicBeatSubState
   {
     trace('Stage Editor');
     FlxG.switchState(() -> new funkin.ui.debug.stageeditor.StageEditorState());
+  }
+  #end
+
+  #if FEATURE_POLYMOD_MODS
+  function openModMenu():Void
+  {
+    FlxG.switchState(() -> new funkin.ui.modmenu.ModMenuState());
+  }
+  #end
+
+  #if FEATURE_CAMERA_EDITOR
+  function openCameraEditor():Void
+  {
+    FlxG.switchState(() -> new funkin.ui.debug.cameraeditor.CameraEditorState());
   }
   #end
 

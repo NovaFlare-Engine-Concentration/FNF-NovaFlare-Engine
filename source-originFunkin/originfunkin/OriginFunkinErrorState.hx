@@ -17,7 +17,7 @@ class OriginFunkinErrorState extends FlxState
 
 		FlxG.camera.bgColor = FlxColor.BLACK;
 
-		var title:FlxText = new FlxText(48, 92, FlxG.width - 96, "originFunkin 0.8.7");
+		var title:FlxText = new FlxText(48, 60, FlxG.width - 96, "Origin Funkin");
 		title.setFormat(null, 42, FlxColor.WHITE, CENTER);
 		add(title);
 
@@ -28,10 +28,10 @@ class OriginFunkinErrorState extends FlxState
 		}
 
 		var details:FlxText = new FlxText(80, 190, FlxG.width - 160,
-			'$message\n\nPlace the unmodified FNF 0.8.7 asset folders inside:\n'
+			'$message\n\nExternal Origin assets folder:\n'
 			+ '${OriginFunkinMode.assetsRoot}\n\n'
-			+ "Remove the originFunkin folder to start NovaFlare normally.");
-		details.setFormat(null, 24, FlxColor.LIME, CENTER);
+			+ "Restart the game after correcting the error.");
+		details.setFormat(null, 20, FlxColor.LIME, CENTER);
 		details.screenCenter(X);
 		add(details);
 	}

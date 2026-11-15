@@ -3,7 +3,8 @@ package funkin.api.newgrounds;
 #if FEATURE_NEWGROUNDS_EVENTS
 import io.newgrounds.Call.CallOutcome;
 import io.newgrounds.NG;
-import io.newgrounds.objects.events.Result.LogEventData;
+import io.newgrounds.objects.events.Outcome;
+import io.newgrounds.objects.events.Result;
 #end
 
 /**
@@ -12,8 +13,6 @@ import io.newgrounds.objects.events.Result.LogEventData;
 @:nullSafety
 class Events
 {
-  // Only allow letters, numbers, spaces, dashes, and underscores.
-  static final EVENT_NAME_REGEX:EReg = ~/[^a-zA-Z0-9 -_]/g;
   static final ERROR_CODE_INVALID_EVENT_NAME:Int = 103;
 
   /**
@@ -23,6 +22,9 @@ class Events
    */
   public static function logEvent(eventName:String):Void
   {
+    // Only allow letters, numbers, spaces, dashes, and underscores.
+    final EVENT_NAME_REGEX:EReg = ~/[^a-zA-Z0-9 -_]/g;
+
     #if (FEATURE_NEWGROUNDS && FEATURE_NEWGROUNDS_EVENTS)
     if (NewgroundsClient.instance.isLoggedIn())
     {

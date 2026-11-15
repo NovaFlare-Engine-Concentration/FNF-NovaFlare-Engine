@@ -1,24 +1,28 @@
 package codename.funkin.backend.system;
 
 import flixel.util.FlxColor;
+import codename.funkin.backend.assets.AssetsLibraryList;
 import codename.funkin.backend.assets.ModsFolder;
+import codename.funkin.backend.assets.ModsFolderLibrary;
 import codename.funkin.backend.assets.IModsAssetLibrary;
 import codename.funkin.backend.assets.ScriptedAssetLibrary;
+import codename.funkin.backend.assets.TranslatedAssetLibrary;
 import codename.funkin.backend.system.macros.GitCommitMacro;
 import codename.funkin.backend.utils.IniUtil;
 import lime.app.Application;
+import lime.graphics.Image;
 import lime.utils.AssetLibrary as LimeAssetLibrary;
 import lime.utils.AssetType;
 
 /**
- * A class that reads the `flags.ini` file, allowing to read settable Flags (customs too).
+ * A class that reads the `data/config/modpack.ini` or `data/config/flags.ini` file,
+ * allowing to read settable Flags (customs too).
  */
 @:build(codename.funkin.backend.system.macros.FlagMacro.build())
 class Flags {
-	public static var overridenFlags:Map<String, Bool> = [];
-
 	// -- Codename's Addon Config --
 	@:bypass public static var addonFlags:Map<String, Dynamic> = [];
+	public static var USE_SOUND_VOLUME_CURVE:Bool = false;
 	public static var CURRENT_API_VERSION:Int = 3;
 
 	// -- Codename's ZipFolderLibrary Config --
@@ -32,10 +36,14 @@ class Flags {
 	public static var MOD_DOWNLOAD_LINK:String  = "";
 	public static var MOD_DEPENDENCIES:Array<String> = [];
 
-	@:noCompletion public static var MOD_ICON32:String = "";
-	@:noCompletion public static var MOD_ICON24:String = "";
-	@:noCompletion public static var MOD_ICON16:String = "";
-	public static var MOD_ICON:String = "";
+	public static var MOD_ICONS:Array<String> = ["icon16", "icon24", "icon32", "icon"];
+
+	// DEPRECATED (Remove these later probably 8 API VERSION)
+	@:lazy public static var MOD_ICON64:Null<String> = null;
+	@:lazy public static var MOD_ICON32:Null<String> = null;
+	@:lazy public static var MOD_ICON24:Null<String> = null;
+	@:lazy public static var MOD_ICON16:Null<String> = null;
+	@:lazy public static var MOD_ICON:Null<String> = null;
 
 	public static var MOD_DISCORD_CLIENT_ID:String = "";
 	public static var MOD_DISCORD_LOGO_KEY:String = "";
@@ -61,13 +69,25 @@ class Flags {
 	public static var REPO_OWNER:String = "CodenameCrew";
 	public static var REPO_URL:String = 'https://github.com/$REPO_OWNER/$REPO_NAME';
 
+	@:lazy public static var PATHS_CASE_SENSITIVE_FIX:Null<Bool> = null;
+	@:lazy public static var PATHS_CACHE_LIFETIME:Null<Int> = #if CODENAME_ENGINE_COMPAT 6 #else null #end;
+	public static var PATHS_CACHE_RESET_ON_SWITCH_STATE:Bool = true;
+
+	public static var GAME_WIDTH:Int = 1280;
+	public static var GAME_HEIGHT:Int = 720;
+
 	/**
 	 * Preferred sound extension for the game's audio files.
 	 * Currently is set to `mp3` for web targets, and `ogg` for other targets.
 	 */
-	public static var SOUND_EXT:String = #if web "mp3" #else "ogg" #end; // we also support wav
-	public static var VIDEO_EXT:String = "mp4";
-	public static var IMAGE_EXT:String = "png"; // we also support jpg
+	public static var SOUND_EXTS:Array<String> = [#if web "mp3", "ogg", #else "ogg", "mp3", #end "flac", "opus", "wav"];
+	public static var VIDEO_EXTS:Array<String> = ["mp4", "webm", "mkv", "mov"]; // is there any more? // yes frakits
+	public static var IMAGE_EXTS:Array<String> = ["png", "jpg", "jpeg"]; // TODO: Add more after another lime rebases for SDLImage
+
+	// DEPRECATED (Remove these later probably 5 API VERSION)
+	@:lazy public static var SOUND_EXT:Null<String> = "ogg";
+	@:lazy public static var VIDEO_EXT:Null<String> = "mp4";
+	@:lazy public static var IMAGE_EXT:Null<String> = "png";
 
 	public static var DEFAULT_DISCORD_LOGO_KEY:String = "icon";
 	public static var DEFAULT_DISCORD_CLIENT_ID:String = "1383853614589673472";
@@ -233,6 +253,8 @@ class Flags {
 	public static var DEFAULT_PAUSE_SCRIPT:String = "";
 	@:also(codename.funkin.game.GameOverSubstate.script)
 	public static var DEFAULT_GAMEOVER_SCRIPT:String = "";
+	@:also(codename.funkin.menus.ui.FunkinSoundTray.scriptPath)
+	public static var DEFAULT_SOUNDTRAY_SCRIPT:String = "data/soundTray";
 
 	public static var URL_WIKI:String = "https://codename-engine.com/";
 	public static var URL_EDITOR_FALLBACK:String = "https://www.youtube.com/watch?v=9Youam7GYdQ";
@@ -288,14 +310,20 @@ class Flags {
 	public static var DEFAULT_CHARACTER_GHOSTENABLE_SOUND:String = "editors/character/ghostEnable";
 
 	public static var DEFAULT_GLSL_VERSION:String = "120";
+	public static var FUNKIN_SHADER_CODE_PREFIX:String = "";
+	public static var FUNKIN_SHADER_CODE_FRAGMENT_PREFIX:String = "";
+	public static var FUNKIN_SHADER_CODE_VERTEX_PREFIX:String = "";
 	@:also(codename.funkin.backend.utils.HttpUtil.userAgent)
 	public static var USER_AGENT:String = 'request';
 	// -- End of Codename's Default Flags --
 
+	@:bypass public static var modIconImages:Array<Image>;
+	@:lazy public static var overridenFlags:Map<String, Bool> = [];
+
 	/**
 	 * Flags that Codename couldn't recognize as it's own defaults (they can only be `string`! due to them being unparsed).
 	 */
-	@:bypass public static var customFlags:Map<String, String> = [];
+	@:lazy public static var customFlags:Map<String, String> = [];
 
 	public static function loadFromData(flags:Map<String, String>, data:String) {
 		if (!(data.length > 0)) return;
@@ -318,7 +346,28 @@ class Flags {
 
 	private static function loadPost() {
 		if (MOD_API_VERSION == null) MOD_API_VERSION = CURRENT_API_VERSION;
+		if (PATHS_CASE_SENSITIVE_FIX == null) PATHS_CASE_SENSITIVE_FIX = #if windows false #else true #end;
 		if (WINDOW_TITLE_USE_MOD_NAME == null) WINDOW_TITLE_USE_MOD_NAME = !overridenFlags.exists('TITLE') && overridenFlags.exists('MOD_NAME');
+		final compIcons = [];
+		if (MOD_ICON != null) compIcons.push(MOD_ICON);
+		if (MOD_ICON16 != null) compIcons.push(MOD_ICON16);
+		if (MOD_ICON24 != null) compIcons.push(MOD_ICON24);
+		if (MOD_ICON32 != null) compIcons.push(MOD_ICON32);
+		if (MOD_ICON64 != null) compIcons.push(MOD_ICON64);
+
+		if (compIcons.length > 0) MOD_ICONS = compIcons;
+
+		modIconImages = [];
+		var path:String;
+		for (icon in MOD_ICONS) {
+			if (Assets.exists(icon)) path = icon;
+			else if (!Assets.exists(path = Paths.image(icon))) continue;
+
+			modIconImages.push(Image.fromBytes(Assets.getBytes(path)));
+		}
+
+		modIconImages.sort((a:Image, b:Image) -> Math.max(a.width, a.height) < Math.max(b.width, b.height) ? 1 : -1);
+
 		if (USE_LEGACY_TIMING == null) USE_LEGACY_TIMING = MOD_API_VERSION < 2;
 		if (USE_LEGACY_ZOOM_FACTOR == null) USE_LEGACY_ZOOM_FACTOR = MOD_API_VERSION < 2;
 		if (SUSTAINS_AS_ONE_NOTE == null) SUSTAINS_AS_ONE_NOTE = MOD_API_VERSION >= 2;
@@ -365,17 +414,18 @@ class Flags {
 				@:privateAccess
 				l = cast(l, openfl.utils.AssetLibrary).__proxy;
 			}
-			if(lib is codename.funkin.backend.assets.TranslatedAssetLibrary) {
+			if (lib is codename.funkin.backend.assets.TranslatedAssetLibrary) {
 				// skip translations since it would be useless, if you wanna modify it set the flags inside of global.hx
 				continue;
 			}
 
 			if (l is IModsAssetLibrary) {
+				if (cast(l, IModsAssetLibrary).modName == "assets") continue;
+				if (cast(l, IModsAssetLibrary).modName == "source") continue;
+
 				var flagsTxt = "";
 				if (l.exists(Paths.ini("config/modpack"), AssetType.TEXT))
 					flagsTxt = l.getAsset(Paths.ini("config/modpack"), AssetType.TEXT);
-				if (cast(l, IModsAssetLibrary).modName == "assets") continue;
-				if (cast(l, IModsAssetLibrary).modName == "source") continue;
 
 				if (cast(l, IModsAssetLibrary).modName == ModsFolder.currentModFolder) {
 					var flags:Map<String, String> = [];

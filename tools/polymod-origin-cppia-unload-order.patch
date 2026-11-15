@@ -1,0 +1,58 @@
+--- a/polymod/hscript/_internal/PolymodCppiaClassReference.hx
++++ b/polymod/hscript/_internal/PolymodCppiaClassReference.hx
+@@ -112,29 +112,32 @@
+   public static function unloadInactiveModules():Void
+   {
+     #if (hxcpp && POLYMOD_CPPIA)
+-    // Snapshot the keys, the loop removes entries.
+-    for (path in [for (key in loadedModules.keys()) key])
+-    {
+-      var loaded:LoadedCppiaModule = loadedModules.get(path);
+-
+-      var active:Array<String> = loaded.names.filter(name -> registry.exists(name));
+-
+-      if (active.length == loaded.names.length) continue;
+-
+-      if (active.length > 0)
+-      {
+-        // Another script re-registered part of this one's classes.
+-        Polymod.warning(SCRIPT_PARSE_FAILED,
+-          'Compiled script "$path" is partly still in use (${active.join(", ")} of ${loaded.names.join(", ")}), so it cannot be unloaded. Two scripts are probably providing the same class.',
+-          SCRIPT_RUNTIME);
+-        continue;
+-      }
+-
+-      if (!unloadModule(loaded, path)) continue;
+-
+-      loadedModules.remove(path);
+-      trace('[cppia] unloaded "$path", its mod is no longer enabled.');
+-    }
++    // Unload dependents before their providers, independently of map iteration order.
++    // Modules still referenced by active or failed-to-unload dependents stay loaded.
++    var removed:Bool;
++    do
++    {
++      removed = false;
++      for (path in [for (key in loadedModules.keys()) key])
++      {
++        var loaded:LoadedCppiaModule = loadedModules.get(path);
++        var active:Array<String> = loaded.names.filter(name -> registry.exists(name));
++        if (active.length == loaded.names.length) continue;
++        if (active.length > 0)
++        {
++          Polymod.warning(SCRIPT_PARSE_FAILED,
++            'Compiled script "$path" is partly still in use (${active.join(", ")} of ${loaded.names.join(", ")}), so it cannot be unloaded. Two scripts are probably providing the same class.',
++            SCRIPT_RUNTIME);
++          continue;
++        }
++        if (hasLoadedDependents(path, loaded)) continue;
++        if (!unloadModule(loaded, path)) continue;
++        loadedModules.remove(path);
++        removed = true;
++        trace('[cppia] unloaded "$path", its mod is no longer enabled.');
++      }
++    }
++    while (removed);
+     #end
+   }
+ 

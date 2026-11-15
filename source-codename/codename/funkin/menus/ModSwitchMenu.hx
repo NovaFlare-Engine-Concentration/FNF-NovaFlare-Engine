@@ -8,6 +8,8 @@ import haxe.io.Path;
 import sys.FileSystem;
 
 class ModSwitchMenu extends MusicBeatSubstate {
+	var disableConf:Map<String, Map<String, String>>;
+	var modConf:Array<Map<String, Map<String, String>>> = [];
 	var mods:Array<String> = [];
 	var alphabets:FlxTypedGroup<Alphabet>;
 	var curSelected:Int = 0;
@@ -16,6 +18,7 @@ class ModSwitchMenu extends MusicBeatSubstate {
 
 	public override function create() {
 		super.create();
+		disableConf = ["Common" => ["NAME" => TU.translate("mods.disableMods")]];
 
 		camera = subCam = new FlxCamera();
 		subCam.bgColor = 0;
@@ -37,9 +40,18 @@ class ModSwitchMenu extends MusicBeatSubstate {
 
 		alphabets = new FlxTypedGroup<Alphabet>();
 		for(mod in mods) {
-			var a = new Alphabet(0, 0, mod == null ? TU.translate("mods.disableMods") : Path.withoutExtension(mod), "bold");
-			if(mod == ModsFolder.currentModFolder)
-				a.color = FlxColor.LIME;
+			var conf = (mod == null || Options.legacyModMenuNames) ? disableConf : ModsFolder.getModConfig(mod);
+			modConf.push(conf);
+
+			var name = (Options.legacyModMenuNames ? (mod ?? disableConf["Common"].get("NAME")) : ((conf.exists("Common") && conf["Common"].exists("NAME")) ? conf["Common"].get("NAME") : (mod ?? disableConf["Common"].get("NAME"))));
+			if (name == "YOUR MOD NAME HERE")
+				name = mod;
+
+			var a = new Alphabet(0, 0, name, "bold");
+			if(mod == ModsFolder.currentModFolder) {
+				a.effects = [new codename.funkin.menus.ui.effects.ColorWaveEffect(0xFFFFFFFF, 0xFF00FF00, 10)];
+				a.effects[0].speed = 10;
+			}
 			a.isMenuItem = true;
 			a.scrollFactor.set();
 			alphabets.add(a);

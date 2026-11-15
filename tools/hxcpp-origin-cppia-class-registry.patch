@@ -1,0 +1,82 @@
+--- a/src/hx/Class.cpp
++++ b/src/hx/Class.cpp
+@@ -52,6 +52,16 @@
+    (*sClassMap)[inClassName] = inClass;
+ }
+ 
++// Only remove or restore the class if no later registration has replaced it.
++void _hx_ReplaceClassIfSame(const String &inClassName, Class inExpected, Class inReplacement)
++{
++   if (!sClassMap) return;
++   ClassMap::iterator found = sClassMap->find(inClassName);
++   if (found == sClassMap->end() || found->second.mPtr != inExpected.mPtr) return;
++   if (inReplacement.mPtr) found->second = inReplacement;
++   else sClassMap->erase(found);
++}
++
+ 
+ 
+ // -------- Class ---------------------------------------
+--- a/src/hx/cppia/CppiaClasses.cpp
++++ b/src/hx/cppia/CppiaClasses.cpp
+@@ -4,6 +4,9 @@
+ 
+ namespace hx
+ {
++
++void _hx_ReplaceClassIfSame(const String &inClassName, Class inExpected, Class inReplacement);
++static void unregisterCppiaClass(hx::Class inClass);
+ 
+ 
+ 
+@@ -740,6 +743,8 @@
+    if (unloaded)
+       return;
+    unloaded = true;
++
++   unregisterCppiaClass(mClass);
+ 
+    if (vtable)
+    {
+@@ -1695,6 +1700,7 @@
+ {
+ public:
+    CppiaClassInfo *info;
++   hx::Class previousCppia;
+ 
+    CppiaClass(CppiaClassInfo *inInfo)
+    {
+@@ -1754,7 +1760,10 @@
+       hx::Class old = hx::Class_obj::Resolve(inName);
+       // Overwrite cppia classes
+       if (old.mPtr && dynamic_cast<CppiaClass *>( old.mPtr ) )
++      {
+          overwrite = true;
++         previousCppia = old;
++      }
+       registerScriptable(overwrite);
+    }
+ 
+@@ -1839,6 +1848,22 @@
+ 
+ };
+ 
++
++// Restore the closest still-live overwritten CPPIA class, but never replace
++// a newer registration or an existing native class.
++static void unregisterCppiaClass(hx::Class inClass)
++{
++   CppiaClass *current = dynamic_cast<CppiaClass *>(inClass.mPtr);
++   if (!current) return;
++   hx::Class fallback = current->previousCppia;
++   while (fallback.mPtr)
++   {
++      CppiaClass *prior = dynamic_cast<CppiaClass *>(fallback.mPtr);
++      if (!prior || !prior->info->unloaded) break;
++      fallback = prior->previousCppia;
++   }
++   _hx_ReplaceClassIfSame(current->mName, inClass, fallback);
++}
+ 
+ hx::Class_obj *createCppiaClass(CppiaClassInfo *inInfo) { return new CppiaClass(inInfo); }
+ 

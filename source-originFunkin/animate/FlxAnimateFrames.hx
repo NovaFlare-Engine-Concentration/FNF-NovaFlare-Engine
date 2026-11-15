@@ -106,7 +106,7 @@ class FlxAnimateFrames extends FlxAtlasFrames
 	 */
 	public function getSymbol(name:String):Null<SymbolItem>
 	{
-		if (existsSymbol(name))
+		if (dictionary.exists(name))
 			return dictionary.get(name);
 
 		if (_isInlined)
@@ -141,8 +141,7 @@ class FlxAnimateFrames extends FlxAtlasFrames
 
 		for (collection in addedCollections)
 		{
-			if (collection.dictionary.exists(name))
-				return collection.dictionary.get(name);
+			if (symbolDefinedIn(collection, name)) return collection.getSymbol(name);
 		}
 
 		FlxG.log.warn('SymbolItem with name "$name" doesnt exist.');
@@ -157,7 +156,25 @@ class FlxAnimateFrames extends FlxAtlasFrames
 	 */
 	public function existsSymbol(name:String):Bool
 	{
-		return (dictionary.exists(name));
+		if (symbolDefinedIn(this, name)) return true;
+		if (addedCollections != null)
+			for (collection in addedCollections)
+				if (symbolDefinedIn(collection, name)) return true;
+		return false;
+	}
+
+	static function symbolDefinedIn(frames:FlxAnimateFrames, name:String):Bool
+	{
+		if (frames == null) return false;
+		if (frames.dictionary != null && frames.dictionary.exists(name)) return true;
+		if (frames._isInlined)
+		{
+			var symbols = frames._symbolDictionary;
+			if (symbols != null) for (i in 0...symbols.length)
+				if (symbols[i].SN == name) return true;
+		}
+		else if (frames._libraryList != null && frames._libraryList.contains(name)) return true;
+		return false;
 	}
 
 	/**
@@ -255,7 +272,7 @@ class FlxAnimateFrames extends FlxAtlasFrames
 		return FlxG.bitmap.add(FlxAnimateAssets.getBitmapData(path), false, path);
 	}
 
-	var _symbolDictionary:Null< #if flash Array<SymbolJson> #else Vector<SymbolJson> #end>;
+	var _symbolDictionary:Null<Array<SymbolJson>>;
 	var _isInlined:Bool;
 	var _libraryList:Array<String>;
 	var _settings:Null<FlxAnimateSettings>;
@@ -295,8 +312,17 @@ class FlxAnimateFrames extends FlxAtlasFrames
 
 		for (sm in jsonList)
 		{
-			var id = sm.split("spritemap")[1].split(".")[0];
-			var imageFile = spritemapList.filter((file) -> file.startsWith('spritemap$id') && !file.endsWith(".json"))[0];
+			var sheetName = Path.withoutExtension(sm);
+			var imageFile = spritemapList.filter((file) ->
+			{
+				var ext = Path.extension(file).toLowerCase();
+				return Path.withoutExtension(file) == sheetName && ["png", "jpg", "jpeg", "webp"].contains(ext);
+			})[0];
+			if (imageFile == null)
+			{
+				FlxG.log.warn('No image found for spritemap "$path/$sm".');
+				continue;
+			}
 
 			spritemaps.push({
 				source: getGraphic('$path/$imageFile'),
@@ -337,7 +363,7 @@ class FlxAnimateFrames extends FlxAtlasFrames
 		frames.path = path;
 		frames._symbolDictionary = animData.SD;
 		frames._isInlined = isInlined;
-		frames._libraryList = libraryList;
+		frames._libraryList = libraryList ?? [];
 		frames._settings = settings;
 
 		var spritemapCollection = new FlxAnimateSpritemapCollection(frames);
@@ -387,10 +413,8 @@ class FlxAnimateFrames extends FlxAtlasFrames
 		var stageInstance:Null<SymbolInstanceJson> = animData.AN.STI;
 		frames.matrix = (stageInstance != null) ? stageInstance.MX.toMatrix() : new FlxMatrix();
 
-		// clear the temp data crap
-		frames._symbolDictionary = null;
-		frames._libraryList = [];
-		frames._settings = null;
+		// Retain symbol metadata and settings for symbols first requested after
+		// initial parsing; they are released when this frame collection is destroyed.
 
 		_cachedAtlases.set(path, frames);
 
@@ -551,6 +575,9 @@ class FlxAnimateFrames extends FlxAtlasFrames
 		timeline = FlxDestroyUtil.destroy(timeline);
 		checkedDirtySymbols = null;
 		dictionary = null;
+		_symbolDictionary = null;
+		_libraryList = null;
+		_settings = null;
 		matrix = null;
 	}
 }

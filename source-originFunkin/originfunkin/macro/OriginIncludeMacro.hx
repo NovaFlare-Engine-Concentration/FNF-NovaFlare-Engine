@@ -54,6 +54,7 @@ class OriginIncludeMacro
 
 	static final FUNKIN_PACKAGES:Array<String> = [
 		'funkin.api',
+		'funkin.assets',
 		'funkin.audio',
 		'funkin.data',
 		'funkin.effects',
@@ -61,9 +62,12 @@ class OriginIncludeMacro
 		'funkin.graphics',
 		'funkin.group',
 		'funkin.input',
+		'funkin.memory',
 		'funkin.modding',
 		'funkin.play',
 		'funkin.save',
+		'funkin.touch',
+		'funkin.tweens',
 		'funkin.util',
 		'funkin.ui'
 	];

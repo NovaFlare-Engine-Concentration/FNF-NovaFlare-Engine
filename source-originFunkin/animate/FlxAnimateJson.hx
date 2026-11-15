@@ -53,7 +53,7 @@ extern typedef SpriteJson =
 extern abstract AnimationJson(Dynamic)
 {
 	public var AN(get, never):AnimationDataJson;
-	public var SD(get, never):Null< #if flash Array<SymbolJson> #else Vector<SymbolJson> #end>;
+	public var SD(get, never):Null<Array<SymbolJson>>;
 	public var MD(get, never):MetadataJson;
 
 	inline function get_AN()

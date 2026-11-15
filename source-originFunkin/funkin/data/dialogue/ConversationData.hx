@@ -128,6 +128,7 @@ typedef DialogueEntryData =
   /**
    * The animation the speaker should play for this line of dialogue.
    */
+  @:optional @:default('')
   public var speakerAnimation:String;
 
   /**
@@ -139,6 +140,7 @@ typedef DialogueEntryData =
   /**
    * Which animation to play for the dialogue box.
    */
+  @:optional @:default('')
   public var boxAnimation:String;
 
   /**
@@ -157,4 +159,14 @@ typedef DialogueEntryData =
    */
   @:optional @:default(1.0)
   public var speed:Float;
+
+  /** Sounds used while this entry is typed; an empty array disables them. */
+  @:optional @:default(['gameplay/dialogue/boxes/roses/click'])
+  public var sounds:Null<Array<String>>;
+
+  @:optional @:default(false)
+  public var autoAdvance:Bool;
+
+  @:optional @:default(0)
+  public var autoAdvanceFromLine:Int;
 };

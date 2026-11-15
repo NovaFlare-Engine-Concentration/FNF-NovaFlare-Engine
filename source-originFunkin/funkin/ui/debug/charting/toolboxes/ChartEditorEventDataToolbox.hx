@@ -1,41 +1,55 @@
 package funkin.ui.debug.charting.toolboxes;
 
 #if FEATURE_CHART_EDITOR
-import funkin.play.event.SongEventHelper;
+import flixel.FlxG;
+import flixel.tweens.FlxEase;
+import flixel.util.FlxTimer;
+import funkin.data.event.SongEventRegistry;
 import funkin.data.event.SongEventSchema;
+import funkin.play.event.SongEvent;
+import funkin.play.event.SongEventHelper;
 import funkin.ui.debug.charting.util.ChartEditorDropdowns;
+import funkin.ui.debug.charting.commands.SetItemSelectionCommand;
+import funkin.data.song.SongData.SongEventData;
+import haxe.Timer;
+import haxe.ui.backend.ImageData;
+import haxe.ui.components.Button;
 import haxe.ui.components.CheckBox;
 import haxe.ui.components.DropDown;
+import haxe.ui.components.Image;
 import haxe.ui.components.Label;
 import haxe.ui.components.NumberStepper;
-import haxe.ui.core.Component;
-import funkin.data.event.SongEventRegistry;
 import haxe.ui.components.TextField;
 import haxe.ui.containers.Box;
+import haxe.ui.containers.Frame;
+import haxe.ui.containers.Grid;
 import haxe.ui.containers.HBox;
 import haxe.ui.containers.VBox;
-import haxe.ui.containers.Frame;
-import haxe.ui.events.UIEvent;
+import haxe.ui.core.Component;
 import haxe.ui.data.ArrayDataSource;
-import haxe.ui.containers.Grid;
-import haxe.ui.components.Image;
-import haxe.ui.backend.ImageData;
+import haxe.ui.events.UIEvent;
 import openfl.display.Bitmap;
 import openfl.display.BitmapData;
-import openfl.geom.Rectangle;
 import openfl.geom.Point;
-import flixel.util.FlxTimer;
-import flixel.tweens.FlxEase;
-import flixel.FlxG;
+import openfl.geom.Rectangle;
 
 /**
  * The toolbox which allows modifying information like Song Title, Scroll Speed, Characters/Stages, and starting BPM.
  */
-@:access(funkin.ui.debug.charting.ChartEditorState) @:build(haxe.ui.ComponentBuilder.build('assets/exclude/data/ui/chart-editor/toolboxes/event-data.xml'))
+@:access(funkin.ui.debug.charting.ChartEditorState)
+@:build(originfunkin.macro.OriginEditorMacro.build('assets/exclude/ui/editors/chart-editor/toolboxes/event-data.xml'))
 class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
 {
   var toolboxEventsEventKind:DropDown;
   var toolboxEventsDataBox:VBox;
+  var toolboxEventsCycleBox:HBox;
+  var toolboxEventsCycleLabel:Label;
+  var toolboxEventsCyclePrev:Button;
+  var toolboxEventsCycleNext:Button;
+
+  var currentOverlappingEventsAtTime:Array<SongEventData> = [];
+  var currentOverlappingEventIndex:Int = 0;
+
   var easeGraphImage:Image;
   var easeDotImage:Image;
   var _easeGraphSprite:Null<flixel.FlxSprite> = null;
@@ -94,8 +108,30 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
     shouldTriggerOnEventKindChanged = false;
 
     var startingEventValue = ChartEditorDropdowns.populateDropdownWithSongEvents(toolboxEventsEventKind, chartEditorState.eventKindToPlace);
-    trace(' CHART EDITOR '.bold().bg_bright_yellow() + 'Building Event toolbox with kind "${startingEventValue}"');
     toolboxEventsEventKind.value = startingEventValue;
+
+    var lastClickTime:Float = 0;
+
+    toolboxEventsCyclePrev.onClick = function(e)
+    {
+      if (Timer.stamp() - lastClickTime < 0.2) return;
+      lastClickTime = Timer.stamp();
+      if (currentOverlappingEventsAtTime.length > 1)
+      {
+        var prevIndex = (currentOverlappingEventIndex - 1 + currentOverlappingEventsAtTime.length) % currentOverlappingEventsAtTime.length;
+        chartEditorState.performCommand(new SetItemSelectionCommand([], [currentOverlappingEventsAtTime[prevIndex]]));
+      }
+    };
+    toolboxEventsCycleNext.onClick = function(e)
+    {
+      if (Timer.stamp() - lastClickTime < 0.2) return;
+      lastClickTime = Timer.stamp();
+      if (currentOverlappingEventsAtTime.length > 1)
+      {
+        var nextIndex = (currentOverlappingEventIndex + 1) % currentOverlappingEventsAtTime.length;
+        chartEditorState.performCommand(new SetItemSelectionCommand([], [currentOverlappingEventsAtTime[nextIndex]]));
+      }
+    };
 
     shouldTriggerOnEventKindChanged = true;
   }
@@ -104,7 +140,6 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
   {
     if (event.data == null)
     {
-      trace(' WARNING '.bg_yellow().bold() + ' CHART EDITOR '.bold().bg_bright_yellow() + 'Event toolbox received an invalid UI event.');
       return;
     }
 
@@ -120,7 +155,7 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
 
     if (schema == null)
     {
-      trace(' WARNING '.bold().bg_yellow() + ' Event toolbox attempted to use unknown event kind "$eventKind"');
+      chartEditorState.warning('Invalid Event Kind', 'Event toolbox tried to use unknown event kind "$eventKind", did you define a schema?');
       return;
     }
 
@@ -130,7 +165,10 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
     if (!_initializing && chartEditorState.currentEventSelection.length > 0)
     {
       // Edit the event data of any selected events.
-      trace(' CHART EDITOR '.bold().bg_bright_yellow() + 'Event toolbox MODIFYING events to kind "${chartEditorState.eventKindToPlace}"');
+      chartEditorState.success(
+        'Modified Events',
+        'Switching ${chartEditorState.currentEventSelection.length} events to "${chartEditorState.eventKindToPlace}"'
+      );
       for (event in chartEditorState.currentEventSelection)
       {
         event.eventKind = chartEditorState.eventKindToPlace;
@@ -145,6 +183,27 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
   override public function refresh():Void
   {
     super.refresh();
+
+    if (chartEditorState.currentEventSelection.length == 1)
+    {
+      var selectedEvent = chartEditorState.currentEventSelection[0];
+      var time = selectedEvent.time;
+      currentOverlappingEventsAtTime = chartEditorState.currentSongChartData.events.filter(function(e) return e != null && Math.abs(e.time - time) < 1.0);
+      if (currentOverlappingEventsAtTime.length > 1)
+      {
+        toolboxEventsCycleBox.show();
+        currentOverlappingEventIndex = currentOverlappingEventsAtTime.indexOf(selectedEvent);
+        toolboxEventsCycleLabel.text = 'Select Event: ' + (currentOverlappingEventIndex + 1) + '/' + currentOverlappingEventsAtTime.length;
+      }
+      else
+      {
+        toolboxEventsCycleBox.hide();
+      }
+    }
+    else
+    {
+      toolboxEventsCycleBox.hide();
+    }
 
     shouldTriggerOnEventKindChanged = false;
 
@@ -162,11 +221,13 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
       var schema:SongEventSchema = SongEventRegistry.getEventSchema(chartEditorState.eventKindToPlace);
       if (schema == null)
       {
-        trace(' CHART EDITOR '.bold().bg_bright_yellow() + 'Event kind "${chartEditorState.eventKindToPlace}" has no schema for Event toolbox!');
+        chartEditorState.warning(
+          'Invalid Event Kind',
+          'Event toolbox tried to use unknown event kind "${chartEditorState.eventKindToPlace}", did you define a schema?'
+        );
       }
       else
       {
-        trace(' CHART EDITOR '.bold().bg_bright_yellow() + 'Event Toolbox: Kind changed to "${chartEditorState.eventKindToPlace}", rebuilding form...');
         buildEventDataFormFromSchema(toolboxEventsDataBox, schema, chartEditorState.eventKindToPlace);
       }
     }
@@ -245,6 +306,7 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
       if (field == null) continue;
 
       var hbox:HBox = new HBox();
+      hbox.id = 'container${field.name}';
       hbox.percentWidth = 100;
       parent.addComponent(hbox);
 
@@ -296,7 +358,10 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
           for (optionName in field.keys.keys())
           {
             var optionValue:Null<Dynamic> = field.keys.get(optionName);
-            dropDown.dataSource.add({value: optionValue, text: optionName});
+            dropDown.dataSource.add({
+              value: optionValue,
+              text: optionName
+            });
           }
 
           dropDown.value = field.defaultValue;
@@ -385,8 +450,6 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
           value = cast(chk.selected, Null<Bool>); // Need to cast to nullable bool or the compiler will get mad.
         }
 
-        trace(' CHART EDITOR '.bold().bg_bright_yellow() + 'Event Toolbox Form: ${event.target.id} = ${value}');
-
         // Edit the event data to place.
         if (value == null)
         {
@@ -400,7 +463,7 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
         // Edit the event data of any existing events.
         if (!_initializing && chartEditorState.currentEventSelection.length > 0)
         {
-          trace(' CHART EDITOR '.bold().bg_bright_yellow() + 'Event Toolbox MODIFYING all selected events...');
+          // chartEditorState.success('Modified Events', 'Edited ${chartEditorState.currentEventSelection.length} selected events')
           for (songEvent in chartEditorState.currentEventSelection)
           {
             songEvent.eventKind = chartEditorState.eventKindToPlace;
@@ -456,18 +519,41 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
 
   var currentEaseHBox:HBox = null;
 
+  // Adapted from Origin 895f16261010854e92535c2df26fa7765498e20c.
+  function stopEasePreviewTimers():Void
+  {
+    _dotTimer?.cancel();
+    _pauseTimer?.cancel();
+    _dotTimer = null;
+    _pauseTimer = null;
+  }
+
+  function canUpdateEaseDot():Bool
+  {
+    @:privateAccess
+    return easeDotImage != null && !_initializing && !easeDotImage._isDisposed && !this._isDisposed;
+  }
+
+  override function onDestroy():Void
+  {
+    stopEasePreviewTimers();
+    super.onDestroy();
+  }
+
   function updateEasePreview():Void
   {
     if (easeGraphImage == null || easeDotImage == null) return;
 
-    final easeVal:Null<String> = chartEditorState.eventDataToPlace.get('ease');
-    final easeDirVal:Null<String> = chartEditorState.eventDataToPlace.get('easeDir');
-    final easeStr:String = easeVal == null ? 'linear' : easeVal;
-    final easeDirStr:String = easeDirVal == null ? 'In' : easeDirVal;
-    final key:String = easeStr + (easeDirStr == '' ? '' : easeDirStr);
+    var easeStr:Null<String> = chartEditorState.eventDataToPlace.get('ease');
+    var easeDirStr:Null<String> = chartEditorState.eventDataToPlace.get('easeDir');
 
-    // Hide preview when easing indicates a non-visual/legacy type such as "classic"
-    if (easeStr != null && easeStr.toLowerCase().indexOf('classic') != -1)
+    var easeType:String = SongEventHelper.resolveEaseTypeFromKey(easeStr ?? SongEvent.DEFAULT_EASE);
+    var easeDir:String = easeDirStr ?? SongEventHelper.resolveEaseDirFromKey(easeStr);
+
+    var easeKey:String = '$easeType$easeDir';
+
+    // Hide preview when easing indicates a non-visual/legacy type such as "CLASSIC"
+    if (easeType != null && (easeType == 'CLASSIC' || easeType == 'INSTANT'))
     {
       _dotTimer?.cancel();
       _pauseTimer?.cancel();
@@ -481,8 +567,13 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
       easeGraphImage.hidden = true;
       easeDotImage.hidden = true;
       if (currentEaseHBox != null) currentEaseHBox.hidden = true;
+
+      setEaseDirVisible(false);
+
       return;
     }
+
+    setEaseDirVisible(true);
 
     // Reset any previous timers/sprites
     _dotTimer?.cancel();
@@ -492,8 +583,8 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
     _easeDotSprites = [];
     _dotIndex = 0;
 
-    final _graphBd:BitmapData = SongEventHelper.getEaseBitmap(key);
-    _easeGraphSprite = SongEventHelper.createSpriteFromKey(key, 100, 100);
+    final _graphBd:BitmapData = SongEventHelper.getEaseBitmap(easeKey);
+    _easeGraphSprite = SongEventHelper.createSpriteFromKey(easeKey, 100, 100);
     easeGraphImage.resource = _easeGraphSprite?.frame;
     if (_graphBd == null || easeGraphImage.resource == null)
     {
@@ -509,7 +600,7 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
     easeDotImage.hidden = false;
     if (currentEaseHBox != null) currentEaseHBox.hidden = false;
 
-    var dotSprites:Array<flixel.FlxSprite> = SongEventHelper.getOrCreateEaseDotSprites(key, 30, 3, 16);
+    var dotSprites:Array<flixel.FlxSprite> = SongEventHelper.getOrCreateEaseDotSprites(easeKey, 30, 3, 16);
     if (dotSprites == null || dotSprites.length == 0)
     {
       // if no dot sprites, still show graph but keep dot empty
@@ -529,7 +620,7 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
         _pauseTimer ??= new FlxTimer();
         _pauseTimer.start(_loopPause, function(p:FlxTimer):Void
         {
-          if (easeDotImage != null && !_initializing)
+          if (canUpdateEaseDot())
           {
             _dotIndex = 0;
             if (_easeDotSprites[0].frame != null) easeDotImage.resource = _easeDotSprites[0].frame;
@@ -538,13 +629,23 @@ class ChartEditorEventDataToolbox extends ChartEditorBaseToolbox
           }
         }, 1);
       }
-      else if (easeDotImage != null
-        && !_initializing
-        && _easeDotSprites[_dotIndex].frame != null) easeDotImage.resource = _easeDotSprites[_dotIndex].frame;
+      else if (canUpdateEaseDot() && _easeDotSprites[_dotIndex].frame != null) easeDotImage.resource = _easeDotSprites[_dotIndex].frame;
     };
 
     _dotTimer ??= new FlxTimer();
     _dotTimer.start(_dotInterval, frameCallback, 0);
+  }
+
+  function setEaseDirVisible(visible:Bool):Void
+  {
+    // Hardcoded behavior for a specific field lmao
+    var easeDirField:Component = toolboxEventsDataBox.findComponent('containereaseDir');
+
+    if (easeDirField != null)
+    {
+      trace('Toggling easeDir visibility: ${visible}');
+      easeDirField.hidden = !visible;
+    }
   }
 
   /**

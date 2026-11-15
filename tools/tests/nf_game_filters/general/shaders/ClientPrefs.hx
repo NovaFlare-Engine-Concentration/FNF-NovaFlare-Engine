@@ -1,0 +1,1 @@
+package general.shaders; class ClientPrefs { public static var data={colorblindMode:"None"}; }

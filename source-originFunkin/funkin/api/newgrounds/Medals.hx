@@ -18,6 +18,39 @@ class Medals
   public static var medalJSON:Array<MedalJSON> = [];
 
   /**
+   * Query the list of assets needed to display the medal popup UI.
+   *
+   * @param type The type of asset to query.
+   * @return A list of assets of that type.
+   */
+  public static function queryAssets(type:funkin.assets.Assets.AssetType):Array<funkin.assets.Paths.AssetPath>
+  {
+    switch (type)
+    {
+      case IMAGE:
+        var results:Array<funkin.assets.Paths.AssetPath> = [];
+
+        results.append(funkin.assets.Paths.animateAtlas('ui/medals/medal-popup').image());
+
+        return results;
+      case JSON:
+        var results:Array<funkin.assets.Paths.AssetPath> = [];
+
+        results.push(funkin.assets.Paths.json('gameplay/medals/medals'));
+        results.append(funkin.assets.Paths.animateAtlas('ui/medals/medal-popup').json());
+
+        return results;
+      case SOUND:
+        return [
+          funkin.assets.Paths.sound('ui/medals/ng-fade-in'),
+          funkin.assets.Paths.sound('ui/medals/ng-fade-out')
+        ];
+      default:
+        return [];
+    }
+  }
+
+  /**
    * Retrieve the leaderboard data via the Newgrounds API.
    * @return The leaderboard data.
    */
@@ -58,11 +91,9 @@ class Medals
         // Play the medal unlock animation, but only if the user has not already unlocked it.
         #if html5
         // Web builds support parsing the bitmap data from the URL directly.
-        BitmapData.loadFromFile('https:' + medalData.icon).onComplete(function(bmp:BitmapData)
+        BitmapData.loadFromFile("https:" + medalData.icon).onComplete(function(bmp:BitmapData)
         {
-          var medalGraphic = FlxGraphic.fromBitmapData(bmp);
-          medalGraphic.persist = true;
-          NewgroundsMedalPlugin.play(medalData.value, medalData.name, medalGraphic);
+          NewgroundsMedalPlugin.play(medalData.value, medalData.name, bmp);
         });
         #else
         if ((medalJSON?.length ?? 0) == 0) loadMedalJSON();
@@ -78,20 +109,13 @@ class Medals
           #end
         })[0];
 
-        if (localMedalData == null) throw 'You forgot to encode a Base64 image for medal: ' + medal;
+        if (localMedalData == null) throw "You forgot to encode a Base64 image for medal: " + medal;
 
         var str:String = localMedalData.icon;
         // Lime/OpenFL parses it without the included prefix stuff, so we remove it.
         str = str.replace('data:image/png;base64,', '').trim();
         var bitmapData = BitmapData.fromBase64(str, 'image/png');
-        var medalGraphic:Null<FlxGraphic> = null;
-        if (str != null)
-        {
-          medalGraphic = FlxGraphic.fromBitmapData(bitmapData);
-          medalGraphic.persist = true;
-        }
-
-        NewgroundsMedalPlugin.play(medalData.value, medalData.name, medalGraphic);
+        NewgroundsMedalPlugin.play(medalData.value, medalData.name, (str != null) ? bitmapData : null);
         #end
       }
       else
@@ -110,7 +134,7 @@ class Medals
    */
   public static function loadMedalJSON():Void
   {
-    var jsonPath = Paths.json('medals');
+    var jsonPath = Paths.json('gameplay/medals/medals');
 
     var jsonString = Assets.getText(jsonPath);
 
@@ -405,25 +429,25 @@ enum abstract Medal(Int) from Int to Int
   {
     switch (levelId)
     {
-      case 'tutorial':
+      case "tutorial":
         return StoryTutorial;
-      case 'week1':
+      case "week1":
         return StoryWeek1;
-      case 'week2':
+      case "week2":
         return StoryWeek2;
-      case 'week3':
+      case "week3":
         return StoryWeek3;
-      case 'week4':
+      case "week4":
         return StoryWeek4;
-      case 'week5':
+      case "week5":
         return StoryWeek5;
-      case 'week6':
+      case "week6":
         return StoryWeek6;
-      case 'week7':
+      case "week7":
         return StoryWeek7;
-      case 'weekend1':
+      case "weekend1":
         return StoryWeekend1;
-      case 'sserafim':
+      case "sserafim":
         return StoryCollab1;
       default:
         return Unknown;

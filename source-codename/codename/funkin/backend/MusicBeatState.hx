@@ -1,5 +1,6 @@
 package codename.funkin.backend;
 
+import flixel.FlxBasic;
 import flixel.FlxState;
 import flixel.FlxSubState;
 import codename.funkin.backend.scripting.DummyScript;
@@ -221,9 +222,9 @@ class MusicBeatState extends FlxState implements IBeatCancellableReceiver
 		codename.mobile.CodeNameMobileInput.beginConsumer(this);
 		#end
 		if (persistentUpdate || subState == null) {
-			call("preUpdate", [elapsed]);
+			callOne("preUpdate", elapsed);
 			update(elapsed);
-			call("postUpdate", [elapsed]);
+			callOne("postUpdate", elapsed);
 		}
 
 		if (_requestSubStateReset) {
@@ -326,35 +327,68 @@ class MusicBeatState extends FlxState implements IBeatCancellableReceiver
 		return defaultVal;
 	}
 
+	public function callOne(name:String, arg:Dynamic, ?defaultVal:Dynamic):Dynamic {
+		// calls the function on the assigned script with a single argument
+		if(stateScripts != null)
+			return stateScripts.callOne(name, arg);
+		return defaultVal;
+	}
+
 	public function event<T:CancellableEvent>(name:String, event:T):T {
 		if(stateScripts != null)
-			stateScripts.call(name, [event]);
+			stateScripts.event(name, event);
 		return event;
 	}
 
 	override function update(elapsed:Float)
 	{
-		call("update", [elapsed]);
+		callOne("update", elapsed);
 
 		super.update(elapsed);
 	}
 
+	@:noCompletion private var __beatReceivers:Array<IBeatReceiver> = [];
+	@:noCompletion private var __beatReceiversDirty:Bool = true;
+	@:noCompletion private var __lastMemberLength:Int = -1;
+
+	function __refreshBeatReceivers():Void {
+		__beatReceiversDirty = false;
+		__lastMemberLength = members.length;
+		__beatReceivers.resize(0);
+		for (e in members)
+			if (e != null && e is IBeatReceiver)
+				__beatReceivers.push(cast e);
+	}
+
+	override function onMemberAdd(member:FlxBasic):Void {
+		super.onMemberAdd(member);
+		__beatReceiversDirty = true;
+	}
+
+	override function onMemberRemove(member:FlxBasic):Void {
+		super.onMemberRemove(member);
+		__beatReceiversDirty = true;
+	}
+
 	@:dox(hide) public function stepHit(curStep:Int):Void
 	{
-		for(e in members) if (e != null && e is IBeatReceiver) ({var _:IBeatReceiver=cast e;_;}).stepHit(curStep);
-		call("stepHit", [curStep]);
+		if (__beatReceiversDirty || members.length != __lastMemberLength) __refreshBeatReceivers();
+		for(e in __beatReceivers) e.stepHit(curStep);
+		callOne("stepHit", curStep);
 	}
 
 	@:dox(hide) public function beatHit(curBeat:Int):Void
 	{
-		for(e in members) if (e != null && e is IBeatReceiver) ({var _:IBeatReceiver=cast e;_;}).beatHit(curBeat);
-		call("beatHit", [curBeat]);
+		if (__beatReceiversDirty || members.length != __lastMemberLength) __refreshBeatReceivers();
+		for(e in __beatReceivers) e.beatHit(curBeat);
+		callOne("beatHit", curBeat);
 	}
 
 	@:dox(hide) public function measureHit(curMeasure:Int):Void
 	{
-		for(e in members) if (e != null && e is IBeatReceiver) ({var _:IBeatReceiver=cast e;_;}).measureHit(curMeasure);
-		call("measureHit", [curMeasure]);
+		if (__beatReceiversDirty || members.length != __lastMemberLength) __refreshBeatReceivers();
+		for(e in __beatReceivers) e.measureHit(curMeasure);
+		callOne("measureHit", curMeasure);
 	}
 
 	/**

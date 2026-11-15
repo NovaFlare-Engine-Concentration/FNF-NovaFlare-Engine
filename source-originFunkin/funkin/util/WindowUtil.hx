@@ -16,11 +16,6 @@ using StringTools;
 class WindowUtil
 {
   /**
-   * A regex to match valid URLs.
-   */
-  public static final URL_REGEX:EReg = ~/^https?:\/?\/?(?:www\.)?[-a-zA-Z0-9@:%_\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)$/;
-
-  /**
    * Sanitizes a URL via a regex.
    *
    * @param targetUrl The URL to sanitize.
@@ -40,6 +35,7 @@ class WindowUtil
       targetUrl = 'http://' + targetUrl;
     }
 
+    final URL_REGEX:EReg = ~/^https?:\/?\/?(?:www\.)?[-a-zA-Z0-9@:%_\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)$/;
     if (URL_REGEX.match(targetUrl))
     {
       return URL_REGEX.matched(0);
@@ -86,12 +82,13 @@ class WindowUtil
   {
     var appInfoMessage = funkin.util.logging.CrashHandler.buildSystemInfo();
 
-    trace("Friday Night Funkin': Connection to Tracy profiler successful.");
+    trace("Tracy instrumentation initialized; waiting for an on-demand profiler connection.");
 
     // Post system info like Git hash
     cpp.vm.tracy.TracyProfiler.messageAppInfo(appInfoMessage);
 
     cpp.vm.tracy.TracyProfiler.setThreadName("main");
+    FlxG.signals.postDraw.add(() -> cpp.vm.tracy.TracyProfiler.frameMark());
   }
   #end
 
@@ -107,7 +104,7 @@ class WindowUtil
   public static function initWindowEvents():Void
   {
     // onExit is called when the game window is closed.
-    openfl.Lib.current.stage.application.onExit.add(function(exitCode:Int)
+    openfl.Lib.current.stage.application.onExit.add(function(exitCode:Int):Void
     {
       windowExit.dispatch(exitCode);
     });
@@ -213,8 +210,21 @@ class WindowUtil
 
   public static function setVSyncMode(value:OriginVSyncMode):Void
   {
-    // NovaFlare's current Lime fork has no runtime Window.setVSyncMode API.
-    // Preserve the original saved value and let NovaFlare's render thread own
-    // presentation timing.
+    #if (cpp && ORIGIN_SDL2_COMPAT)
+    final window = lime.app.Application.current?.window;
+    if (window == null) return;
+    final mode:lime.ui.WindowVSyncMode = switch (value)
+    {
+      case OFF: lime.ui.WindowVSyncMode.OFF;
+      case ADAPTIVE: lime.ui.WindowVSyncMode.ADAPTIVE;
+      default: lime.ui.WindowVSyncMode.ON;
+    };
+    // The NF Lime fork maps this API to SDL_GL_SetSwapInterval on SDL2.
+    // Adaptive VSync is optional on SDL2 drivers; fall back to ordinary VSync.
+    if (!window.setVSyncMode(mode) && value == OriginVSyncMode.ADAPTIVE)
+    {
+      window.setVSyncMode(lime.ui.WindowVSyncMode.ON);
+    }
+    #end
   }
 }

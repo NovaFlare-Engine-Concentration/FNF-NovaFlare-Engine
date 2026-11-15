@@ -2,56 +2,82 @@ package funkin.ui.debug.charting.commands;
 
 #if FEATURE_CHART_EDITOR
 import funkin.data.song.SongData.SongEventData;
-import funkin.data.song.SongData.SongNoteData;
 import funkin.data.song.SongDataUtils;
 
 /**
- * Move the given events by the given offset and shift them by the given number of columns in the chart editor.
+ * Represents a reversible action to move a set of song events by a given time offset.
  */
-@:nullSafety @:access(funkin.ui.debug.charting.ChartEditorState)
+@:nullSafety
+@:access(funkin.ui.debug.charting.ChartEditorState)
 class MoveEventsCommand implements ChartEditorCommand
 {
   var events:Array<SongEventData>;
   var movedEvents:Array<SongEventData>;
+  var originalEventSnapshots:Array<SongEventData>;
   var offset:Float;
   var setPos:Bool;
 
   public function new(events:Array<SongEventData>, offset:Float, setPos:Bool = false, offsetInSteps:Bool = false)
   {
     // Clone the events to prevent editing from affecting the history.
-    this.events = [
-      for (event in events) event.clone()
-    ];
-    if (offsetInSteps) this.offset = Conductor.instance.getStepTimeInMs(offset);
+    this.events = events.copy();
+    this.originalEventSnapshots = [for (event in events) MoveEventHistory.snapshot(event)];
+    if (offsetInSteps)
+    {
+      this.offset = Conductor.instance.getStepTimeInMs(offset);
+    }
     else
+    {
       this.offset = offset;
+    }
     this.setPos = setPos;
     this.movedEvents = [];
   }
 
+  /**
+   * Perform the action, moving the events.
+   *
+   * @param state The ChartEditorState to perform the command on.
+   */
   public function execute(state:ChartEditorState):Void
   {
-    state.currentSongChartEventData = SongDataUtils.subtractEvents(state.currentSongChartEventData, events);
+    state.currentSongChartEventData = MoveEventHistory.remove(state.currentSongChartEventData, events);
 
-    movedEvents = [];
+    var firstEventMove = movedEvents.length == 0;
+    var eventIndex = 0;
 
-    for (event in events)
+    for (event in originalEventSnapshots)
     {
-      // Clone the events to prevent editing from affecting the history.
-      var resultEvent = event.clone();
+      var resultEvent = MoveEventHistory.snapshot(event);
       // If setting position, use the offset as the resulting time
-      if (setPos) resultEvent.time = offset.clamp(0, Conductor.instance.getStepTimeInMs(state.songLengthInSteps - (1 * state.noteSnapRatio)));
+      if (setPos)
+      {
+        resultEvent.time = offset.clamp(0, Conductor.instance.getStepTimeInMs(state.songLengthInSteps - (1 * state.noteSnapRatio)));
+      }
       else
+      {
         resultEvent.time = (resultEvent.time + offset).clamp(0, Conductor.instance.getStepTimeInMs(state.songLengthInSteps - (1 * state.noteSnapRatio)));
+      }
 
-      movedEvents.push(resultEvent);
+      if (firstEventMove)
+      {
+        movedEvents.push(resultEvent);
+      }
+      else
+      {
+        var existing = movedEvents[eventIndex];
+        existing.time = resultEvent.time;
+        existing.eventKind = resultEvent.eventKind;
+        existing.value = resultEvent.value;
+        existing.editorLayer = resultEvent.editorLayer;
+      }
+      eventIndex++;
     }
 
-    state.currentSongChartEventData = SongDataUtils.subtractEvents(state.currentSongChartEventData, events);
     state.currentSongChartEventData = state.currentSongChartEventData.concat(movedEvents);
     state.currentEventSelection = movedEvents;
 
-    state.playSound(Paths.sound('chartingSounds/noteLay'));
+    state.playSound(Paths.sound('ui/editors/chart-editor/charting-sounds/note-place'));
 
     state.saveDataDirty = true;
     state.noteDisplayDirty = true;
@@ -60,9 +86,14 @@ class MoveEventsCommand implements ChartEditorCommand
     state.sortChartData();
   }
 
+  /**
+   * Reverse the action, moving the events back to their original positions.
+   *
+   * @param state The ChartEditorState to perform the command on.
+   */
   public function undo(state:ChartEditorState):Void
   {
-    state.currentSongChartEventData = SongDataUtils.subtractEvents(state.currentSongChartEventData, movedEvents);
+    state.currentSongChartEventData = MoveEventHistory.remove(state.currentSongChartEventData, movedEvents);
     state.currentSongChartEventData = state.currentSongChartEventData.concat(events);
 
     state.currentEventSelection = events;
@@ -74,12 +105,23 @@ class MoveEventsCommand implements ChartEditorCommand
     state.sortChartData();
   }
 
+  /**
+   * Whether the command should display in the undo/redo menu.
+   * This should be `false` if no real actions were actually performed.
+   *
+   * @param state The ChartEditorState to perform the command on.
+   * @return Whether the command should be added to the history.
+   */
   public function shouldAddToHistory(state:ChartEditorState):Bool
   {
     // This command is undoable. Add to the history if we actually performed an action.
     return (events.length > 0);
   }
 
+  /**
+   * Convert the action to a string. Used to display the action in the undo/redo history.
+   * @return This command, as a readable string.
+   */
   public function toString():String
   {
     var len:Int = events.length;

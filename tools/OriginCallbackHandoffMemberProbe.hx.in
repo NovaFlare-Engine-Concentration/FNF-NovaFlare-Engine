@@ -1,0 +1,113 @@
+@:cppFileCode('
+#include <thread>
+#include <atomic>
+#include <vector>
+#include <sstream>
+#include <cstring>
+#include <cstdint>
+#include <hx/Native.h>
+#include "@@IMMIX_SOURCE@@"
+static_assert(sizeof(void *) == 8, "This layout probe requires 64-bit pointers");
+namespace origin_pool_probe {
+static std::atomic<int> phase(0);
+static unsigned char *rangeStart = 0;
+static unsigned char *rangeEnd = 0;
+static void pauseAttach(LocalAllocator *local) {
+  #ifdef HXCPP_GC_NURSERY
+  rangeStart = local->spaceFirst;
+  rangeEnd = local->spaceOversize;
+  #else
+  rangeStart = local->allocBase + local->spaceStart;
+  rangeEnd = local->allocBase + local->spaceEnd;
+  #endif
+  phase.store(1);
+  while (phase.load() != 2) std::this_thread::yield();
+}
+static Dynamic nextFunction(::hx::Object *) { return Dynamic(); }
+using DirtyObject = ::hx::Object;
+struct PadObject : ::hx::Object {};
+}
+')
+class OriginCallbackHandoffProbe
+{
+  @:functionCode('
+    using namespace origin_pool_probe;
+    void *allocated = 0;
+    void *workerPad = 0;
+    unsigned long long bits = 0;
+    std::thread worker([&]() {
+      {
+        ::hx::NativeAttach attached;
+        for (int i=0;i<16;++i) {
+          auto *array = new ::cpp::VirtualArray_obj(::hx::arrayEmpty);
+          array->__SetSizeExact(1);
+        }
+      }
+      ::hx::origin_pool_hook = pauseAttach;
+      {
+        ::hx::NativeAttach attached;
+        workerPad = new PadObject();
+        auto *array = new ::cpp::VirtualArray_obj(::hx::arrayEmpty);
+        allocated = array;
+        std::memcpy(&bits, &array->base, sizeof(array->base));
+        // Do not dereference a corrupt base pointer in the diagnostic.
+        if (!bits) array->__SetSizeExact(1);
+      }
+      ::hx::origin_pool_hook = 0;
+    });
+    ::hx::EnterGCFreeZone();
+    while (phase.load() != 1) std::this_thread::yield();
+    bool handoffLocked = !gThreadStateChangeLock->TryLock();
+    if (!handoffLocked) gThreadStateChangeLock->Unlock();
+    if (handoffLocked) {
+      phase.store(2);
+      worker.join();
+    }
+    ::hx::ExitGCFreeZone();
+    if (!handoffLocked) ::hx::InternalCollect(true, false);
+    std::vector<DirtyObject *> live;
+    live.resize(handoffLocked ? 0 : 65536, nullptr);
+    for (int i=0;i<(int)live.size();++i) {
+      live[i] = ::hx::CreateMemberFunction0("next", nullptr, &nextFunction).mPtr;
+      ::hx::GCAddRoot(reinterpret_cast<::hx::Object **>(&live[i]));
+    }
+    std::vector<unsigned long long> snapshots(live.size()*4, 0);
+    for (int i=0;i<(int)live.size();++i) std::memcpy(&snapshots[i*4], live[i], 4*sizeof(void *));
+    if (!handoffLocked) {
+      phase.store(2);
+      ::hx::EnterGCFreeZone();
+      worker.join();
+      ::hx::ExitGCFreeZone();
+    }
+    int overlaps = 0;
+    for (auto *object : live) {
+      const auto arrayStart = reinterpret_cast<std::uintptr_t>(allocated);
+      const auto objectStart = reinterpret_cast<std::uintptr_t>(object);
+      if (arrayStart < objectStart + 4*sizeof(void *)
+        && arrayStart + sizeof(::cpp::VirtualArray_obj) > objectStart) ++overlaps;
+    }
+    std::ostringstream layout;
+    for (int i=0;i<(int)live.size();++i) {
+      auto field = reinterpret_cast<std::uintptr_t>(allocated) + 24;
+      auto object = reinterpret_cast<std::uintptr_t>(live[i]);
+      if (field >= object && field - object < 32 && (field - object) % 8 == 0) {
+        auto slot = (field - object) / 8;
+        auto oldWord = snapshots[i*4 + slot];
+        layout << " slot=" << slot << " oldWord=0x" << std::hex << oldWord << " slotMatch=" << (oldWord==bits);
+      }
+    }
+    for (int i=0;i<(int)live.size();++i) ::hx::GCRemoveRoot(reinterpret_cast<::hx::Object **>(&live[i]));
+    std::ostringstream report;
+    report << "handoff_locked=" << handoffLocked << " overlaps=" << overlaps << " base=0x" << std::hex << bits
+      << " allocated=" << allocated << " oldRange=" << (void *)rangeStart << ".." << (void *)rangeEnd << " workerPad=" << workerPad << " function=" << (void *)&nextFunction << " functionMatch=" << (bits == reinterpret_cast<unsigned long long>(&nextFunction)) << layout.str();
+    return ::String(report.str().c_str());
+  ')
+  static function probe():String return '';
+  static function main()
+  {
+    var report = probe();
+    Sys.println(report);
+    Sys.exit(StringTools.startsWith(report, 'handoff_locked=1 overlaps=0 base=0x0 ') ? 0 : 1);
+  }
+}
+

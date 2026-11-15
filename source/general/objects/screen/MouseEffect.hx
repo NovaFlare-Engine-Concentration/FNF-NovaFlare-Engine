@@ -62,6 +62,7 @@ class MouseEffect extends Sprite {
     public static var userEffectsEnabled(default, null):Bool = true;
     public static var userTrailEnabled(get, never):Bool;
     private static var gameplayHideDepth:Int = 0;
+    private static var editorHideDepth:Int = 0;
     private static var instances:Array<MouseEffect> = [];
     
     // 对象池
@@ -78,6 +79,7 @@ class MouseEffect extends Sprite {
     
     // 路径记录
     private var lastTrailPosition:Point = new Point();
+    private var hasTrailPosition:Bool = false;
 
     public function new(?clickBitmapData:BitmapData, ?circleBitmapData:BitmapData, ?trailBitmapData:BitmapData) {
         super();
@@ -99,6 +101,7 @@ class MouseEffect extends Sprite {
         // 添加事件监听
         Lib.current.stage.addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
         Lib.current.stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
+        Lib.current.stage.addEventListener(Event.MOUSE_LEAVE, onMouseLeave);
 		addEventListener(Event.REMOVED_FROM_STAGE, onRemovedFromStage);
 		instances.push(this);
     }
@@ -124,27 +127,36 @@ class MouseEffect extends Sprite {
         }
         
         // 初始化特效
-        effect.init(e.stageX, e.stageY);
+        var position = globalToLocal(new Point(e.stageX, e.stageY));
+        effect.init(position.x, position.y);
         activeClickEffects.push(effect);
         addChild(effect);
         startUpdating();
     }
     
     private function onMouseMove(e:MouseEvent):Void {
+        var position = globalToLocal(new Point(e.stageX, e.stageY));
         if (!trailEnabled || !effectsEnabled()) {
             // Keep the anchor current so re-enabling the effect in another
             // state never emits a stale, long-distance trail point.
-            lastTrailPosition.setTo(e.stageX, e.stageY);
+            lastTrailPosition.copyFrom(position);
+            hasTrailPosition = false;
+            return;
+        }
+
+        if (!hasTrailPosition) {
+            lastTrailPosition.copyFrom(position);
+            hasTrailPosition = true;
             return;
         }
 
         // 检查移动距离是否足够
-        var deltaX = e.stageX - lastTrailPosition.x;
-        var deltaY = e.stageY - lastTrailPosition.y;
+        var deltaX = position.x - lastTrailPosition.x;
+        var deltaY = position.y - lastTrailPosition.y;
         if (deltaX * deltaX + deltaY * deltaY <
             trailMinDistance * trailMinDistance) return;
         
-        lastTrailPosition.setTo(e.stageX, e.stageY);
+        lastTrailPosition.copyFrom(position);
         
         // 从对象池获取路径特效
         var effect:TrailEffect = null;
@@ -166,10 +178,14 @@ class MouseEffect extends Sprite {
         // 初始化特效
         var color = trailColors[FlxG.random.int(0, trailColors.length - 1)];
         var rotation = trailMinRotation + Math.random() * (trailMaxRotation - trailMinRotation);
-        effect.init(e.stageX, e.stageY, color, rotation);
+        effect.init(position.x, position.y, color, rotation);
         activeTrailEffects.push(effect);
         addChild(effect);
         startUpdating();
+    }
+
+    private function onMouseLeave(_:Event):Void {
+        hasTrailPosition = false;
     }
 
 	private static inline function get_userTrailEnabled():Bool {
@@ -177,7 +193,7 @@ class MouseEffect extends Sprite {
 	}
 
 	private static inline function effectsEnabled():Bool {
-		return userEffectsEnabled && gameplayHideDepth == 0;
+		return userEffectsEnabled && gameplayHideDepth == 0 && editorHideDepth == 0;
 	}
 
 	public static function setUserEffectsEnabled(value:Bool):Void {
@@ -201,12 +217,23 @@ class MouseEffect extends Sprite {
 		if (gameplayHideDepth > 0) gameplayHideDepth--;
 	}
 
+	/** Editors own their cursor; suppress only the NF overlay while they are active. */
+	public static function enterEditor():Void {
+		editorHideDepth++;
+		clearAllEffects();
+	}
+
+	public static function leaveEditor():Void {
+		if (editorHideDepth > 0) editorHideDepth--;
+	}
+
 	private static function clearAllEffects():Void {
 		for (instance in instances)
 			instance.clearEffects();
 	}
 
 	private function clearEffects():Void {
+		hasTrailPosition = false;
 		var i = activeClickEffects.length;
 		while (i-- > 0) {
 			var effect = activeClickEffects[i];
@@ -237,6 +264,7 @@ class MouseEffect extends Sprite {
 		removeEventListener(Event.REMOVED_FROM_STAGE, onRemovedFromStage);
 		Lib.current.stage.removeEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
 		Lib.current.stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
+		Lib.current.stage.removeEventListener(Event.MOUSE_LEAVE, onMouseLeave);
 		if (updating) {
 			Lib.current.stage.removeEventListener(Event.ENTER_FRAME, update);
 			updating = false;
@@ -353,10 +381,14 @@ class ClickEffect extends Sprite {
         // 重置状态
         clickBitmap.alpha = MouseEffect.clickStartAlpha;
         clickBitmap.scaleX = clickBitmap.scaleY = MouseEffect.clickStartScale;
+        clickBitmap.x = -clickOffsetX * MouseEffect.clickStartScale;
+        clickBitmap.y = -clickOffsetY * MouseEffect.clickStartScale;
         clickBitmap.visible = true;
         
         circleBitmap.alpha = MouseEffect.circleStartAlpha;
         circleBitmap.scaleX = circleBitmap.scaleY = MouseEffect.circleStartScale;
+        circleBitmap.x = -circleOffsetX * MouseEffect.circleStartScale;
+        circleBitmap.y = -circleOffsetY * MouseEffect.circleStartScale;
         circleBitmap.visible = true;
     }
     

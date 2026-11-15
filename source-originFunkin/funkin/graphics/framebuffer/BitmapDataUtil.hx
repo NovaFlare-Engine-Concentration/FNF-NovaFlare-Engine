@@ -15,11 +15,19 @@ import openfl.geom.ColorTransform;
 /**
  * A utility class for `BitmapData`s.
  */
-@:nullSafety @:access(openfl.display.BitmapData) @:access(openfl.display3D.textures.TextureBase) @:access(openfl.display3D.Context3D) @:access(openfl.display.OpenGLRenderer) @:access(flixel.FlxCamera) @:access(openfl.display.Sprite) @:access(openfl.geom.ColorTransform)
+@:nullSafety
+@:access(openfl.display.BitmapData)
+@:access(openfl.display3D.textures.TextureBase)
+@:access(openfl.display3D.Context3D)
+@:access(openfl.display.OpenGLRenderer)
+@:access(flixel.FlxCamera)
+@:access(openfl.display.Sprite)
+@:access(openfl.geom.ColorTransform)
 class BitmapDataUtil
 {
   static var renderer(get, never):OpenGLRenderer;
   static var _renderer:Null<OpenGLRenderer>;
+  static var _renderMatrix:FlxMatrix = new FlxMatrix();
 
   static inline function get_renderer():OpenGLRenderer
   {
@@ -70,19 +78,18 @@ class BitmapDataUtil
    * @param bitmap The bitmap to draw onto.
    * @param camera The camera to grab the screen from.
    * @param clearBitmap Whether to clear the bitmap before drawing.
-   * @param drawFlashSprite Whether to draw the camera's flash sprite instead of the canvas.
+   * @param drawFlashSprite Whether to draw the camera's flash sprite instead of the canvas. WARNING: This is very slow ESPECIALLY if the camera has filters!!!
    *
    * @return The camera screen as a `BitmapData`.
    */
   public static function drawCameraScreen(bitmap:BitmapData, camera:FlxCamera, clearBitmap:Bool = true, drawFlashSprite:Bool = false):BitmapData
   {
-    var matrix:FlxMatrix = new FlxMatrix();
     var pivotX:Float = FlxG.scaleMode.scale.x;
     var pivotY:Float = FlxG.scaleMode.scale.y;
+    var scaleX:Float = bitmap.width / camera.width;
+    var scaleY:Float = bitmap.height / camera.height;
 
-    matrix.setTo(1 / pivotX, 0, 0, 1 / pivotY, camera.flashSprite.x / pivotX, camera.flashSprite.y / pivotY);
-
-    if (clearBitmap) bitmap.__fillRect(bitmap.rect, 0, true);
+    _renderMatrix.setTo(scaleX / pivotX, 0, 0, scaleY / pivotY, camera.flashSprite.x * scaleX / pivotX, camera.flashSprite.y * scaleY / pivotY);
 
     camera.render();
     camera.flashSprite.__update(false, true);
@@ -95,18 +102,28 @@ class BitmapDataUtil
     renderer.__worldAlpha = 1 / camera.flashSprite.__worldAlpha;
     renderer.__worldTransform.copyFrom(camera.flashSprite.__renderTransform);
     renderer.__worldTransform.invert();
-    renderer.__worldTransform.concat(matrix);
+    renderer.__worldTransform.concat(_renderMatrix);
     renderer.__worldColorTransform.__copyFrom(camera.flashSprite.__worldColorTransform);
     renderer.__worldColorTransform.__invert();
     renderer.__setRenderTarget(bitmap);
 
-    if (drawFlashSprite)
+    var context = renderer.__context3D;
+    var cacheRTT = context.__state.renderToTexture;
+    var cacheRTTDepthStencil = context.__state.renderToTextureDepthStencil;
+    var cacheRTTAntiAlias = context.__state.renderToTextureAntiAlias;
+    var cacheRTTSurfaceSelector = context.__state.renderToTextureSurfaceSelector;
+
+    context.setRenderToTexture(bitmap.getTexture(context), true);
+    if (clearBitmap) renderer.__clear();
+    renderer.__render(drawFlashSprite ? camera.flashSprite : camera.canvas);
+
+    if (cacheRTT != null)
     {
-      bitmap.__drawGL(camera.flashSprite, renderer);
+      context.setRenderToTexture(cacheRTT, cacheRTTDepthStencil, cacheRTTAntiAlias, cacheRTTSurfaceSelector);
     }
     else
     {
-      bitmap.__drawGL(camera.canvas, renderer);
+      context.setRenderToBackBuffer();
     }
 
     return bitmap;
@@ -122,6 +139,23 @@ class BitmapDataUtil
   public static function applyFilter(bitmap:BitmapData, filter:BitmapFilter):BitmapData
   {
     return FilterRenderer.applyFilter(null, bitmap, [filter]);
+  }
+
+  /**
+   * Convers a `BitmapData` to a GPU texture.
+   * @param bitmap The `BitmapData` to convert.
+   * @param disposeImage Whether to dispose bitmap's image or not by defaults its `true`.
+   * @return The converted `BitmapData`.
+   */
+  public static function toGPU(bitmap:BitmapData, disposeImage:Bool = true):BitmapData
+  {
+    if (disposeImage)
+    {
+      bitmap.disposeImage();
+    }
+    bitmap.getTexture(FlxG.stage.context3D);
+
+    return bitmap;
   }
 
   /**

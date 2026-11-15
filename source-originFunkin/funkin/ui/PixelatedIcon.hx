@@ -9,6 +9,17 @@ import funkin.graphics.FunkinSprite;
 @:nullSafety
 class PixelatedIcon extends FunkinSprite
 {
+  /** Query the images and atlases used by freeplay character icons. */
+  public static function queryAssets(type:funkin.assets.Assets.AssetType):Array<funkin.assets.Paths.AssetPath>
+  {
+    return switch (type)
+    {
+      case IMAGE, XML: funkin.assets.Assets.listInPath('ui/freeplay/characters/', type);
+      default: [];
+    }
+  }
+
+
   public var char:String;
 
   public function new(x:Float, y:Float)
@@ -26,16 +37,16 @@ class PixelatedIcon extends FunkinSprite
   {
     if (this.char == char) return;
 
-    var charPath:String = "freeplay/icons/";
+    var charPath:String = 'ui/freeplay/characters/';
 
-    final charIDParts:Array<String> = char.split("-");
-    var iconName:String = "";
-    var lastValidIconName:String = "";
+    var charIDParts:Array<String> = char.split('-');
+    var iconName:String = '';
+    var lastValidIconName:String = '';
     for (i in 0...charIDParts.length)
     {
       iconName += charIDParts[i];
 
-      if (Assets.exists(Paths.image(charPath + '${iconName}pixel')))
+      if (funkin.assets.Paths.image(charPath + '${iconName}', false).exists())
       {
         lastValidIconName = iconName;
       }
@@ -43,9 +54,9 @@ class PixelatedIcon extends FunkinSprite
       if (i < charIDParts.length - 1) iconName += '-';
     }
 
-    charPath += '${lastValidIconName}pixel';
+    charPath += '${lastValidIconName}';
 
-    if (!Assets.exists(Paths.image(charPath)))
+    if (lastValidIconName == '' || !Assets.exists(Paths.image(charPath)))
     {
       trace(' WARNING '.warning() + ' Character ${char} has no freeplay icon.');
       this.visible = false;
@@ -55,7 +66,7 @@ class PixelatedIcon extends FunkinSprite
     this.visible = true;
     this.char = char; // if we went past this its safe to assume the icon exists so we can assign it
 
-    var isAnimated = Assets.exists(Paths.file('images/$charPath.xml'));
+    var isAnimated = Assets.exists(Paths.xml(charPath));
 
     if (isAnimated)
     {

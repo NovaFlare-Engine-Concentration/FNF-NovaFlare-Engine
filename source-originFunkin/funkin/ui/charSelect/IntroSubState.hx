@@ -10,17 +10,12 @@ import funkin.ui.MusicBeatSubState;
 import funkin.save.Save;
 
 /**
- * When you first enter the character select state, it will play an introductory video opening up the lights
+ * When you first enter the character select state, it will play an introductory video opening up the lights.
  */
 @:nullSafety
 class IntroSubState extends MusicBeatSubState
 {
-  #if html5
-  static final LIGHTS_VIDEO_PATH:String = Paths.stripLibrary(Paths.videos('introSelect'));
-  #end
-  #if hxvlc
-  static final LIGHTS_VIDEO_PATH:String = Paths.videos('introSelect');
-  #end
+  static final LIGHTS_VIDEO_PATH:String = funkin.assets.Paths.video('ui/character-select/intro').toString();
 
   override public function create():Void
   {
@@ -50,11 +45,6 @@ class IntroSubState extends MusicBeatSubState
     #if NO_FEATURE_VIDEO_PLAYBACK
     onLightsEnd();
     #end
-
-    // // Im TOO lazy to even care, so uh, yep
-    // FlxG.camera.zoom = 0.66666666666666666666666666666667;
-    // vid.x = -(FlxG.width - (FlxG.width * FlxG.camera.zoom));
-    // vid.y = -((FlxG.height - (FlxG.height * FlxG.camera.zoom)) * 0.75);
   }
 
   #if html5
@@ -118,21 +108,6 @@ class IntroSubState extends MusicBeatSubState
     }
   }
   #end
-
-  override public function update(elapsed:Float):Void
-  {
-    super.update(elapsed);
-
-    // if (!introSound.paused)
-    // {
-    //   #if html5
-    //   @:privateAccess
-    //   vid.netStream.seek(introSound.time);
-    //   #elseif hxvlc
-    //   vid.bitmap.time = Std.int(introSound.time);
-    //   #end
-    // }
-  }
 
   /**
    * When the lights video finishes, it will close the substate

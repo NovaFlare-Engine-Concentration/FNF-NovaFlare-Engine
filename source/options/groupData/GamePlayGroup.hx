@@ -95,7 +95,7 @@ class GamePlayGroup extends OptionCata
 		addOption(option);
 		#end
 
-        var option:Option = new Option(this, 'fixLNL', BOOL);
+        var option:Option = new Option(this, 'fixLNL', INT, [0, 4]);
         addOption(option);
 
         var group:Array<String> = ['Score', 'Accuracy', 'Misses', 'highestCombo'];

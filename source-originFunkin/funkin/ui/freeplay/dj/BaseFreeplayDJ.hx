@@ -6,6 +6,7 @@ import funkin.data.freeplay.player.PlayerRegistry;
 import funkin.data.freeplay.player.PlayerData.PlayerFreeplayDJData;
 import funkin.modding.IScriptedClass.IFreeplayScriptedClass;
 import funkin.modding.events.ScriptEvent;
+import funkin.ui.freeplay.charselect.PlayableCharacter;
 
 enum FreeplayDJState
 {
@@ -25,24 +26,19 @@ enum FreeplayDJState
   IdleEasterEgg;
 
   /**
-   * Plays an elaborate easter egg animation. Does not revert until another animation is triggered.
-   */
-  Cartoon;
-
-  /**
    * Player has selected a song.
    */
   Confirm;
 
   /**
    * Character preps to play the fist pump animation; plays after the Results screen.
-   * The actual frame label that gets played may vary based on the player's success.
+   * The actual animation that gets played may vary based on the player's success.
    */
   FistPumpIntro;
 
   /**
    * Character plays the fist pump animation.
-   * The actual frame label that gets played may vary based on the player's success.
+   * The actual animation that gets played may vary based on the player's success.
    */
   FistPump;
 
@@ -56,63 +52,266 @@ enum FreeplayDJState
    * Plays an animation to transition to the Character Select screen.
    */
   CharSelect;
+
+  /**
+   * Doesn't play an animation by default, scripts can implement their own animations.
+   */
+  Custom;
 }
 
-/**
- * A script that can be tied to a BaseFreeplayDJ.
- * Create a scripted class that extends BaseFreeplayDJ to use this.
- * Can be used for full control over DJ's logic.
- */
-@:hscriptClass
-class ScriptedBaseFreeplayDJ extends BaseFreeplayDJ implements polymod.hscript.HScriptedClass
+enum abstract FreeplayDJAnimation(String) to String
 {
+  public var INTRO = 'intro';
+  public var IDLE = 'idle';
+  public var FISTPUMP = 'fistPump';
+  public var CONFIRM = 'confirm';
+  public var FISTPUMPLOSS = 'loss';
+  public var NEWUNLOCK = 'newUnlock';
+  public var CHARSELECT = 'charSelect';
+  public var IDLEEASTEREGG = 'idleEasterEgg';
 }
 
 @:nullSafety
 class BaseFreeplayDJ extends FunkinSprite implements IFreeplayScriptedClass
 {
-  public var IDLE_EGG_PERIOD:Float = 60.0;
-  public var IDLE_CARTOON_PERIOD:Float = 120.0;
+  #if target.threaded
+  static var activeAssetQueries:sys.thread.Tls<Array<String>> = new sys.thread.Tls();
+  static function getActiveAssetQueries():Array<String>
+  {
+    var active = activeAssetQueries.value;
+    if (active == null) activeAssetQueries.value = active = [];
+    return active;
+  }
+  #else
+  static var activeAssetQueries:Array<String> = [];
+  static function getActiveAssetQueries():Array<String> return activeAssetQueries;
+  #end
 
-  // Represents the sprite's current status.
-  // Without state machines I would have driven myself crazy years ago.
-  // Made this PRIVATE so we can keep track of everything that can alter the state!
-  //   Add a function to this class if you want to edit this value from outside.
-  var currentState:FreeplayDJState = Intro;
+  /** Query script-defined assets first, then the native renderer's assets. */
+  public static function queryAssets(type:funkin.assets.Assets.AssetType, characterId:String):Array<funkin.assets.Paths.AssetPath>
+  {
+    var data = PlayerRegistry.instance.fetchEntry(characterId)?.getFreeplayDJData();
+    if (data == null) return [];
+    var scriptClass = StringTools.trim(data.scriptClass ?? '');
+    var active = getActiveAssetQueries();
+    if (scriptClass != '' && !active.contains(scriptClass) && polymod.hscript.PolymodScriptBridge.staticHasFunc(scriptClass, 'queryAssets'))
+    {
+      active.push(scriptClass);
+      try
+      {
+        var assets:Null<Array<funkin.assets.Paths.AssetPath>> = funkin.modding.ScriptGuard.get(null, 'Freeplay DJ asset query ($characterId)', () ->
+        {
+          return cast polymod.hscript.PolymodScriptBridge.staticCall(scriptClass, 'queryAssets', [type, characterId]);
+        }, []);
+        active.pop();
+        if (assets != null) return assets;
+      }
+      catch (error:Dynamic)
+      {
+        active.pop();
+        throw error;
+      }
+    }
+    var renderer = StringTools.trim(data.renderType ?? 'animateatlas').toLowerCase();
+    return switch (renderer)
+    {
+      case 'animateatlas' | 'multisparrow' | 'sparrow' | 'packer': FreeplayDJAssets.query(type, characterId, renderer);
+      default: [];
+    }
+  }
 
-  // A callback activated when the intro animation finishes.
+
+  /**
+   * The amount of time (in seconds) that must pass before the easter egg animation can be played.
+   */
+  public static final IDLE_EGG_PERIOD:Float = 60.0;
+
+  /**
+   * The character ID of the Freeplay DJ.
+   */
+  public final characterId:String = Constants.DEFAULT_CHARACTER;
+
+  /**
+   * The current state of the Freeplay DJ.
+   */
+  public var currentState(default, set):FreeplayDJState = Custom;
+
+  function set_currentState(value:FreeplayDJState):FreeplayDJState
+  {
+    currentState = value;
+
+    switch (value)
+    {
+      case Intro:
+        playAnimation(INTRO, true);
+
+        timeIdling = 0;
+      case Idle:
+        playAnimation(IDLE, true, false, true);
+      case NewUnlock:
+        if (!hasAnimation(NEWUNLOCK))
+        {
+          currentState = Idle;
+          return value;
+        }
+
+        playAnimation(NEWUNLOCK, true, false, true);
+      case Confirm:
+        playAnimation(CONFIRM, false);
+
+        timeIdling = 0;
+      case IdleEasterEgg:
+        seenIdleEasterEgg = true;
+        onIdleEasterEgg.dispatch();
+
+        playAnimation(IDLEEASTEREGG, false);
+
+        timeIdling = 0;
+      default:
+        // Do nothing.
+    }
+
+    return value;
+  }
+
+  /**
+   * A callback activated when the intro animation finishes.
+   */
   public var onIntroDone:FlxSignal = new FlxSignal();
-  // A callback activated when the idle easter egg plays.
+
+  /**
+   * A callback activated when the idle easter egg plays.
+   */
   public var onIdleEasterEgg:FlxSignal = new FlxSignal();
 
-  var seenIdleEasterEgg:Bool = false;
-  final characterId:String = Constants.DEFAULT_CHARACTER;
   final playableCharData:Null<PlayerFreeplayDJData>;
+  var seenIdleEasterEgg:Bool = false;
   var timeIdling:Float = 0;
 
   public function new(x:Float, y:Float, characterId:String)
   {
     this.characterId = characterId;
 
-    var playableChar = PlayerRegistry.instance.fetchEntry(characterId);
-    playableCharData = playableChar?.getFreeplayDJData();
+    var playableCharacter:Null<PlayableCharacter> = PlayerRegistry.instance.fetchEntry(characterId);
+    playableCharData = playableCharacter?.getFreeplayDJData();
 
     super(x, y);
+
+    if (this.animation != null)
+    {
+      animation.onFinish.add(onAnimationFinished);
+      animation.onLoop.add(onAnimationFinished);
+      animation.onFrameChange.add(onAnimationFrame);
+    }
   }
 
-  function onFinishAnim(name:String):Void
+  override function update(elapsed:Float):Void
   {
+    super.update(elapsed);
+
+    if (currentState == FreeplayDJState.Idle)
+    {
+      timeIdling += elapsed;
+    }
   }
 
-  public function onCharSelectComplete():Void
+  function onAnimationFinished(name:String):Void
   {
-    trace('onCharSelectComplete()');
+    switch (name)
+    {
+      case INTRO:
+        if (PlayerRegistry.instance.hasNewCharacter())
+        {
+          currentState = NewUnlock;
+        }
+        else
+        {
+          currentState = Idle;
+        }
+        onIntroDone.dispatch();
+      case IDLE:
+        if (timeIdling >= IDLE_EGG_PERIOD && !seenIdleEasterEgg && hasAnimation(IDLEEASTEREGG))
+        {
+          currentState = IdleEasterEgg;
+        }
+      case FISTPUMP | FISTPUMPLOSS | IDLEEASTEREGG:
+        currentState = Idle;
+      case CHARSELECT:
+        onCharSelectComplete();
+    }
   }
 
-  public function playFlashAnimation(id:String, Force:Bool = false, Reverse:Bool = false, Loop:Bool = false, Frame:Int = 0):Void
+  function onAnimationFrame(name:String, frameNumber:Int, frameIndex:Int):Void
   {
-    // playAnimationSimple(id, Force, Reverse, Loop, Frame);
+    if (name != FISTPUMP && name != FISTPUMPLOSS) return;
+
+    var isIntro:Bool = (currentState == FistPumpIntro);
+    var startFrame:Int = -1;
+    var endFrame:Int = -1;
+
+    if (name == FISTPUMPLOSS)
+    {
+      endFrame = isIntro ? playableCharData?.getFistPumpIntroBadEndFrame() ?? 0 : playableCharData?.getFistPumpLoopBadEndFrame() ?? 0;
+      startFrame = isIntro ? playableCharData?.getFistPumpIntroBadStartFrame() ?? 0 : playableCharData?.getFistPumpLoopBadStartFrame() ?? 0;
+    }
+    else
+    {
+      endFrame = isIntro ? playableCharData?.getFistPumpIntroEndFrame() ?? 0 : playableCharData?.getFistPumpLoopEndFrame() ?? 0;
+      startFrame = isIntro ? playableCharData?.getFistPumpIntroStartFrame() ?? 0 : playableCharData?.getFistPumpLoopStartFrame() ?? 0;
+    }
+
+    if (endFrame > -1 && frameNumber > endFrame)
+    {
+      playAnimation(name, true, false, false, startFrame);
+    }
+  }
+
+  /**
+   * @param id The animation to play.
+   * @param restart Whether to restart the animation if it is already playing.
+   * @param reverse Whether to play the animation backwards, from the last frame to the first.
+   * @param loop Whether to loop the animation.
+   * @param frame The specific frame to play.
+   */
+  @:haxe.warning('-WDeprecated')
+  public function playAnimation(id:String, restart:Bool = false, reverse:Bool = false, loop:Bool = false, frame:Int = 0, _runByCompat:Bool = false):Void
+  {
+    if (animation == null)
+    {
+      FlxG.log.warn('Freeplay DJ ${characterId} has no graphics loaded!');
+      return;
+    }
+
+    // Backwards compatibility: Run `playFlashAnimation()` instead since old scripts might override it.
+    if (__backwardsCompatibility && !_runByCompat)
+    {
+      playFlashAnimation(id, restart, reverse, loop, frame);
+      return;
+    }
+
+    // We really don't want to play anything but the new character animation if we have one.
+    if (PlayerRegistry.instance.hasNewCharacter() && currentState == NewUnlock && getCurrentAnimation() == NEWUNLOCK)
+    {
+      return;
+    }
+
+    animation.play(id, restart, reverse, frame);
+
+    if (animation.curAnim == null)
+    {
+      FlxG.log.error('Freeplay DJ ${characterId} failed to play animation ${id}!');
+      return;
+    }
+
+    animation.curAnim.looped = loop;
+
     applyAnimationOffset();
+  }
+
+  @:deprecated('Use playAnimation() instead')
+  function playFlashAnimation(id:String, force:Bool = false, reverse:Bool = false, loop:Bool = false, frame:Int = 0):Void
+  {
+    playAnimation(id, force, reverse, loop, frame, true);
   }
 
   public function onPlayerAction():Void
@@ -133,87 +332,69 @@ class BaseFreeplayDJ extends FunkinSprite implements IFreeplayScriptedClass
 
   public function onConfirm():Void
   {
-    // We really don't want to play anything but the new character animation here.
-    if (PlayerRegistry.instance.hasNewCharacter())
-    {
-      currentState = NewUnlock;
-      return;
-    }
-
     currentState = Confirm;
   }
 
   public function toCharSelect():Void
   {
-    var animPrefix = playableCharData?.getAnimationPrefix('charSelect');
-    if (animPrefix != null && hasAnimation(animPrefix))
+    if (hasAnimation(CHARSELECT))
     {
       currentState = CharSelect;
-      playFlashAnimation(animPrefix, true, false, false, 0);
+      playAnimation(CHARSELECT, true, false, false, 0);
     }
     else
     {
       FlxG.log.warn("Freeplay character does not have 'charSelect' animation!");
+
       currentState = Confirm;
       // Call this immediately; otherwise, we get locked out of Character Select.
       onCharSelectComplete();
     }
   }
 
+  public function onCharSelectComplete():Void
+  {
+    trace('onCharSelectComplete()');
+  }
+
   public function fistPumpIntro():Void
   {
-    // We really don't want to play anything but the new character animation here.
-    if (PlayerRegistry.instance.hasNewCharacter())
-    {
-      currentState = NewUnlock;
-      return;
-    }
-
     currentState = FistPumpIntro;
-    var animPrefix = playableCharData?.getAnimationPrefix('fistPump');
-    if (animPrefix != null) playFlashAnimation(animPrefix, true, false, false, playableCharData?.getFistPumpIntroStartFrame());
+
+    if (hasAnimation(FISTPUMP))
+    {
+      playAnimation(FISTPUMP, true, false, false, playableCharData?.getFistPumpIntroStartFrame());
+    }
   }
 
   public function fistPump():Void
   {
-    // We really don't want to play anything but the new character animation here.
-    if (PlayerRegistry.instance.hasNewCharacter())
-    {
-      currentState = NewUnlock;
-      return;
-    }
-
     currentState = FistPump;
-    var animPrefix = playableCharData?.getAnimationPrefix('fistPump');
-    if (animPrefix != null) playFlashAnimation(animPrefix, true, false, false, playableCharData?.getFistPumpLoopStartFrame());
+
+    if (hasAnimation(FISTPUMP))
+    {
+      playAnimation(FISTPUMP, true, false, false, playableCharData?.getFistPumpLoopStartFrame());
+    }
   }
 
   public function fistPumpLossIntro():Void
   {
-    // We really don't want to play anything but the new character animation here.
-    if (PlayerRegistry.instance.hasNewCharacter())
-    {
-      currentState = NewUnlock;
-      return;
-    }
-
     currentState = FistPumpIntro;
-    var animPrefix = playableCharData?.getAnimationPrefix('loss');
-    if (animPrefix != null) playFlashAnimation(animPrefix, true, false, false, playableCharData?.getFistPumpIntroBadStartFrame());
+
+    if (hasAnimation(FISTPUMPLOSS))
+    {
+      playAnimation(FISTPUMPLOSS, true, false, false, playableCharData?.getFistPumpIntroBadStartFrame());
+    }
   }
 
   public function fistPumpLoss():Void
   {
-    // We really don't want to play anything but the new character animation here.
-    if (PlayerRegistry.instance.hasNewCharacter())
-    {
-      currentState = NewUnlock;
-      return;
-    }
-
     currentState = FistPump;
-    var animPrefix = playableCharData?.getAnimationPrefix('loss');
-    if (animPrefix != null) playFlashAnimation(animPrefix, true, false, false, playableCharData?.getFistPumpLoopBadStartFrame());
+
+    if (hasAnimation(FISTPUMPLOSS))
+    {
+      playAnimation(FISTPUMPLOSS, true, false, false, playableCharData?.getFistPumpLoopBadStartFrame());
+    }
   }
 
   public function resetPosition():Void
@@ -237,7 +418,7 @@ class BaseFreeplayDJ extends FunkinSprite implements IFreeplayScriptedClass
     if (playableCharData == null) return;
 
     var animationName:String = getCurrentAnimation();
-    var animationOffsets:Null<Array<Float>> = playableCharData.getAnimationOffsetsByPrefix(animationName);
+    var animationOffsets:Null<Array<Float>> = playableCharData.getAnimationOffsets(animationName);
     var globalOffsets:Array<Float> = [this.x, this.y];
 
     globalOffsets[0] -= playableCharData.getGlobalOffsets()[0];
@@ -362,6 +543,27 @@ class BaseFreeplayDJ extends FunkinSprite implements IFreeplayScriptedClass
    * Called when Freeplay is closed.
    */
   public function onFreeplayClose(event:FreeplayScriptEvent):Void
+  {
+  }
+
+  /**
+   * Called when a capsule receives a new rank.
+   */
+  public function onCapsuleNewRank(event:CapsuleScriptEvent):Void
+  {
+  }
+
+  /**
+   * Called when the rank letter slams down on a freeplay capsule.
+   */
+  public function onRankSlam(event:CapsuleScriptEvent):Void
+  {
+  }
+
+  /**
+   * Called when the entire capsule slams down, after a new rank has been applied.
+   */
+  public function onCapsuleSlam(event:CapsuleScriptEvent):Void
   {
   }
 }

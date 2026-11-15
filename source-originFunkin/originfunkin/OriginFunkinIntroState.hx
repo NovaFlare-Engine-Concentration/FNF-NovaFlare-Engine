@@ -30,6 +30,9 @@ class OriginFunkinIntroState extends FlxState
 	override public function create():Void
 	{
 		super.create();
+		#if ORIGIN_SDL2_COMPAT
+		OriginFunkinKeyboard.install();
+		#end
 		FlxG.fixedTimestep = false;
 		FlxG.game.focusLostFramerate = 30;
 		@:privateAccess
@@ -219,12 +222,12 @@ class OriginFunkinIntroState extends FlxState
 				return;
 
 				OriginFunkinConfig.acknowledgeOriginNotice();
-				FlxG.switchState(new funkin.InitState());
+				FlxG.switchState(new OriginFunkinBootState());
 			});
 		}
 		else
 		{
-			FlxG.switchState(new funkin.InitState());
+			FlxG.switchState(new OriginFunkinBootState());
 		}
 	}
 }

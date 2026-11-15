@@ -1,0 +1,96 @@
+@:cppFileCode('
+#include <thread>
+#include <atomic>
+#include <vector>
+#include <sstream>
+#include <cstring>
+#include <hx/Native.h>
+#include "@@IMMIX_SOURCE@@"
+namespace origin_pool_probe {
+static std::atomic<int> phase(0);
+static unsigned char *rangeStart = 0;
+static unsigned char *rangeEnd = 0;
+static void pauseAttach(LocalAllocator *local) {
+  #ifdef HXCPP_GC_NURSERY
+  rangeStart = local->spaceFirst;
+  rangeEnd = local->spaceOversize;
+  #else
+  rangeStart = local->allocBase + local->spaceStart;
+  rangeEnd = local->allocBase + local->spaceEnd;
+  #endif
+  phase.store(1);
+  while (phase.load() != 2) std::this_thread::yield();
+}
+struct DirtyObject : ::hx::Object {
+  unsigned long long first, second, third;
+  DirtyObject() : first(0x1111111122222222ULL), second(0x3333333344444444ULL), third(0x5555555566666666ULL) {}
+};
+}
+')
+class OriginCallbackHandoffProbe
+{
+  @:functionCode('
+    using namespace origin_pool_probe;
+    void *allocated = 0;
+    unsigned long long bits = 0;
+    std::thread worker([&]() {
+      {
+        ::hx::NativeAttach attached;
+        for (int i=0;i<16;++i) {
+          auto *array = new ::cpp::VirtualArray_obj(::hx::arrayEmpty);
+          array->__SetSizeExact(1);
+        }
+      }
+      ::hx::origin_pool_hook = pauseAttach;
+      {
+        ::hx::NativeAttach attached;
+        auto *array = new ::cpp::VirtualArray_obj(::hx::arrayEmpty);
+        allocated = array;
+        std::memcpy(&bits, &array->base, sizeof(array->base));
+        // Do not dereference a corrupt base pointer in the diagnostic.
+        if (!bits) array->__SetSizeExact(1);
+      }
+      ::hx::origin_pool_hook = 0;
+    });
+    ::hx::EnterGCFreeZone();
+    while (phase.load() != 1) std::this_thread::yield();
+    bool handoffLocked = !gThreadStateChangeLock->TryLock();
+    if (!handoffLocked) gThreadStateChangeLock->Unlock();
+    if (handoffLocked) {
+      phase.store(2);
+      worker.join();
+    }
+    ::hx::ExitGCFreeZone();
+    if (!handoffLocked) ::hx::InternalCollect(true, false);
+    std::vector<DirtyObject *> live;
+    live.resize(handoffLocked ? 0 : 65536, nullptr);
+    for (int i=0;i<(int)live.size();++i) {
+      live[i] = new DirtyObject();
+      ::hx::GCAddRoot(reinterpret_cast<::hx::Object **>(&live[i]));
+    }
+    if (!handoffLocked) {
+      phase.store(2);
+      ::hx::EnterGCFreeZone();
+      worker.join();
+      ::hx::ExitGCFreeZone();
+    }
+    int overlaps = 0;
+    for (auto *object : live) {
+      if ((unsigned char *)allocated < (unsigned char *)object+sizeof(DirtyObject)
+        && (unsigned char *)allocated+sizeof(::cpp::VirtualArray_obj) > (unsigned char *)object) ++overlaps;
+    }
+    for (int i=0;i<(int)live.size();++i) ::hx::GCRemoveRoot(reinterpret_cast<::hx::Object **>(&live[i]));
+    std::ostringstream report;
+    report << "handoff_locked=" << handoffLocked << " overlaps=" << overlaps << " base=0x" << std::hex << bits
+      << " allocated=" << allocated << " oldRange=" << (void *)rangeStart << ".." << (void *)rangeEnd;
+    return ::String(report.str().c_str());
+  ')
+  static function probe():String return '';
+  static function main()
+  {
+    var report = probe();
+    Sys.println(report);
+    Sys.exit(StringTools.startsWith(report, 'handoff_locked=1 overlaps=0 base=0x0 ') ? 0 : 1);
+  }
+}
+

@@ -5,9 +5,11 @@ import funkin.data.song.SongData.SongEventData;
 import funkin.data.song.SongDataUtils;
 
 /**
- * Command that selects all notes and/or events above or past the time given in the chart editor.
+ * Represents a reversible action to select all notes and events between a given time
+ * and the start (or end) of the chart.
  */
-@:nullSafety @:access(funkin.ui.debug.charting.ChartEditorState)
+@:nullSafety
+@:access(funkin.ui.debug.charting.ChartEditorState)
 class SelectAllItemsBetweenTimeCommand implements ChartEditorCommand
 {
   var time:Float;
@@ -29,6 +31,11 @@ class SelectAllItemsBetweenTimeCommand implements ChartEditorCommand
     this.shouldSelectEvents = shouldSelectEvents;
   }
 
+  /**
+   * Perform the action, selecting the relevant notes and events.
+   *
+   * @param state The ChartEditorState to perform the command on.
+   */
   public function execute(state:ChartEditorState):Void
   {
     if (above)
@@ -37,20 +44,32 @@ class SelectAllItemsBetweenTimeCommand implements ChartEditorCommand
       {
         for (i in 0...state.currentSongChartNoteData.length)
         {
-          if (state.currentSongChartNoteData[i].time < time) notes.push(state.currentSongChartNoteData[i]);
+          if (state.currentSongChartNoteData[i] == null) continue;
+          if (state.currentSongChartNoteData[i].time < time)
+          {
+            notes.pushUnique(state.currentSongChartNoteData[i]);
+          }
           else
+          {
             // We've reached the end of the notes above this time,
             // there's no reason to waste our time running this loop to completion
             break;
+          }
         }
       }
       if (shouldSelectEvents)
       {
         for (i in 0...state.currentSongChartEventData.length)
         {
-          if (state.currentSongChartEventData[i].time < time) events.push(state.currentSongChartEventData[i]);
+          if (state.currentSongChartEventData[i] == null) continue;
+          if (state.currentSongChartEventData[i].time < time)
+          {
+            events.pushUnique(state.currentSongChartEventData[i]);
+          }
           else
+          {
             break;
+          }
         }
       }
     }
@@ -61,28 +80,32 @@ class SelectAllItemsBetweenTimeCommand implements ChartEditorCommand
         for (i in 0...state.currentSongChartNoteData.length)
         {
           // Backwards for loop (kinda). Neat!
-          if (state.currentSongChartNoteData[
-            state.currentSongChartNoteData.length - i - 1
-          ].time > time) notes.push(state.currentSongChartNoteData[
-            state.currentSongChartNoteData.length - i - 1
-            ]);
+          if (state.currentSongChartNoteData[state.currentSongChartNoteData.length - i - 1] == null) continue;
+          if (state.currentSongChartNoteData[state.currentSongChartNoteData.length - i - 1].time > time)
+          {
+            notes.pushUnique(state.currentSongChartNoteData[state.currentSongChartNoteData.length - i - 1]);
+          }
           else
+          {
             // We've reached the end of the notes below this time,
             // there's no reason to waste our time running this loop to completion
             break;
+          }
         }
       }
       if (shouldSelectEvents)
       {
         for (i in 0...state.currentSongChartEventData.length)
         {
-          if (state.currentSongChartEventData[
-            state.currentSongChartEventData.length - i - 1
-          ].time > time) events.push(state.currentSongChartEventData[
-            state.currentSongChartEventData.length - i - 1
-            ]);
+          if (state.currentSongChartEventData[state.currentSongChartEventData.length - i - 1] == null) continue;
+          if (state.currentSongChartEventData[state.currentSongChartEventData.length - i - 1].time > time)
+          {
+            events.pushUnique(state.currentSongChartEventData[state.currentSongChartEventData.length - i - 1]);
+          }
           else
+          {
             break;
+          }
         }
       }
     }
@@ -90,12 +113,12 @@ class SelectAllItemsBetweenTimeCommand implements ChartEditorCommand
     // Add the notes and events to the selection
     for (note in this.notes)
     {
-      state.currentNoteSelection.push(note);
+      state.currentNoteSelection.pushUnique(note);
     }
 
     for (event in this.events)
     {
-      state.currentEventSelection.push(event);
+      state.currentEventSelection.pushUnique(event);
     }
 
     // I don't think it's necessary to copy this code in, but someone will make an issue out of this if I don't, I'm sure.
@@ -106,19 +129,7 @@ class SelectAllItemsBetweenTimeCommand implements ChartEditorCommand
 
       state.eventKindToPlace = eventSelected.eventKind;
 
-      // This code is here to parse event data that's not built as a struct for some reason.
-      // TODO: Clean this up or get rid of it.
-      var eventSchema = eventSelected.getSchema();
-      var defaultKey = null;
-      if (eventSchema == null)
-      {
-        trace('[WARNING] Event schema not found for event ${eventSelected.eventKind}.');
-      }
-      else
-      {
-        defaultKey = eventSchema.getFirstField()?.name;
-      }
-      var eventData = eventSelected.valueAsStruct(defaultKey);
+      var eventData = eventSelected.valueAsStruct();
 
       state.eventDataToPlace = eventData;
 
@@ -140,6 +151,11 @@ class SelectAllItemsBetweenTimeCommand implements ChartEditorCommand
     state.notePreviewDirty = true;
   }
 
+  /**
+   * Reverse the action, deselecting the notes and events that were selected.
+   *
+   * @param state The ChartEditorState to perform the command on.
+   */
   public function undo(state:ChartEditorState):Void
   {
     state.currentNoteSelection = SongDataUtils.subtractNotes(state.currentNoteSelection, this.notes);
@@ -149,12 +165,23 @@ class SelectAllItemsBetweenTimeCommand implements ChartEditorCommand
     state.notePreviewDirty = true;
   }
 
+  /**
+   * Whether the command should display in the undo/redo menu.
+   * This should be `false` if no real actions were actually performed.
+   *
+   * @param state The ChartEditorState to perform the command on.
+   * @return Whether the command should be added to the history.
+   */
   public function shouldAddToHistory(state:ChartEditorState):Bool
   {
     // This command is undoable. Add to the history if we actually performed an action.
     return (notes.length > 0 || events.length > 0);
   }
 
+  /**
+   * Convert the action to a string. Used to display the action in the undo/redo history.
+   * @return This command, as a readable string.
+   */
   public function toString():String
   {
     var len:Int = notes.length + events.length;

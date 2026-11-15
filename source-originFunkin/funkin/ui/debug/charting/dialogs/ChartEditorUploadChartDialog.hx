@@ -10,7 +10,8 @@ import haxe.ui.containers.dialogs.Dialog.DialogButton;
 import haxe.ui.containers.dialogs.Dialog.DialogEvent;
 
 // @:nullSafety // TODO: Fix null safety when used with HaxeUI build macros.
-@:build(haxe.ui.ComponentBuilder.build('assets/exclude/data/ui/chart-editor/dialogs/upload-chart.xml')) @:access(funkin.ui.debug.charting.ChartEditorState)
+@:build(originfunkin.macro.OriginEditorMacro.build('assets/exclude/ui/editors/chart-editor/dialogs/upload-chart.xml'))
+@:access(funkin.ui.debug.charting.ChartEditorState)
 class ChartEditorUploadChartDialog extends ChartEditorBaseDialog
 {
   var dropHandlers:Array<DialogDropTarget> = [];
@@ -36,7 +37,10 @@ class ChartEditorUploadChartDialog extends ChartEditorBaseDialog
       Cursor.cursorMode = Default;
     }
 
-    dropHandlers.push({component: this.chartBox, handler: this.onDropFileChartBox});
+    dropHandlers.push({
+      component: this.chartBox,
+      handler: this.onDropFileChartBox
+    });
   }
 
   public static function build(state:ChartEditorState, ?closable:Bool, ?modal:Bool):ChartEditorUploadChartDialog
@@ -106,21 +110,14 @@ class ChartEditorUploadChartDialog extends ChartEditorBaseDialog
 
     try
     {
-      var result:Null<Array<String>> = ChartEditorImportExportHandler.loadFromFNFCPath(chartEditorState, path.toString());
-      if (result != null)
-      {
-        chartEditorState.success('Loaded Chart',
-          result.length == 0 ? 'Loaded chart (${path.toString()})' : 'Loaded chart (${path.toString()})\n${result.join("\n")}');
-        this.hideDialog(DialogButton.APPLY);
-      }
-      else
-      {
-        chartEditorState.failure('Failed to Load Chart', 'Failed to load chart (${path.toString()})');
-      }
+      ChartEditorImportExportHandler.loadSongFromFNFCPath(chartEditorState, path.toString());
+      // If we failed, it'd throw.
+      this.hideDialog(DialogButton.APPLY);
     }
-    catch (err)
+    catch (e)
     {
-      chartEditorState.failure('Failed to Load Chart', 'Failed to load chart (${path.toString()}): ${err}');
+      chartEditorState.failure('Failed to Load Chart', 'Failed to load chart (${path.toString()}):\n$e');
+      // Leave the popup open.
     }
   }
 
@@ -135,19 +132,14 @@ class ChartEditorUploadChartDialog extends ChartEditorBaseDialog
     {
       try
       {
-        var result:Null<Array<String>> = ChartEditorImportExportHandler.loadFromFNFC(chartEditorState, selectedFile.bytes);
-        if (result != null)
-        {
-          chartEditorState.success('Loaded Chart',
-            result.length == 0 ? 'Loaded chart (${selectedFile.name})' : 'Loaded chart (${selectedFile.name})\n${result.join("\n")}');
-
-          if (selectedFile.fullPath != null) chartEditorState.currentWorkingFilePath = selectedFile.fullPath;
-          this.hideDialog(DialogButton.APPLY);
-        }
+        ChartEditorImportExportHandler.loadSongFromFNFCBytes(chartEditorState, selectedFile.bytes, selectedFile.fullPath);
+        // If we failed, it'd throw.
+        this.hideDialog(DialogButton.APPLY);
       }
-      catch (err)
+      catch (e)
       {
-        chartEditorState.failure('Failed to Load Chart', 'Failed to load chart (${selectedFile.name}): ${err}');
+        chartEditorState.failure('Failed to Load Chart', 'Failed to load chart (${selectedFile.name}):\n$e');
+        // Leave the popup open.
       }
     }
   }

@@ -5,13 +5,23 @@ import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
 import flixel.util.FlxSignal;
+import flixel.util.FlxTimer;
 import funkin.play.PlayState;
+import funkin.graphics.FunkinSprite;
 #if html5
 import funkin.graphics.video.FlxVideo;
 #end
 #if hxvlc
 import funkin.graphics.video.FunkinVideoSprite;
 #end
+//
+// ~PATHS~
+//
+import funkin.assets.Assets as Assets;
+import funkin.assets.Paths.AssetPath;
+import funkin.assets.Paths.AnimateAtlasAssetPathBuilder;
+import funkin.assets.Paths.MusicAssetPathBuilder;
+import funkin.assets.ValidatedPaths as Paths;
 
 /**
  * Assumes you are in the PlayState.
@@ -24,6 +34,8 @@ class VideoCutscene
   #end
   static var blackScreen:FlxSprite;
   static var cutsceneType:CutsceneType;
+  static var cutsceneGeneration:Int = 0;
+  static var finishCameraTween:Null<FlxTween>;
   #if html5
   static var vid:FlxVideo;
   #end
@@ -34,62 +46,93 @@ class VideoCutscene
   /**
    * Called when the video is started.
    */
-  public static final onVideoStarted:FlxSignal = new FlxSignal();
+  public static var onVideoStarted:FlxSignal = new FlxSignal();
 
   /**
    * Called if the video is paused.
    */
-  public static final onVideoPaused:FlxSignal = new FlxSignal();
+  public static var onVideoPaused:FlxSignal = new FlxSignal();
 
   /**
    * Called if the video is resumed.
    */
-  public static final onVideoResumed:FlxSignal = new FlxSignal();
+  public static var onVideoResumed:FlxSignal = new FlxSignal();
 
   /**
    * Called if the video is restarted. onVideoStarted is not called.
    */
-  public static final onVideoRestarted:FlxSignal = new FlxSignal();
+  public static var onVideoRestarted:FlxSignal = new FlxSignal();
 
   /**
    * Called when the video is ended or skipped.
    */
-  public static final onVideoEnded:FlxSignal = new FlxSignal();
+  public static var onVideoEnded:FlxSignal = new FlxSignal();
 
   /**
    * Play a video cutscene.
    * TODO: Currently this is hardcoded to start the countdown after the video is done.
-   * @param path The path to the video file. Use Paths.file(path) to get the correct path.
+   *
+   * @param assetPath The path to the video file. Use Paths.file(path) to get the correct path.
    * @param cutseneType The type of cutscene to play, determines what the game does after. Defaults to `CutsceneType.STARTING`.
    */
-  public static function play(filePath:String, ?cutsceneType:CutsceneType = STARTING):Void
+  public static function play(assetPath:AssetPath,
+    ?cutsceneType:CutsceneType = STARTING):Void
   {
     if (PlayState.instance == null) return;
 
-    #if FEATURE_VIDEO_PLAYBACK
-    if (!openfl.Assets.exists(filePath))
-    {
-      // Display a popup.
-      funkin.util.WindowUtil.showError('Error playing video', 'Video file does not exist: ${filePath}');
-      trace('Video file does not exist: ${filePath}');
+    if (assetPath == null) throw 'Input is not a valid AssetPath, did you call Paths.video()?';
 
+    #if FEATURE_VIDEO_PLAYBACK
+    if (!assetPath.exists())
+    {
+      trace('Video file does not exist: ${assetPath.toString()}');
+      // Scripts may already have cancelled the countdown before asking to play.
+      // Continue on the next update, after the current script event has finished.
+      if (isPlaying() || blackScreen != null) destroyVideo();
+      if (finishCameraTween != null)
+      {
+        finishCameraTween.cancel();
+        finishCameraTween = null;
+      }
+      var failedState = PlayState.instance;
+      var failedGeneration = ++cutsceneGeneration;
+      new FlxTimer().start(0.001, _ ->
+      {
+        if (cutsceneGeneration != failedGeneration || PlayState.instance != failedState) return;
+        onVideoEnded.dispatch();
+        if (cutsceneGeneration == failedGeneration && PlayState.instance == failedState) onCutsceneFinish(cutsceneType);
+      });
       return;
+    }
+    else
+    {
+      trace('Video file available for playback: ${assetPath.toString()}');
     }
     #end
 
+    // Retire the previous player before replacing its shared reference.
+    if (isPlaying() || blackScreen != null) destroyVideo();
+    if (finishCameraTween != null)
+    {
+      finishCameraTween.cancel();
+      finishCameraTween = null;
+    }
+    // Reset before any player callback can fire for this cutscene.
+    finishingVideo = false;
+    cutsceneGeneration++;
     // Trigger the cutscene. Don't play the song in the background.
     PlayState.instance.isInCutscene = true;
     PlayState.instance.camHUD.visible = false;
 
     // Display a black screen to hide the game while the video is playing.
-    blackScreen = new FlxSprite(-200, -200).makeGraphic(FlxG.width * 2, FlxG.height * 2, FlxColor.BLACK);
+    blackScreen = new FunkinSprite(-200, -200).makeSolidColor(FlxG.width * 2, FlxG.height * 2, FlxColor.BLACK);
     blackScreen.scrollFactor.set(0, 0);
     blackScreen.cameras = [PlayState.instance.camCutscene];
     PlayState.instance.add(blackScreen);
 
     VideoCutscene.cutsceneType = cutsceneType;
 
-    #if mobile
+    #if FEATURE_TOUCH_CONTROLS
     if (cutsceneType == ENDING)
     {
       PlayState.instance.togglePauseButton();
@@ -97,19 +140,22 @@ class VideoCutscene
     #end
 
     #if NO_FEATURE_VIDEO_PLAYBACK
-    trace(" WARNING ".bold().bg_yellow() + " Video playback is not enabled. Calling video end callback instead.");
+    trace(' WARNING '.warning() + ' Video playback is not enabled. Calling video end callback instead.');
     finishVideo();
     #else
     #if html5
-    playVideoHTML5(Paths.stripLibrary(filePath));
+    playVideoHTML5(assetPath);
     #elseif hxvlc
-    playVideoNative(filePath);
+    playVideoNative(assetPath);
     #else
-    throw "No video support for this platform!";
+    throw 'No video support for this platform!';
     #end
     #end
   }
 
+  /**
+   * @return Whether a video cutscene is currently playing.
+   */
   public static function isPlaying():Bool
   {
     #if (html5 || hxvlc)
@@ -120,16 +166,20 @@ class VideoCutscene
   }
 
   #if html5
-  static function playVideoHTML5(filePath:String):Void
+  static function playVideoHTML5(assetPath:AssetPath):Void
   {
     // Video displays OVER the FlxState.
-    vid = new FlxVideo(filePath);
+    vid = new FlxVideo(assetPath.toString());
 
     if (vid != null)
     {
       vid.zIndex = 0;
 
-      vid.finishCallback = finishVideo.bind(0.5);
+      final activeVideo = vid;
+      vid.finishCallback = function():Void
+      {
+        if (vid == activeVideo) finishVideo(0.5);
+      };
 
       vid.cameras = [PlayState.instance.camCutscene];
 
@@ -147,7 +197,7 @@ class VideoCutscene
   #end
 
   #if hxvlc
-  static function playVideoNative(filePath:String):Void
+  static function playVideoNative(assetPath:AssetPath):Void
   {
     // Video displays OVER the FlxState.
     vid = new FunkinVideoSprite(0, 0);
@@ -157,9 +207,11 @@ class VideoCutscene
       vid.zIndex = 0;
 
       vid.active = false;
+      final activeVideo = vid;
 
       vid.bitmap.onFormatSetup.add(function():Void
       {
+        if (vid != activeVideo) return;
         if (vid.bitmap != null && vid.bitmap.bitmapData != null)
         {
           final scale:Float = Math.min(FlxG.width / vid.bitmap.bitmapData.width, FlxG.height / vid.bitmap.bitmapData.height);
@@ -172,10 +224,13 @@ class VideoCutscene
 
       vid.bitmap.onEncounteredError.add(function(msg:String):Void
       {
-        finishVideo(0.5);
+        if (vid == activeVideo) finishVideo(0.5);
       });
 
-      vid.bitmap.onEndReached.add(finishVideo.bind(0.5));
+      vid.bitmap.onEndReached.add(function():Void
+      {
+        if (vid == activeVideo) finishVideo(0.5);
+      });
 
       vid.cameras = [PlayState.instance.camCutscene];
 
@@ -198,9 +253,14 @@ class VideoCutscene
       fileOptions.push(':audio-language=$DEFAULT_LANGUAGE');
       #end
 
-      if (vid.load(filePath, fileOptions) && vid.play())
+      if (activeVideo.load(assetPath.toString(), fileOptions) && vid == activeVideo && activeVideo.play())
       {
-        onVideoStarted.dispatch();
+        if (vid == activeVideo) onVideoStarted.dispatch();
+      }
+      else if (vid == activeVideo)
+      {
+        trace('Could not start video cutscene: ${assetPath.toString()}');
+        finishVideo(0.5);
       }
     }
     else
@@ -210,6 +270,9 @@ class VideoCutscene
   }
   #end
 
+  /**
+   * Restart the current video cutscene from the beginning.
+   */
   public static function restartVideo():Void
   {
     #if html5
@@ -231,6 +294,9 @@ class VideoCutscene
     #end
   }
 
+  /**
+   * Pause the current video cutscene.
+   */
   public static function pauseVideo():Void
   {
     #if html5
@@ -250,6 +316,9 @@ class VideoCutscene
     #end
   }
 
+  /**
+   * Hide the current video cutscene.
+   */
   public static function hideVideo():Void
   {
     #if html5
@@ -269,6 +338,9 @@ class VideoCutscene
     #end
   }
 
+  /**
+   * Show the current video cutscene, if it is hidden.
+   */
   public static function showVideo():Void
   {
     #if html5
@@ -288,6 +360,9 @@ class VideoCutscene
     #end
   }
 
+  /**
+   * Resume the current video cutscene, if it is paused.
+   */
   public static function resumeVideo():Void
   {
     #if html5
@@ -312,11 +387,15 @@ class VideoCutscene
    * @param transitionTime The duration of the transition to the next state. Defaults to 0.5 seconds (this time is always used when cancelling the video).
    * @param finishCutscene The callback to call when the transition is finished.
    */
+  static var finishingVideo:Bool = true;
+
   public static function finishVideo(?transitionTime:Float = 0.5):Void
   {
+    if (finishingVideo) return;
+    finishingVideo = true;
     trace('ALERT: Finish video cutscene called!');
 
-    var cutsceneType:CutsceneType = VideoCutscene.cutsceneType;
+    var currentCutsceneType:CutsceneType = VideoCutscene.cutsceneType;
 
     #if html5
     if (vid != null)
@@ -334,26 +413,36 @@ class VideoCutscene
     #end
 
     #if (html5 || hxvlc)
-    vid.destroy();
+    if (vid != null) vid.destroy();
     vid = null;
     #end
 
-    PlayState.instance.camHUD.visible = true;
+    var finishedState = PlayState.instance;
+    var finishedScreen = blackScreen;
+    var finishedGeneration = cutsceneGeneration;
+    blackScreen = null;
+    finishedState.camHUD.visible = true;
 
-    FlxTween.tween(blackScreen, {alpha: 0}, transitionTime, {
+    FlxTween.tween(finishedScreen, {
+      alpha: 0
+    }, transitionTime, {
       ease: FlxEase.quadInOut,
-      onComplete: function(twn:FlxTween)
+      onComplete: (twn:FlxTween) ->
       {
-        PlayState.instance.remove(blackScreen);
-        blackScreen = null;
+        if (PlayState.instance == finishedState) finishedState.remove(finishedScreen);
+        finishedScreen.destroy();
       }
     });
-    FlxTween.tween(FlxG.camera, {zoom: PlayState.instance.stageZoom}, transitionTime, {
+    finishCameraTween = FlxTween.tween(FlxG.camera, {
+      zoom: finishedState.stageZoom
+    }, transitionTime, {
       ease: FlxEase.quadInOut,
-      onComplete: function(twn:FlxTween)
+      onComplete: (twn:FlxTween) ->
       {
+        if (cutsceneGeneration != finishedGeneration || PlayState.instance != finishedState) return;
+        finishCameraTween = null;
         onVideoEnded.dispatch();
-        onCutsceneFinish(cutsceneType);
+        if (cutsceneGeneration == finishedGeneration && PlayState.instance == finishedState) onCutsceneFinish(currentCutsceneType);
       }
     });
   }
@@ -362,9 +451,9 @@ class VideoCutscene
    * The default callback used when a cutscene is finished.
    * You can specify your own callback when calling `VideoCutscene#play()`.
    */
-  static function onCutsceneFinish(cutsceneType:CutsceneType):Void
+  static function onCutsceneFinish(currentCutsceneType:CutsceneType):Void
   {
-    switch (cutsceneType)
+    switch (currentCutsceneType)
     {
       case CutsceneType.STARTING:
         PlayState.instance.startCountdown();
@@ -379,8 +468,15 @@ class VideoCutscene
   /**
    * Destroy the active cutscene, if any. Separate from finishVideo() so that it doesn't trigger onCutsceneFinish().
    */
-  public static function destroyVideo()
+  public static function destroyVideo():Void
   {
+    finishingVideo = true;
+    cutsceneGeneration++;
+    if (finishCameraTween != null)
+    {
+      finishCameraTween.cancel();
+      finishCameraTween = null;
+    }
     #if html5
     if (vid != null) PlayState.instance.remove(vid);
     #end
@@ -404,11 +500,15 @@ class VideoCutscene
     if (blackScreen != null)
     {
       PlayState.instance.remove(blackScreen);
+      blackScreen.destroy();
       blackScreen = null;
     }
   }
 }
 
+/**
+ * The different types of cutscenes, determines how the game behaves when the video is finished.
+ */
 enum CutsceneType
 {
   STARTING; // The default cutscene type. Starts the countdown after the video is done.

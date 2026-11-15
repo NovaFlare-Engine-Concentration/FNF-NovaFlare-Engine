@@ -15,7 +15,15 @@ class NoteSprite extends FunkinSprite
    */
   public var holdNoteSprite:SustainTrail;
 
-  var hsvShader:HSVShader;
+  var _hsvShader:Null<HSVShader> = null;
+  var hsvShader(get, never):HSVShader;
+
+  function get_hsvShader():HSVShader
+  {
+    if (_hsvShader == null) _hsvShader = new HSVShader();
+
+    return _hsvShader;
+  }
 
   /**
    * The strum time at which the note should be hit, in milliseconds.
@@ -170,12 +178,13 @@ class NoteSprite extends FunkinSprite
     super(0, -9999);
     this.direction = direction;
 
-    this.hsvShader = new HSVShader();
-
     this.alpha = 1;
-
-    setupNoteGraphic(noteStyle);
+    if (noteStyle != null) setupNoteGraphic(noteStyle);
   }
+
+  public var builtNoteStyleId:Null<String> = null;
+  @:allow(funkin.play.notes.notestyle.NoteStyle)
+  var builtNoteStyle:Null<NoteStyle> = null;
 
   /**
    * Creates frames and animations
@@ -252,6 +261,11 @@ class NoteSprite extends FunkinSprite
     this.visible = true;
     this.alpha = 1.0;
     this.active = false;
+    // A pooled sprite may have been changed by the previous note's script.
+    // Reset defaults before the next note's incoming event applies its style.
+    this.flipX = false;
+    this.flipY = false;
+    this.lowPriority = false;
     this.tooEarly = false;
     this.hasBeenHit = false;
     this.mayHit = false;
@@ -262,9 +276,13 @@ class NoteSprite extends FunkinSprite
     // The hsvShader should only be applied when it's necessary.
     // Otherwise, it should be turned off to keep note batching.
     this.shader = null;
-    this.hsvShader.hue = 1.0;
-    this.hsvShader.saturation = 1.0;
-    this.hsvShader.value = 1.0;
+
+    if (_hsvShader != null)
+    {
+      _hsvShader.hue = 1.0;
+      _hsvShader.saturation = 1.0;
+      _hsvShader.value = 1.0;
+    }
   }
 
   override public function kill():Void
@@ -274,6 +292,7 @@ class NoteSprite extends FunkinSprite
 
   override public function destroy():Void
   {
+    builtNoteStyle = null;
     // This function should ONLY get called as you leave PlayState entirely.
     // Otherwise, we want the game to keep reusing note sprites to save memory.
     super.destroy();

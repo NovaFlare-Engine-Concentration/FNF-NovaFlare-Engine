@@ -9,8 +9,11 @@ import flixel.graphics.FlxGraphic;
 import funkin.graphics.FunkinSprite;
 import flixel.math.FlxRect;
 import funkin.api.newgrounds.Medals;
+import flixel.system.FlxAssets.FlxGraphicAsset;
 import funkin.util.macro.ConsoleMacro.ConsoleClass;
 import funkin.ui.FullScreenScaleMode;
+import funkin.assets.FunkinAssetCache;
+import funkin.assets.FunkinBitmapFrontend;
 
 /**
  * Handles global display of the Newgrounds medal popup.
@@ -29,6 +32,7 @@ class NewgroundsMedalPlugin extends FlxTypedContainer<FlxBasic> implements Conso
   var moveText:Bool = false;
   var medalQueue:Array<Void->Void> = [];
   var textSpeed:Float = 20;
+  var medalIcon:Null<FlxGraphic>;
   final MEDAL_X = (FlxG.width - 250) * 0.5;
   final MEDAL_Y = FlxG.height - 100;
 
@@ -37,33 +41,34 @@ class NewgroundsMedalPlugin extends FlxTypedContainer<FlxBasic> implements Conso
     super();
 
     #if FLX_DEBUG
-    FlxG.console.registerFunction("medal_test", NewgroundsMedalPlugin.play);
+    FlxG.console.registerFunction('medal_test', NewgroundsMedalPlugin.play);
     FlxG.console.registerClass(Medals);
     #end
 
     FlxGraphic.defaultPersist = true;
 
-    medal = FunkinSprite.createTextureAtlas((MEDAL_X) + (FullScreenScaleMode.gameCutoutSize.x / 2), MEDAL_Y, "ui/medal", {
+    medal = new FunkinSprite((MEDAL_X) + (FullScreenScaleMode.gameCutoutSize.x / 2), MEDAL_Y).loadTextureAtlas('ui/medals/medal-popup', {
       swfMode: true,
       filterQuality: HIGH
     });
+    medal.anim.addBySymbol('wholeTimeline', medal.getDefaultSymbol(), medal.library.frameRate, false);
 
     pointsLabel = new FlxText((171 + MEDAL_X) + (FullScreenScaleMode.gameCutoutSize.x / 2), 17 + MEDAL_Y, 50, 12, false);
     pointsLabel.fieldHeight = 18;
-    pointsLabel.systemFont = "Arial";
+    pointsLabel.systemFont = 'Arial';
     pointsLabel.bold = true;
     pointsLabel.italic = true;
-    pointsLabel.alignment = "right";
+    pointsLabel.alignment = 'right';
 
-    pointsLabel.text = "100";
+    pointsLabel.text = '100';
     pointsLabel.visible = false;
     pointsLabel.scrollFactor.set();
 
     nameLabel = new FlxText((73 + MEDAL_X) + (FullScreenScaleMode.gameCutoutSize.x / 2), 37 + MEDAL_Y, 0, 26);
-    nameLabel.font = Paths.font("ShareTechMono-Regular.ttf");
+    nameLabel.font = funkin.assets.Paths.font('ui/fonts/Share Tech Mono');
     nameLabel.letterSpacing = -2;
 
-    nameLabel.text = "Ono Boners Deluxe";
+    nameLabel.text = 'Ono Boners Deluxe';
     nameLabel.clipRect = FlxRect.get(0, 0, 164, 35.2);
 
     nameLabel.visible = false;
@@ -76,7 +81,7 @@ class NewgroundsMedalPlugin extends FlxTypedContainer<FlxBasic> implements Conso
     {
       switch (label)
       {
-        case "show":
+        case 'show':
           pointsLabel.visible = true;
           nameLabel.visible = true;
           if (nameLabel.width > nameLabel.clipRect.width)
@@ -85,9 +90,9 @@ class NewgroundsMedalPlugin extends FlxTypedContainer<FlxBasic> implements Conso
             textSpeed = (nameLabel.text.length * (nameLabel.size + 2) * 1.25) / nameLabel.clipRect.width * 10;
             moveText = true;
           }
-        case "fade":
-          FunkinSound.playOnce(Paths.sound('NGFadeOut'), 1.0);
-        case "hide":
+        case 'fade':
+          FunkinSound.playOnce(Paths.sound('ui/medals/ng-fade-out'), 1.0);
+        case 'hide':
           pointsLabel.visible = false;
           nameLabel.visible = false;
           moveText = false;
@@ -97,7 +102,7 @@ class NewgroundsMedalPlugin extends FlxTypedContainer<FlxBasic> implements Conso
       }
     });
 
-    medal.anim.onFinish.add(function(name:String)
+    medal.animation.onFinish.add(function(name:String)
     {
       medal.visible = false;
     });
@@ -107,6 +112,35 @@ class NewgroundsMedalPlugin extends FlxTypedContainer<FlxBasic> implements Conso
     add(nameLabel);
 
     FlxGraphic.defaultPersist = false;
+  }
+
+  function rebuildText()
+  {
+    if (pointsLabel != null) pointsLabel.destroy();
+    if (nameLabel != null) nameLabel.destroy();
+    remove(pointsLabel);
+    remove(nameLabel);
+
+    pointsLabel = new FlxText((171 + MEDAL_X) + (FullScreenScaleMode.gameCutoutSize.x / 2), 17 + MEDAL_Y, 50, 12, false);
+    pointsLabel.fieldHeight = 18;
+    pointsLabel.systemFont = 'Arial';
+    pointsLabel.bold = true;
+    pointsLabel.italic = true;
+    pointsLabel.alignment = 'right';
+
+    pointsLabel.text = '100';
+    pointsLabel.scrollFactor.set();
+
+    nameLabel = new FlxText((73 + MEDAL_X) + (FullScreenScaleMode.gameCutoutSize.x / 2), 37 + MEDAL_Y, 0, 26);
+    nameLabel.font = funkin.assets.Paths.font('ui/fonts/Share Tech Mono');
+    nameLabel.letterSpacing = -2;
+
+    nameLabel.text = 'Ono Boners Deluxe';
+    nameLabel.clipRect = FlxRect.get(0, 0, 164, 35.2);
+    nameLabel.scrollFactor.set();
+
+    add(pointsLabel);
+    add(nameLabel);
   }
 
   /**
@@ -143,7 +177,7 @@ class NewgroundsMedalPlugin extends FlxTypedContainer<FlxBasic> implements Conso
 
     // instance is defined above so there's no need to worry about null safety here
     @:nullSafety(Off)
-    instance.medal.anim.onFinish.add(function(name:String)
+    instance.medal.animation.onFinish.add(function(name:String)
     {
       if (instance.medalQueue.length > 0)
       {
@@ -158,23 +192,36 @@ class NewgroundsMedalPlugin extends FlxTypedContainer<FlxBasic> implements Conso
    * @param name The name of the medal to display
    * @param graphic The FlxGraphic for the medal icon
    */
-  public static function play(points:Int = 100, name:String = "I LOVE CUM I LOVE CUM I LOVE CUM I LOVE CUM", ?graphic:FlxGraphic)
+  public static function play(points:Int = 100,
+    name:String = 'I LOVE CUM I LOVE CUM I LOVE CUM I LOVE CUM',
+    ?graphic:FlxGraphicAsset)
   {
     if (instance == null) return;
 
     var playMedal:Void->Void = function()
     {
+      instance.rebuildText();
       instance.pointsLabel.visible = false;
       instance.nameLabel.visible = false;
       instance.pointsLabel.text = Std.string(points);
       instance.nameLabel.text = name;
       instance.updatePositions();
 
-      FunkinSound.playOnce(Paths.sound('NGFadeIn'), 1.0);
-      instance.medal.anim.play("");
+      FunkinSound.playOnce(Paths.sound('ui/medals/ng-fade-in'), 1.0);
+      instance.medal.animation.play('wholeTimeline');
 
       instance.medal.visible = true;
-      instance.medal.replaceSymbolGraphic("NGMEDAL", graphic);
+      if (graphic != null)
+      {
+        var cachedGraphic:Null<FlxGraphic> = FunkinAssetCache.instance.permaCacheFlxGraphic('symbol_NGMEDAL_$name', graphic);
+        if (instance.medalIcon != cachedGraphic)
+        {
+          if (instance.medalIcon != null && instance.medalIcon.key != null) FunkinBitmapFrontend.instance.queueToDestroy(instance.medalIcon, true);
+          instance.medalIcon = cachedGraphic;
+          instance.medalIcon.persist = true;
+        }
+      }
+      instance.medal.replaceSymbolGraphic('NGMEDAL', instance.medalIcon);
     }
 
     if (instance.medal.isAnimationFinished() && instance.medalQueue.length == 0) playMedal();

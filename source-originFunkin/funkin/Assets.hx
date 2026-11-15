@@ -89,33 +89,15 @@ class Assets implements ConsoleClass
   }
 
   /**
-   * Load a Sound file from an asset, with optimizations specific to long-duration music
-   * May cause stutters or throw an error if the asset is not cached
-   * @param path The asset path to load from
-   * @return The loaded sound
-   */
-  public static function getMusic(path:String):openfl.media.Sound
-  {
-    return openfl.utils.Assets.getMusic(path);
-  }
-
-  /**
-   * Load a Sound file from an asset asynchronously, with optimizations specific to long-duration music
-   * @param path The asset path to load from
-   * @return A future which promises to return the loaded sound
-   */
-  public static function loadMusic(path:String):Future<openfl.media.Sound>
-  {
-    return openfl.utils.Assets.loadMusic(path);
-  }
-
-  /**
    * Load a Bitmap from an asset
    * May cause stutters or throw an error if the asset is not cached
    * @param path The asset path to load from
    * @return The loaded Bitmap image
    */
-  public static function getBitmapData(path:String, useCache:Bool = true):openfl.display.BitmapData
+  public static function getBitmapData(path:String,
+    useCache:Bool = true,
+    allowCompressedTextures:Bool = true,
+    allowHardwareTextures:Bool = true):openfl.display.BitmapData
   {
     return openfl.utils.Assets.getBitmapData(path, useCache);
   }
@@ -125,9 +107,12 @@ class Assets implements ConsoleClass
    * @param path The asset path to load from
    * @return The future which promises to return the loaded Bitmap image
    */
-  public static function loadBitmapData(path:String):Future<openfl.display.BitmapData>
+  public static function loadBitmapData(path:String,
+    useCache:Null<Bool> = true,
+    allowCompressedTextures:Bool = true,
+    allowHardwareTextures:Bool = true):Future<openfl.display.BitmapData>
   {
-    return openfl.utils.Assets.loadBitmapData(path);
+    return openfl.utils.Assets.loadBitmapData(path, useCache);
   }
 
   /**

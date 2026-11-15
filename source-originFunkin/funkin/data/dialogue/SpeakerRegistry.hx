@@ -1,7 +1,6 @@
 package funkin.data.dialogue;
 
 import funkin.play.cutscene.dialogue.Speaker;
-import funkin.play.cutscene.dialogue.ScriptedSpeaker;
 import funkin.util.tools.ISingleton;
 import funkin.data.DefaultRegistryImpl;
 
@@ -19,7 +18,35 @@ class SpeakerRegistry extends BaseRegistry<Speaker, SpeakerData, SpeakerEntryPar
 
   public function new()
   {
-    super('SPEAKER', 'dialogue/speakers', SPEAKER_DATA_VERSION_RULE);
+    super({
+      registryId: 'SPEAKER',
+      dataFilePath: 'gameplay/dialogue/speakers/',
+      nestedEntries: true,
+      versionRule: SPEAKER_DATA_VERSION_RULE
+    });
+  }
+
+  override public function fetchEntry(id:String, ?params:SpeakerEntryParams):Null<Speaker>
+  {
+    var scriptClass:Null<String> = getScriptedEntryClassName(id, params);
+    if (scriptClass != null) return Speaker.scriptInit(scriptClass, id);
+    if (!hasEntry(id)) return super.fetchEntry(id, params);
+    return new Speaker(id, params);
+  }
+
+  override function queryDefaultAssets(type:funkin.assets.Assets.AssetType, id:String,
+    ?params:SpeakerEntryParams):Array<funkin.assets.Paths.AssetPath>
+  {
+    @:privateAccess var entry = this.entries.get(id);
+    if (entry == null) return [];
+    var data = entry._data;
+    if (data == null || data.assetPath == null || data.assetPath == '') return [];
+    return switch (type)
+    {
+      case IMAGE: [funkin.assets.Paths.image(data.assetPath)];
+      case XML: [funkin.assets.Paths.xml(data.assetPath)];
+      default: [];
+    }
   }
 }
 

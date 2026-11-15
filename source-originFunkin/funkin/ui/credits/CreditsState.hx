@@ -33,19 +33,6 @@ class CreditsState extends MusicBeatState
   final FULL_WIDTH = FlxG.width - (SCREEN_PAD * 2);
 
   /**
-   * The font to use to display the text.
-   * To use a font from the `assets` folder, use `Paths.font(...)`.
-   * Choose something that will render Unicode properly.
-   */
-  #if windows
-  static final CREDITS_FONT = 'Consolas';
-  #elseif mac
-  static final CREDITS_FONT = 'Menlo';
-  #else
-  static final CREDITS_FONT = "Courier New";
-  #end
-
-  /**
    * The size of the font.
    */
   static final CREDITS_FONT_SIZE = 24;
@@ -97,7 +84,7 @@ class CreditsState extends MusicBeatState
 
     #if ios
     var fix = new FlxText();
-    fix.font = CREDITS_FONT;
+    fix.font = funkin.assets.Paths.font('ui/fonts/Inconsolata Black');
     fix.draw();
     #end
 
@@ -117,7 +104,7 @@ class CreditsState extends MusicBeatState
     }
 
     // Background
-    var bg = new FlxSprite(Paths.image('menuDesat'));
+    var bg = new FlxSprite(Paths.image('ui/main-menu/menu-desat'));
     bg.scrollFactor.x = 0;
     bg.scrollFactor.y = 0;
     bg.setGraphicSize(Std.int(FlxG.width));
@@ -138,7 +125,7 @@ class CreditsState extends MusicBeatState
     add(creditsGroup);
 
     // Music
-    FunkinSound.playMusic('freeplayRandom', {
+    FunkinSound.playMusic('ui/freeplay/freeplay-random/freeplay-random', {
       startingVolume: 0.0,
       overrideExisting: true,
       restartTrack: true,
@@ -146,7 +133,7 @@ class CreditsState extends MusicBeatState
     });
     FlxG.sound.music.fadeIn(6, 0, 0.8);
 
-    #if mobile
+    #if FEATURE_TOUCH_CONTROLS
     addBackButton(FlxG.width - 230, FlxG.height - 200, FlxColor.WHITE, exit, 0.7);
     #end
   }
@@ -192,7 +179,10 @@ class CreditsState extends MusicBeatState
     }
   }
 
-  function buildCreditsLine(text:String, yPos:Float, header:Bool, side:CreditsSide = CreditsSide.Center):FlxText
+  function buildCreditsLine(text:String,
+    yPos:Float,
+    header:Bool,
+    side:CreditsSide = CreditsSide.Center):FlxText
   {
     // CreditsSide.Center: Full screen width
     // CreditsSide.Left: Left half of screen
@@ -209,7 +199,15 @@ class CreditsState extends MusicBeatState
     creditsLine.fieldWidth = width;
     creditsLine.text = text;
     creditsLine.bold = header;
-    creditsLine.setFormat(CREDITS_FONT, size, CREDITS_FONT_COLOR, FlxTextAlign.LEFT, FlxTextBorderStyle.OUTLINE, CREDITS_FONT_STROKE_COLOR, true);
+    creditsLine.setFormat(
+      funkin.assets.Paths.font('ui/fonts/Inconsolata Black'),
+      size,
+      CREDITS_FONT_COLOR,
+      FlxTextAlign.LEFT,
+      FlxTextBorderStyle.OUTLINE,
+      CREDITS_FONT_STROKE_COLOR,
+      true
+    );
 
     return creditsLine;
   }
@@ -264,7 +262,7 @@ class CreditsState extends MusicBeatState
     if (!scrollPaused)
     {
       // TODO: Replace with whatever the special note button is.
-      if (FlxG.keys.pressed.ENTER || FlxG.keys.pressed.SPACE #if mobile || TouchUtil.pressed && !TouchUtil.overlaps(backButton) #end)
+      if (FlxG.keys.pressed.ENTER || FlxG.keys.pressed.SPACE #if FEATURE_TOUCH_CONTROLS || TouchUtil.pressed && !TouchUtil.overlaps(backButton) #end)
       {
         // Move the whole group by the base scroll speed.
         creditsGroup.y -= CREDITS_SCROLL_FAST_SPEED * elapsed;

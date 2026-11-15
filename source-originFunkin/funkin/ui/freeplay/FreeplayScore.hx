@@ -6,6 +6,12 @@ import flixel.group.FlxSpriteGroup.FlxTypedSpriteGroup;
 @:nullSafety
 class FreeplayScore extends FlxTypedSpriteGroup<ScoreNum>
 {
+  public static function queryAssets(type:funkin.assets.Assets.AssetType, ?styleData:FreeplayStyle):Array<funkin.assets.Paths.AssetPath>
+  {
+    return ScoreNum.queryAssets(type, styleData);
+  }
+
+
   public var scoreShit(default, set):Int = 0;
 
   function set_scoreShit(val):Int
@@ -67,6 +73,17 @@ class FreeplayScore extends FlxTypedSpriteGroup<ScoreNum>
 @:nullSafety
 class ScoreNum extends FlxSprite
 {
+  public static function queryAssets(type:funkin.assets.Assets.AssetType, ?styleData:FreeplayStyle):Array<funkin.assets.Paths.AssetPath>
+  {
+    var key = styleData == null ? 'ui/freeplay/styles/bf/digital-numbers' : styleData.getNumbersAssetKey();
+    return switch (type) {
+      case IMAGE: [funkin.assets.Paths.image(key)];
+      case XML: [funkin.assets.Paths.xml(key)];
+      default: [];
+    }
+  }
+
+
   public var digit(default, set):Int = 0;
 
   function set_digit(val):Int
@@ -105,7 +122,7 @@ class ScoreNum extends FlxSprite
 
     if (styleData == null)
     {
-      frames = Paths.getSparrowAtlas('digital_numbers');
+      frames = Paths.getSparrowAtlas('ui/freeplay/styles/bf/digital-numbers');
     }
     else
     {

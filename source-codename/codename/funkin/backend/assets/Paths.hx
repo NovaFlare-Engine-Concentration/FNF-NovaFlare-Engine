@@ -7,6 +7,7 @@ import codename.funkin.backend.assets.ModsFolder;
 import codename.funkin.backend.scripting.Script;
 import haxe.io.Path;
 import lime.utils.AssetLibrary;
+import flixel.util.typeLimit.OneOfTwo;
 import openfl.utils.Assets as OpenFlAssets;
 import animate.FlxAnimateFrames;
 
@@ -21,6 +22,7 @@ class Paths
 {
 	public static var assetsTree:AssetsLibraryList;
 
+	static var tempPathsCache:Map<String, Null<String>> = [];
 	public static var tempFramesCache:Map<String, FlxFramesCollection> = [];
 	private static var scriptLookupCache:Map<String, ScriptLookupCacheEntry> = [];
 	private static var scriptLookupTree:AssetsLibraryList;
@@ -34,6 +36,7 @@ class Paths
 
 	public static function clearLookupCaches():Void {
 		scriptLookupCache.clear();
+		tempPathsCache.clear();
 		scriptLookupTree = assetsTree;
 		scriptLookupGeneration = assetsTree == null ? -1 : assetsTree.cacheGeneration;
 	}
@@ -91,28 +94,84 @@ class Paths
 	}
 	#end
 
-	public static inline function getPath(file:String, ?library:String) {
-		var returnedPath:String = rawAssetPath(file, library);
-		#if (sys && !windows)
-		returnedPath = Path.normalize(returnedPath);
-		if (OpenFlAssets.exists(returnedPath)) return returnedPath;
-		var fixedPath:String = library != null ? '$library:assets/$library/' : 'assets/';
-		var parts:Array<String> = returnedPath.split("/");
-		for (it=>part in parts) {
-			if (it == 0) continue;
-			var entries:Array<String> = null;
-			if (Path.extension(part) == "") entries = assetsTree.getFolders(fixedPath);
-			else entries = assetsTree.getFiles(fixedPath);
-			for (entry in entries) {
-				if (entry.toLowerCase() == part.toLowerCase()) {
-					fixedPath += entry + (it != parts.length - 1 ? "/" : "");
+	static function getExistingPath(path:String, prefix:String, nullFail:Bool):Null<String> {
+		var fixedPath = prefix + path;
+
+		if (Assets.exists(fixedPath)) return fixedPath;
+		else if (Flags.PATHS_CASE_SENSITIVE_FIX || (prefix.contains("data/config")) || (prefix.contains("data") && path.contains("config"))) {
+			if (tempPathsCache.exists(fixedPath)) return tempPathsCache.get(fixedPath);
+
+			final isFile = path.lastIndexOf(".") != -1, parts = path.split("/"), keyCache = fixedPath;
+			var n = parts.length - 1, hasEndSlash = parts[n] == "", pass = true;
+			if (hasEndSlash) {
+				parts.pop();
+				n--;
+			}
+
+			fixedPath = prefix;
+			for (i => part in parts) {
+				if (pass) pass = false;
+				else {
+					fixedPath += (i == n && !hasEndSlash) ? part : part + "/";
+					continue;
+				}
+
+				final lower = part.toLowerCase(), entries = (isFile && i == n) ? assetsTree.getFiles(fixedPath) : assetsTree.getFolders(fixedPath);
+
+				for (entry in entries) if (entry.toLowerCase() == lower) {
+					pass = true;
+					fixedPath += (i == n && !hasEndSlash) ? entry : entry + "/";
 					break;
 				}
+
+				if (!pass) {
+					if (nullFail) return tempPathsCache[keyCache] = null;
+					else fixedPath += (i == n && !hasEndSlash) ? part : part + "/";
+				}
+			}
+
+			return tempPathsCache[keyCache] = fixedPath;
+		}
+		else if (!nullFail) return fixedPath;
+
+		return null;
+	}
+
+	public static function getPath(file:String, ?library:String, ?exts:OneOfTwo<String, Array<String>>) {
+		if (exts == null)
+			return library == null ? getExistingPath(file, 'assets/', false) : getExistingPath('$library/$file', '$library:assets/', false);
+
+		var idx = file.lastIndexOf("/") + 1;
+		var dir = file.substr(0, idx);
+		file = file.substr(idx);
+
+		final extArr:Array<String> = (exts is String) ? null : (cast exts);
+		final ext:String = extArr != null ? extArr[0] : (cast exts);
+		var fileExt:Null<String> = null;
+
+		if ((idx = file.lastIndexOf(".")) != -1) {
+			fileExt = file.substr(idx + 1);
+			file = file.substr(0, idx);
+		}
+
+		dir = library == null ? getExistingPath(dir, 'assets/', false) : getExistingPath('$library/$dir', '$library:assets/', false);
+
+		var path:String;
+		if (fileExt != null && (path = getExistingPath('$file.$fileExt', dir, true)) != null) return path;
+
+		if (extArr == null) {
+			if ((path = getExistingPath('$file.$ext', dir, true)) != null) return path;
+			// If incorrectly assumed if filename is an extension ex: Paths.music("Sneaky Snitch (website.com)")
+			else if (fileExt != null && (path = getExistingPath('$file.$fileExt.$ext', dir, true)) != null) return path;
+		}
+		else {
+			for (extension in extArr) {
+				if ((path = getExistingPath('$file.$extension', dir, true)) != null) return path;
+				else if (fileExt != null && (path = getExistingPath('$file.$fileExt.$extension', dir, true)) != null) return path;
 			}
 		}
-		if (returnedPath.toLowerCase() == fixedPath.toLowerCase()) returnedPath = fixedPath;
-		#end
-		return returnedPath;
+
+		return '$dir$file.${fileExt ?? ext}';
 	}
 
 	public static inline function video(key:String, ?ext:String)
@@ -290,7 +349,7 @@ class Paths
 	public static function getFrames(key:String, assetsPath:Bool = false, ?library:String, ?ext:String = null, ?animateSettings:FlxAnimateSettings) {
 		if (tempFramesCache.exists(key)) {
 			var frames = tempFramesCache[key];
-			if (frames != null && frames.parent != null && frames.parent.bitmap != null && frames.parent.bitmap.readable)
+			if (frames != null && frames.parent != null && !frames.parent.isDestroyed)
 				return frames;
 			else
 				tempFramesCache.remove(key);

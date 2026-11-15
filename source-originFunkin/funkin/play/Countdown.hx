@@ -3,6 +3,7 @@ package funkin.play;
 import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
 import funkin.modding.events.ScriptEvent;
+import funkin.modding.events.ScriptEventType;
 import funkin.modding.events.ScriptEvent.CountdownScriptEvent;
 import flixel.util.FlxTimer;
 import funkin.util.EaseUtil;
@@ -107,25 +108,27 @@ class Countdown
    */
   static function propagateCountdownEvent(index:CountdownStep):Bool
   {
-    var event:ScriptEvent;
-
-    switch (index)
+    var type:ScriptEventType = switch (index)
     {
       case BEFORE:
-        event = new CountdownScriptEvent(COUNTDOWN_START, index);
-      case THREE | TWO | ONE | GO: // I didn't know you could use `|` in a switch/case block!
-        event = new CountdownScriptEvent(COUNTDOWN_STEP, index);
+        ScriptEventType.COUNTDOWN_START;
       case AFTER:
-        event = new CountdownScriptEvent(COUNTDOWN_END, index, false);
+        ScriptEventType.COUNTDOWN_END;
       default:
-        return true;
+        ScriptEventType.COUNTDOWN_STEP;
     }
+
+    var event:CountdownScriptEvent = CountdownScriptEvent.get(type, index, (index != AFTER));
 
     // Modules, stages, characters.
     @:privateAccess
-    PlayState.instance.dispatchEvent(event);
+    PlayState.instance.dispatchEvent(event, false);
 
-    return event.eventCanceled;
+    var shouldPropagate = event.eventCanceled;
+
+    event.finish();
+
+    return shouldPropagate;
   }
 
   /**
@@ -228,7 +231,9 @@ class Countdown
     if (noteStyle.isCountdownSpritePixel(index)) fadeEase = EaseUtil.stepped(8);
 
     // Fade sprite in, then out, then destroy it.
-    FlxTween.tween(countdownSprite, {alpha: 0}, Conductor.instance.beatLengthMs / Constants.MS_PER_SEC, {
+    FlxTween.tween(countdownSprite, {
+      alpha: 0
+    }, Conductor.instance.beatLengthMs / Constants.MS_PER_SEC, {
       ease: fadeEase,
       onComplete: function(twn:FlxTween)
       {
@@ -254,7 +259,7 @@ class Countdown
     var path = noteStyle.getCountdownSoundPath(step);
     if (path == null) return null;
 
-    return FunkinSound.playOnce(path, Constants.COUNTDOWN_VOLUME, null, null, true);
+    return FunkinSound.playOnce(path, Constants.COUNTDOWN_VOLUME, null, null);
   }
 
   public static function decrement(step:CountdownStep):CountdownStep

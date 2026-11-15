@@ -163,6 +163,7 @@ class Bopper extends StageProp implements IPlayStateScriptedClass
    */
   public function onStepHit(event:SongTimeScriptEvent)
   {
+    if (originfunkin.compat.LegacyRuntime.usesLegacyBeatTiming(this)) return;
     if (danceEvery > 0 && (event.step % (danceEvery * Constants.STEPS_PER_BEAT)) == 0)
     {
       dance(shouldBop);
@@ -171,6 +172,8 @@ class Bopper extends StageProp implements IPlayStateScriptedClass
 
   public function onBeatHit(event:SongTimeScriptEvent):Void
   {
+    if (originfunkin.compat.LegacyRuntime.usesLegacyBeatTiming(this) && danceEvery > 0 && event.beat % danceEvery == 0)
+      dance(shouldBop);
   }
 
   /**
@@ -221,7 +224,7 @@ class Bopper extends StageProp implements IPlayStateScriptedClass
     if (name.lastIndexOf('-') != -1)
     {
       var correctName = name.substring(0, name.lastIndexOf('-'));
-      FlxG.log.notice('Bopper tried to play animation "$name" that does not exist, stripping suffixes ($correctName)...');
+      FlxG.log.notice('${this.toString()} tried to play animation "$name" that does not exist, stripping suffixes ($correctName)...');
       return correctAnimationName(correctName);
     }
     else
@@ -230,18 +233,18 @@ class Bopper extends StageProp implements IPlayStateScriptedClass
       {
         if (fallback == name)
         {
-          FlxG.log.error('Bopper tried to play animation "$name" that does not exist! This is bad!');
+          FlxG.log.error('${this.toString()} tried to play animation "$name" that does not exist! This is bad!');
           return null;
         }
         else
         {
-          FlxG.log.warn('Bopper tried to play animation "$name" that does not exist, fallback to idle...');
+          FlxG.log.warn('${this.toString()} tried to play animation "$name" that does not exist, fallback to idle...');
           return correctAnimationName('idle');
         }
       }
       else
       {
-        FlxG.log.error('Bopper tried to play animation "$name" that does not exist! This is bad!');
+        FlxG.log.error('${this.toString()} tried to play animation "$name" that does not exist! This is bad!');
         return null;
       }
     }
@@ -258,7 +261,11 @@ class Bopper extends StageProp implements IPlayStateScriptedClass
    */
   public function playAnimation(name:String, restart:Bool = false, ignoreOther:Bool = false, reversed:Bool = false):Void
   {
-    if ((!canPlayOtherAnims))
+    if (originfunkin.compat.LegacyRuntime.usesForcedAnimationRule())
+    {
+      if (!canPlayOtherAnims && !ignoreOther) return;
+    }
+    else if (!canPlayOtherAnims)
     {
       var id = name;
       if (getCurrentAnimation() == id && restart)
@@ -322,7 +329,9 @@ class Bopper extends StageProp implements IPlayStateScriptedClass
   function applyAnimationOffsets(name:String):Void
   {
     var offsets = animationOffsets.get(name);
-    this.animOffsets = offsets;
+    // Old stage scripts may add animations without registering offsets.
+    // Use the global anchor so missing data does not retain a prior animation's offset.
+    this.animOffsets = offsets ?? (globalOffsets == null ? [0, 0] : globalOffsets.copy());
   }
 
   public function setAnimationOffsets(name:String, xOffset:Float, yOffset:Float):Void
@@ -368,6 +377,10 @@ class Bopper extends StageProp implements IPlayStateScriptedClass
   {
   }
 
+  public function onNoteHoldHit(event:HoldNoteScriptEvent)
+  {
+  }
+
   public function onNoteHoldDrop(event:HoldNoteScriptEvent)
   {
   }
@@ -377,6 +390,10 @@ class Bopper extends StageProp implements IPlayStateScriptedClass
   }
 
   public function onSongEvent(event:SongEventScriptEvent)
+  {
+  }
+
+  public function onCustomEvent(event:CustomEventScriptEvent)
   {
   }
 
@@ -402,5 +419,10 @@ class Bopper extends StageProp implements IPlayStateScriptedClass
 
   public function onSongRetry(event:SongRetryEvent)
   {
+  }
+
+  public override function toString():String
+  {
+    return 'Bopper($name, pos=[$x, $y])';
   }
 }
