@@ -211,6 +211,7 @@
 	<haxelib name="hscript-iris-improved" if="HSCRIPT_ALLOWED"/>
 	<haxelib name="hscript-improved" if="CODENAME_ENGINE_COMPAT"/>
 	<haxelib name="markdown" if="CODENAME_ENGINE_COMPAT"/>
+	<haxeflag name="--macro" value="codenamechain.macros.CNEAbstractHandler.init()" if="CODENAME_ENGINE_COMPAT" />
 	<haxelib name="hxvlc" if="VIDEOS_ALLOWED"/>
 	<haxelib name="hxCodec" if="VIDEOS_ALLOWED_Old"/>
 	<haxelib name="hxdiscord_rpc" if="DISCORD_ALLOWED"/>

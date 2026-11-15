@@ -228,8 +228,8 @@
       "name": "polymod",
       "type": "git",
       "dir": null,
-      "ref": "4740cb234311582c31f7bc7adb4dff47bb48bbee",
-      "url": "https://github.com/FunkinCrew/polymod"
+      "ref": "af3daf3063f6d5420a3e5c8f2287ee37f7ce2ae9",
+      "url": "https://github.com/NovaFlare-Engine-Concentration/polymod"
     },
     {
       "name": "FlxPartialSound",
