@@ -1,0 +1,40 @@
+Game UI => Interfaz del juego
+
+GameUI => Interfaz del juego
+
+Visble => Visibilidad
+hideHud => Ocultar la interfaz del juego
+showComboNum => Mostrar número del combo
+showRating => Mostrar calificación
+opponentStrums => Mostrar flechas del oponente
+judgementCounter => Contador de aciertos
+keyboardViewer => Mostrar teclas pulsadas
+
+TimeBar => Barra de tiempo
+
+timeBarType => Tipo de barra de tiempo
+
+HealthBar => Barra de vida
+
+healthBarAlpha => Opacidad de la barra de vida
+oldHealthBarVersion => Barra de vida antigua
+
+Combo => Combo
+comboColor => Usar el color de la calificación para el combo
+comboOffsetFix => Corregir la posición del combo
+
+KeyBoard => Teclado
+
+keyboardTimeDisplay => Mostrar detalles de las teclas pulsadas
+keyboardAlpha => Opacidad del teclado
+keyboardTime => Duración de visualización de la nota sostenida
+KeyBoardSubState => Paleta de colores del teclado
+
+Camera => Cámara
+
+camZooms => Acercamientos de cámara
+scoreZoom => Acercamiento al acertar una nota
+
+pauseButton => Botón de pausa
+compulsionPause => Permitir forzar la apertura del menú de pausa
+compulsionPauseNumber => Pulsaciones necesarias para forzar la pausa

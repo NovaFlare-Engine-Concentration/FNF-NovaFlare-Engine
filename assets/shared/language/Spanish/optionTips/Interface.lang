@@ -1,0 +1,15 @@
+User Interface => Interfaz de usuario
+UserInterface => Interfaz de usuario
+
+customFade => Tipo de transición personalizada.
+customFadeText => Muestra u oculta el texto de transición.
+customFadeSound => Volumen del sonido de transición.
+audioDisplayQuality => Calidad del análisis de los datos de música.
+audioDisplayUpdate => Intervalo de reacción del analizador de música.
+freeplayOld => Usa el menú antiguo de selección de canciones de Psych.
+skipTitleVideo => Omite el video de introducción.
+resultsScreen => Abre la pantalla de resultados al terminar la canción.
+loadingScreen => Muestra una pantalla de carga al iniciar la partida.
+loadThreads => Cantidad de hilos usados para cargar recursos.
+useFlixelCoords => Usa coordenadas de Flixel para elementos de la interfaz; si se desactiva, usa coordenadas de pantalla de OpenFL.
+SelectGameSubState => Cambia de motor. En PC permite elegir V-Slice o Codename; en móvil solo V-Slice.

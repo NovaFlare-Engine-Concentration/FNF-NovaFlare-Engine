@@ -1,0 +1,35 @@
+Game UI => Interfaz del juego
+GameUI => Interfaz del juego
+
+Visble => Visibilidad
+hideHud => Oculta la interfaz del juego.
+showComboNum => Muestra el número del combo.
+showRating => Muestra la imagen de la calificación.
+opponentStrums => Muestra las flechas del oponente.
+judgementCounter => Muestra las calificaciones obtenidas.
+keyboardViewer => Muestra las teclas que pulsaste.
+
+TimeBar => Barra de tiempo
+timeBarType => Tipo de información que muestra la barra.
+
+HealthBar => Barra de vida
+healthBarAlpha => Cambia la opacidad.
+oldHealthBarVersion => Usa la versión antigua de la barra de vida de Psych 0.63h.
+
+Combo => Combo
+comboColor => Permite usar el color de la calificación.
+comboOffsetFix => Corrige la posición del combo.
+
+KeyBoard => Teclado
+keyboardAlpha => Cambia la opacidad.
+keyboardTime => Duración de visualización de la pulsación sostenida.
+keyboardTimeDisplay => Muestra detalles de las pulsaciones.
+KeyBoardSubState => Paleta de colores del teclado.
+
+Camera => Cámara
+camZooms => Activa los acercamientos de cámara durante el juego.
+scoreZoom => Hace que la puntuación tenga un efecto de ritmo al acertar notas.
+
+pauseButton => Botón de pausa
+compulsionPause => Permite forzar la apertura del menú de pausa.
+compulsionPauseNumber => Cantidad de veces que hay que pulsar para forzar la pausa.

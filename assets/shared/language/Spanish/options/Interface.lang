@@ -1,0 +1,16 @@
+User Interface => Interfaz de usuario
+
+UserInterface => Interfaz de usuario
+
+customFade => Tipo de transición personalizada
+customFadeText => Mostrar texto durante la transición
+customFadeSound => Volumen del sonido de transición
+audioDisplayQuality => Calidad del análisis de audio
+audioDisplayUpdate => Intervalo de actualización del analizador de música
+freeplayOld => Usar el menú antiguo de selección de canciones
+skipTitleVideo => Omitir el video de introducción
+resultsScreen => Mostrar resultados al terminar la canción
+loadingScreen => Mostrar pantalla de carga
+loadThreads => Cantidad de hilos para cargar recursos
+useFlixelCoords => Modo de coordenadas de la interfaz
+SelectGameSubState => Cambiar de motor

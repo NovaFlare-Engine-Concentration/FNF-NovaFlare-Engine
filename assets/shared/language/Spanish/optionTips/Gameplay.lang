@@ -1,0 +1,37 @@
+GamePlay => Jugabilidad
+
+downScroll => Hace que las notas bajen en vez de subir.
+middleScroll => Coloca las flechas del jugador en el centro o a la derecha.
+flipChart => Invierte el patrón de notas.
+ghostTapping => Permite pulsar cuando no hay una nota sin que cuente como fallo.
+guitarHeroSustains => Si fallas la nota inicial, no podrás pulsar la nota larga.
+noReset => Activa o desactiva reiniciar la partida con R.
+showKeybinds => Muestra la tecla asignada a cada carril al comenzar la canción.
+
+Opponent => Oponente
+
+playOpponent => Jugar como el oponente.
+opponentCodeFix => Corrige el intercambio de funciones de acierto entre jugador y oponente.
+botOpponentFix => Corrige la detección del modo automático por los scripts.
+healthDrainOPPO => Activa la pérdida de vida al jugar como oponente.
+healthDrainOPPOMult => Multiplicador de pérdida de vida al jugar como oponente.
+
+judgement => Calificaciones
+
+safeFrames => Cambia el margen de tiempo para acertar una nota antes o después.
+marvelousWindow => Margen en milisegundos para la calificación MARVELOUS.
+sickWindow => Margen en milisegundos para la calificación SICK.
+goodWindow => Margen en milisegundos para la calificación GOOD.
+badWindow => Margen en milisegundos para la calificación BAD.
+marvelousRating => Activa la calificación MARVELOUS.
+marvelousSprite => Usa una imagen nueva para MARVELOUS.
+ratingOffset => Cambia el ajuste de sincronización de las calificaciones.
+NoteOffsetState => Ajusta la sincronización de la música y la posición de las calificaciones.
+
+Gameplaybackend => Opciones internas de jugabilidad
+
+gameplayGC => GameplayGC gestiona la memoria durante las canciones para reducir pausas; puede aumentar el uso de memoria.
+fixLNL => Reduce la duración de las notas largas.
+saveScoreBase => Criterio para guardar récords: Score, mayor puntuación; Accuracy, mayor precisión; Misses, menos fallos; highestCombo, combo más alto.
+showReplayWatermark => Muestra la marca de agua de la repetición abajo a la derecha.
+gameOverVibration => El dispositivo vibra al perder.

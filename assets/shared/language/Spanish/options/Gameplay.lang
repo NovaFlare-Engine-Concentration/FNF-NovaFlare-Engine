@@ -1,0 +1,38 @@
+GamePlay => Jugabilidad
+
+downScroll => Flechas hacia abajo
+middleScroll => Flechas del jugador al centro
+flipChart => Invertir el patrón de notas
+ghostTapping => Pulsación libre
+guitarHeroSustains => Notas largas estilo Guitar Hero
+noReset => Desactivar reinicio
+showKeybinds => Mostrar controles del teclado
+
+Opponent => Oponente
+
+playOpponent => Jugar como el oponente
+opponentCodeFix => Corrección del código del oponente
+botOpponentFix => Corrección del oponente automático
+healthDrainOPPO => El oponente reduce la vida
+healthDrainOPPOMult => Multiplicador de pérdida de vida del oponente
+
+judgement => Calificaciones
+
+safeFrames => Ventana de tolerancia
+marvelousWindow => Ventana de «Marvelous»
+sickWindow => Ventana de «Sick»
+goodWindow => Ventana de «Good»
+badWindow => Ventana de «Bad»
+marvelousRating => Activar calificación «Marvelous»
+marvelousSprite => Usar imagen nueva de «Marvelous»
+ratingOffset => Ajuste de sincronización de la calificación
+NoteOffsetState => Ajuste de sincronización
+
+Gameplaybackend => Opciones internas de jugabilidad
+
+gameplayGC => Gestión de memoria GameplayGC
+fixLNL => Corregir notas largas
+saveScoreBase => Criterio para guardar récords de repetición
+replayQuality => Repetición de alta calidad
+showReplayWatermark => Mostrar marca de agua en la repetición
+gameOverVibration => Vibrar al perder

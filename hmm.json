@@ -229,7 +229,7 @@
       "type": "git",
       "dir": null,
       "ref": "af3daf3063f6d5420a3e5c8f2287ee37f7ce2ae9",
-      "url": "https://github.com/NovaFlare-Engine-Concentration/polymod"
+      "url": "https://github.com/NovaFlare-Engine-haxelib/polymod"
     },
     {
       "name": "FlxPartialSound",
