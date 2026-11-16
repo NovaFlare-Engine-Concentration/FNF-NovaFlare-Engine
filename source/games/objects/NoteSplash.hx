@@ -436,7 +436,8 @@ class NoteSplash extends FlxSprite
 		if (config != null && !config.allowRGB) return false;
 		if (note != null && !note.noteSplashData.useRGBShader) return false;
 
-		var style:String = (note != null) ? note.noteStyle : Note.getNoteStyle(Note.getNoteSkinPath());
+		var style:String = (note != null) ? note.noteStyle
+			: Note.getNoteStyle(Note.getNoteSkinPath(), Note.getNoteSkinPostfix());
 		return style != NoteSkinStyle.LEGACY;
 	}
 

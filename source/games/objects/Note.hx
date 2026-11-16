@@ -422,11 +422,12 @@ class Note extends FlxSprite
 	{
 		reloadPath(texture, postfix);
 
-		// 玩家皮肤后缀叠加前的基础贴图：体系判定 / 三级回退的层级都按它认，别用叠过后缀的路径去比对
+		// 玩家皮肤后缀叠加前的基础贴图：三级回退的层级按它认，别用叠过后缀的路径去比对
 		var styleBase:String = skin;
-		// 贴图定下来了：记下实际用的皮肤、判定着色体系（RGB 掩码贴图 / 烤色 legacy 贴图）
+		// 贴图定下来了：记下实际用的皮肤、判定着色体系（RGB 掩码贴图 / 烤色 legacy 贴图）。
+		// 判定要把玩家后缀带上 —— noteSkins 里混着 Classic / Stepmania 这种 legacy 皮肤。
 		skinPath = (PlayState.isPixelStage ? 'pixelUI/' : '') + skin + skinPostfix;
-		noteStyle = getNoteStyle(styleBase);
+		noteStyle = getNoteStyle(styleBase, skinPostfix);
 
 		var lastScaleY:Float = scale.y;
 
@@ -537,8 +538,13 @@ class Note extends FlxSprite
 	 * 这张贴图该用哪种着色体系。贴图是通道掩码还是烤色图，只有贴图自己知道，所以皮肤优先；
 	 * 谱面的 disableNoteRGB 作为皮肤未声明 / 甄别不出时的兜底（只影响体系判定，
 	 * shader 槽位挂什么由 updateNoteShader 按三态开关拍板）。
+	 *
+	 * postfix 是玩家皮肤后缀。**自动甄别必须看叠加后的实际贴图**：本仓库的
+	 * `NOTE_assets-Classic` / `-Stepmania` 就是混在 noteSkins 里的 legacy 烤色图，
+	 * 只按基础名甄别会把它们当成默认的 RGB 图，给烤色图挂上通道重映射。
+	 * 回退层级判断仍然只看基础名（第 3 级是默认 RGB 皮肤）。
 	 */
-	public static function getNoteStyle(skin:String):String
+	public static function getNoteStyle(skin:String, ?postfix:String = ''):String
 	{
 		var mode:String = NoteSkinStyle.noteMode();
 		if (mode == NoteSkinStyle.NEW) return NoteSkinStyle.RGB;
@@ -549,8 +555,9 @@ class Note extends FlxSprite
 		}
 		if (skin == null) skin = '';
 
+		var actual:String = (postfix == null || postfix.length < 1) ? skin : skin + postfix;
 		// 像素皮肤在磁盘上是 images/pixelUI/noteSkins/...，json 声明 / 自动甄别都要按这个前缀去找
-		var key:String = (PlayState.isPixelStage ? 'pixelUI/' : '') + skin;
+		var key:String = (PlayState.isPixelStage ? 'pixelUI/' : '') + actual;
 
 		var style:String = NoteSkinStyle.declared(key);
 		if (style != null) return style;
