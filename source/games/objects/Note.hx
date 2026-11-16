@@ -573,16 +573,22 @@ class Note extends FlxSprite
 	public static var loadedNote:Map<String, {texture:String, postfix:String, skin:String, skinPostfix:String}> = new Map<String, {texture:String, postfix:String, skin:String, skinPostfix:String}>();
 	public static final initSkin:String = 'noteSkins/NOTE_assets';
 	static var skin:String;
+	// 旧代码用它标记"模组把 NOTE_assets 放在 images 根目录"。现在这属于 legacy 第 2 级，由
+	// NoteSkinStyle.exists 现查，字段保留只为兼容外部 @:privateAccess 引用，恒为 false。
 	static var oldMod:Bool = false;
 	var skinPixel:String; //像素箭头路径（数据保存形式类似于defaultNoteSkin）
 	static var skinPostfix:String = ''; //箭头设置给的后缀
 
+	/**
+	 * 解析并缓存当前要用的音符贴图（基础名，不含 images/ 与 pixelUI/ 前缀）。
+	 *
+	 * texture 为空 —— 走三级回退（getNoteSkinPath）。
+	 * texture 非空 —— 调用方显式指定（note type / 编辑器预览），原样使用，不参与回退。
+	 */
 	public static function reloadPath(texture:String = '', postfix:String = '')
 	{
-		if (texture == null || texture.length < 1)
-			texture = defaultNoteSkin;
-		if (postfix == null || postfix.length < 1)
-			postfix = '';
+		if (texture == null) texture = '';
+		if (postfix == null) postfix = '';
 
 		var currentKey = getLoadDataKey(texture, postfix);
 		if (loadedNote.exists(currentKey)) {
@@ -593,29 +599,9 @@ class Note extends FlxSprite
 
 		var pathPixel = PlayState.isPixelStage ? 'pixelUI/' : '';
 
-		skin = texture + postfix;
-		if (skin == defaultNoteSkin) //如果是默认箭头路径
-		{
-			// 1 级：谱面指定的 arrowSkin（文件存在才算数）。new 体系跳过这一级 ——
-			// 它存在的意义就是把谱面自带的旧贴图换成玩家皮肤。
-			skin = (NoteSkinStyle.noteMode() == NoteSkinStyle.NEW) ? null
-				: (PlayState.SONG != null ? PlayState.SONG.arrowSkin : null); //兼容了铺面json设置的箭头
-			if (skin != null && skin.length > 0 && NoteSkinStyle.exists(skin, false)) {//当发现铺面json的箭头读取没问题时
-				skinPostfix = ''; //返回为默认贴图
-				loadedNote.set(currentKey, {texture: texture, postfix: postfix, skin: skin, skinPostfix: skinPostfix});
-				return; //直接跳过后续读取,获取为铺面json的路径
-			}
-			// 2 级：引擎自带的旧版图集 images/NOTE_assets.png（仅在 legacy 体系，且文件真的在）
-			if (NoteSkinStyle.noteMode() == NoteSkinStyle.LEGACY && legacyNoteSkinAvailable()) {
-				skin = NoteSkinStyle.LEGACY_NOTE_SKIN;
-				skinPostfix = '';
-				loadedNote.set(currentKey, {texture: texture, postfix: postfix, skin: skin, skinPostfix: skinPostfix});
-				return;
-			}
-			// 3 级：默认（RGB）皮肤 + 玩家后缀
-			skin = defaultNoteSkin;
-		}
+		skin = (texture.length < 1) ? getNoteSkinPath(postfix) : texture + postfix;
 
+		// 玩家后缀只叠在默认皮肤上（谱面自带 / 引擎旧版图集没有玩家变体）
 		skinPostfix = getNoteSkinPostfix(skin);
 
 		if (!Paths.fileExists('images/' + pathPixel + skin + skinPostfix + '.png', IMAGE)) {
@@ -623,6 +609,30 @@ class Note extends FlxSprite
 		}
 
 		loadedNote.set(currentKey, {texture: texture, postfix: postfix, skin: skin, skinPostfix: skinPostfix});
+	}
+
+	/**
+	 * 当前生效的音符贴图路径（不含 images/ 与 pixelUI/ 前缀）。三级回退，一级一级来：
+	 *   1. 谱面指定的 arrowSkin（文件存在才算数）；
+	 *   2. 引擎自带的旧版贴图 images/NOTE_assets.png（**只在 legacy 体系**；它在 images 根目录，不在 noteSkins/ 里）；
+	 *   3. 都没有才退回默认（RGB）皮肤。
+	 * new 体系跳过第 1 级 —— 它存在的意义就是把谱面自带的旧贴图换成玩家皮肤。
+	 * 第 2 级的老模组变体会被 Paths 的 mods 优先规则自动命中（mods/&lt;模组&gt;/images/NOTE_assets.png）。
+	 */
+	public static function getNoteSkinPath(?postfix:String = ''):String
+	{
+		if (postfix == null) postfix = '';
+
+		var mode:String = NoteSkinStyle.noteMode();
+		if (mode == NoteSkinStyle.NEW) return defaultNoteSkin + postfix;
+
+		var chartSkin:String = (PlayState.SONG != null) ? PlayState.SONG.arrowSkin : null;
+		if (NoteSkinStyle.exists(chartSkin)) return chartSkin;
+
+		if (mode == NoteSkinStyle.LEGACY && NoteSkinStyle.exists(NoteSkinStyle.LEGACY_NOTE_SKIN, false))
+			return NoteSkinStyle.LEGACY_NOTE_SKIN;
+
+		return defaultNoteSkin + postfix;
 	}
 
 	public static function getNoteSkinPostfix(?texture:String = ''):String
@@ -862,15 +872,12 @@ class Note extends FlxSprite
 	{
 		loadedNote = new Map<String, {texture:String, postfix:String, skin:String, skinPostfix:String}>();
 
-		if (FileSystem.exists(Paths.mods(Mods.currentModDirectory + '/images/NOTE_assets.png')) && ClientPrefs.data.noteSkin == ClientPrefs.defaultData.noteSkin) {
-			defaultNoteSkin = 'NOTE_assets';
-			oldMod = true;
-			reloadPath(defaultNoteSkin,'');
-		} else {
-			defaultNoteSkin = initSkin;
-			oldMod = false;
-			reloadPath(defaultNoteSkin);
-		}
+		// defaultNoteSkin 始终指向新版（noteSkins/）图集。三级回退里"引擎自带旧版"固定是
+		// images/NOTE_assets，靠 NoteSkinStyle.exists 现查 —— 不能再像旧代码那样把默认皮肤
+		// 改成 'NOTE_assets'：那样 new 体系（强制玩家皮肤）会把模组根目录的旧图当成玩家皮肤用。
+		defaultNoteSkin = initSkin;
+		oldMod = false;
+		reloadPath();
 
 		addSkinCache(skin + skinPostfix);
 

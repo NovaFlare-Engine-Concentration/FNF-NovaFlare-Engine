@@ -88,10 +88,12 @@ class StrumNote extends FlxSprite
 		}
 		else
 		{
-			if (Note.loadedNote.get(Note.getLoadDataKey(Note.defaultNoteSkin, '')) == null || Note.loadedNote.get(Note.getLoadDataKey(Note.defaultNoteSkin, '')).skin == null)
-				Note.init();
+			// 与 FE 一致：直接用同一套三级回退解析，不依赖 Note 的缓存表
+			var baseSkin:String = Note.getNoteSkinPath();
+			var customSkin:String = baseSkin + Note.getNoteSkinPostfix();
+			if (Paths.fileExists('images/' + customSkin + '.png', IMAGE)) baseSkin = customSkin;
 
-			skin = pixelPath + Note.loadedNote.get(Note.getLoadDataKey(Note.defaultNoteSkin, '')).skin + Note.loadedNote.get(Note.getLoadDataKey(Note.defaultNoteSkin, '')).skinPostfix;
+			skin = pixelPath + baseSkin;
 		}
 
 		texture = skin; // Load texture and anims
