@@ -152,6 +152,9 @@ class LegacyRuntime
   /** Preserve the old default scalar key without changing native or current callers. */
   public static function historicalSongArguments(target:Dynamic, name:String, args:Array<Dynamic>, origin:Null<String>):Array<Dynamic>
   {
+    if (target == funkin.modding.install.ModInstaller && name == "download"
+      && hasApiVersion(origin, '>=0.9.0 <0.10.0') && args.length == 4)
+      return [args[0], null, args[2], args[3], args[1]];
     if (!isLegacyOrigin(origin)) return args;
     if (name == "valueAsStruct" && Std.isOfType(target, funkin.data.song.SongData.SongEventDataRaw)
       && (args.length == 0 || (args.length == 1 && args[0] == null))) return ["key"];
@@ -341,6 +344,15 @@ class LegacyRuntime
   /** Apply the same rule to reads and saved methods, after normal static-field checks. */
   public static function historicalScoringRead(target:Dynamic, name:String, value:Dynamic, origin:Null<String>):Dynamic
   {
+    if (target == funkin.modding.install.ModInstaller && name == 'download'
+      && hasApiVersion(origin, '>=0.9.0 <0.10.0') && Reflect.isFunction(value))
+    {
+      return Reflect.makeVarArgs(function(args:Array<Dynamic>):Dynamic {
+        var blacklist = polymod.hscript._internal.PolymodScriptClass.blacklistedStaticFields.get(target);
+        if (blacklist != null && blacklist.contains(name)) throw 'Cannot access blacklisted field $name';
+        return Reflect.callMethod(target, value, historicalSongArguments(target, name, args, origin));
+      });
+    }
     if (target != funkin.play.scoring.Scoring || !hasApiVersion(origin, '>=0.1.0 <0.6.0')) return value;
     if (name == 'PBOT1_MISS_SCORE') return 0;
     if (name != 'scoreNote' || !Reflect.isFunction(value)) return value;

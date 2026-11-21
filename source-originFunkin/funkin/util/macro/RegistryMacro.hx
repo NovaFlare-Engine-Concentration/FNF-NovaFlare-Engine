@@ -165,6 +165,7 @@ class RegistryMacro
 
     var dataTypeClassName:String = '${dataType.module}.${dataType.name}';
     var newJsonParser:String = 'new json2object.JsonParser<${dataTypeClassName}>()';
+    var newForwardCompatibleJsonParser:String = 'new json2object.JsonParser<${dataTypeClassName}>({ignoreUnknownVariables: true})';
     var dataFilePath:String = getRegistryDataFilePath(cls, fields);
 
     var paramsTypeClassName:String = '${paramsType.module}.${paramsType.name}';
@@ -217,6 +218,10 @@ class RegistryMacro
               fileName: fileName,
               contents: contents
             }:
+              #if ORIGIN_FUNKIN_COMPAT
+              if (!originfunkin.compat.LegacyRuntime.isLegacyOrigin('hscriptClass($fileName)'))
+                parser = ${Context.parse(newForwardCompatibleJsonParser, Context.currentPos())};
+              #end
               parser.fromJson(funkin.util.SerializerUtil.sanitizeJSON(contents), fileName);
             default:
               return null;

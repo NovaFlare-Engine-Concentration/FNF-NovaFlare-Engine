@@ -54,14 +54,30 @@ class NoteSplash extends funkin.graphics.FunkinSprite
   {
     if (variant == null)
     {
-      variant = FlxG.random.int(0, getVariantCount(direction) - 1);
+      var count = getVariantCount(direction);
+      if (count == 0)
+      {
+        kill();
+        return;
+      }
+      variant = FlxG.random.int(0, count - 1);
     }
 
     // splashUP0, splashUP1, splashRIGHT0, etc.
     // the animations are processed via `NoteStyle.fetchSplashAnimationData()` in this format
-    this.playAnimation('splash${direction.nameUpper}${variant}');
+    var animationName = 'splash${direction.nameUpper}${variant}';
+    if (animation.getByName(animationName) == null)
+    {
+      kill();
+      return;
+    }
+    this.playAnimation(animationName);
 
-    if (animation.curAnim == null) return;
+    if (animation.curAnim == null)
+    {
+      kill();
+      return;
+    }
 
     // Vary the speed of the animation a bit.
     animation.curAnim.frameRate = splashFramerate + FlxG.random.int(-splashFramerateVariance, splashFramerateVariance);

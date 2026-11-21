@@ -79,7 +79,8 @@ class NoteHoldCover extends FlxTypedSpriteGroup<FlxSprite>
     super.kill();
 
     this.visible = false;
-    if (holdNote != null) holdNote.cover = null;
+    if (holdNote != null && holdNote.cover == this) holdNote.cover = null;
+    holdNote = null;
 
     if (glow != null) glow.visible = false;
     if (sparks != null) sparks.visible = false;

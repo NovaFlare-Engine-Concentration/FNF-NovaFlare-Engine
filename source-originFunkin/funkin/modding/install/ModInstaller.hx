@@ -240,7 +240,7 @@ class ModInstaller
    * @param onSuccess Called with the path of the downloaded archive, which the caller owns.
    * @param onError Called with a human readable reason.
    */
-  public static function download(mod:OneClickMod, onProgress:Float->Void, onSuccess:String->Void, onError:String->Void):Void
+  public static function download(mod:OneClickMod, onProgress:Float->Void, onSuccess:String->Void, onError:String->Void, ?onByteProgress:Int->Int->Void):Void
   {
     if (!isHostAllowed(mod.downloadUrl))
     {
@@ -262,6 +262,7 @@ class ModInstaller
 
     activeDownload = job;
     downloadOnProgress = onProgress;
+    downloadOnByteProgress = onByteProgress;
     downloadOnSuccess = onSuccess;
     downloadOnError = onError;
 
@@ -280,6 +281,7 @@ class ModInstaller
   static var activeDownload:Null<DownloadJob> = null;
 
   static var downloadOnProgress:Null<Float->Void> = null;
+  static var downloadOnByteProgress:Null<Int->Int->Void> = null;
   static var downloadOnSuccess:Null<String->Void> = null;
   static var downloadOnError:Null<String->Void> = null;
 
@@ -372,6 +374,7 @@ class ModInstaller
       lastReportedProgress = ratio;
 
       if (downloadOnProgress != null) downloadOnProgress(ratio);
+      if (downloadOnByteProgress != null) downloadOnByteProgress(snapshot.bytesLoaded, snapshot.bytesTotal);
 
       return;
     }
@@ -381,6 +384,7 @@ class ModInstaller
 
     activeDownload = null;
     downloadOnProgress = null;
+    downloadOnByteProgress = null;
     downloadOnSuccess = null;
     downloadOnError = null;
     lastReportedProgress = -1;
@@ -414,6 +418,7 @@ class ModInstaller
 
     activeDownload = null;
     downloadOnProgress = null;
+    downloadOnByteProgress = null;
     downloadOnSuccess = null;
     downloadOnError = null;
     lastReportedProgress = -1;

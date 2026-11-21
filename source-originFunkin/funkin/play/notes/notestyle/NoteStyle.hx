@@ -46,13 +46,10 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
     switch (type)
     {
       case IMAGE:
-        var paths = [
-          // TODO: Make these functions return asset paths directly, then rewrite queryAssets properly!
-
-          // Note sprites
-          getHoldNoteAssetPath(),
-
-        ].filterNull().map((path) -> funkin.assets.Paths.image(path));
+        var paths:Array<funkin.assets.Paths.AssetPath> = [];
+        var holdPath = getHoldNoteAssetPath(true);
+        if (holdPath != null)
+          paths.push(funkin.assets.Paths.file(funkin.assets.Paths.stripLibrary(holdPath), 'png', true, getAssetLibrary(holdPath)));
 
         var strumlinePath = getStrumlineAssetPath();
         if (strumlinePath != null) paths.push(funkin.assets.Paths.file(strumlinePath, 'png', true, getAssetLibrary(getStrumlineAssetPath(true))));
@@ -104,10 +101,10 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
         }
         return paths;
       case SOUND:
-        return [getCountdownSoundPath(THREE), getCountdownSoundPath(TWO), getCountdownSoundPath(ONE), getCountdownSoundPath(GO)].map((path) ->
+        return [getCountdownSoundPath(THREE, true), getCountdownSoundPath(TWO, true), getCountdownSoundPath(ONE, true), getCountdownSoundPath(GO, true)].map((path) ->
         {
           if (path == null) return null;
-          return funkin.assets.Paths.sound(path);
+          return funkin.assets.Paths.file(funkin.assets.Paths.stripLibrary(path), Constants.EXT_SOUND, true, getAssetLibrary(path));
         }).filterNull();
       default:
         return [];
@@ -1286,9 +1283,11 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
     }
     target.glow.frames = glowAtlas;
 
-    target.antialiasing = !(_data.assets.holdNoteCover?.isPixel ?? false);
-    target.glow.antialiasing = !(_data.assets.holdNoteCover?.isPixel ?? false);
-    target.scale.set(_data.assets.holdNoteCover?.scale ?? 1.0, _data.assets.holdNoteCover?.scale ?? 1.0);
+    var isPixel = getHoldCoverIsPixel();
+    var scale = getHoldCoverScale();
+    target.antialiasing = !isPixel;
+    target.glow.antialiasing = !isPixel;
+    target.scale.set(scale, scale);
     target.updateHitbox();
     target.glow.updateHitbox();
 
@@ -1459,6 +1458,16 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
     if (parts.length == 0) return null;
     if (parts.length == 1) return getHoldCoverDirectionAssetPath(direction, true);
     return parts[1];
+  }
+
+  function getHoldCoverIsPixel():Bool
+  {
+    return _data?.assets?.holdNoteCover?.isPixel ?? fallback?.getHoldCoverIsPixel() ?? false;
+  }
+
+  function getHoldCoverScale():Float
+  {
+    return _data?.assets?.holdNoteCover?.scale ?? fallback?.getHoldCoverScale() ?? 1.0;
   }
 
   public function getHoldCoverOffsets():Array<Float>

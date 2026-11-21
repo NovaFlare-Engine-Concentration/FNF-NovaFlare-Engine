@@ -302,6 +302,7 @@ class BaseCharacter extends Bopper implements IRegistryEntry<CharacterData>
 
     // Resets danceEvery value to the original one.
     this.danceEvery = _data.danceEvery;
+    this.canPlayOtherAnims = true;
 
     this.dance(true); // Force to avoid the old animation playing with the wrong offset at the start of the song.
     // Make sure we are playing the idle animation

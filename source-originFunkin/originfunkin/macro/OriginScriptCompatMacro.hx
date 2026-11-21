@@ -8,6 +8,9 @@ class OriginScriptCompatMacro
 {
   public static function configure():Void
   {
+    // Origin 0.9 scripts can patch game classes, subject to the upstream exclusions.
+    Compiler.define('POLYMOD_PATCH', 'funkin');
+    Compiler.define('POLYMOD_PATCH_EXCLUDE', 'funkin.modding,funkin.api,funkin.save,funkin.external,funkin.native,funkin.memory,funkin.util.macro,funkin.util.mobile');
     OriginCppiaNativeWrappers.configure();
     if (haxe.macro.Context.defined("cpp") && haxe.macro.Context.defined("windows") && haxe.macro.Context.defined("scriptable"))
       Compiler.addGlobalMetadata("lime.utils.ArrayBufferView", "@:build(originfunkin.macro.OriginLimeArrayBufferCompat.build())", false, true, false);
@@ -81,13 +84,19 @@ class OriginScriptCompatMacro
       var mapped = haxe.macro.ExprTools.map(expr, rewrite);
       return switch (mapped.expr)
       {
-        case ETry(body, catches) if (catches.length == 1 && catches[0].name == 'err'):
+        case ETry(body, catches) if (catches.length >= 1 && catches[0].name == 'err'):
           var errorType = switch (catches[0].type)
           {
             case TPath(path): path.name == 'Error' || (path.name == 'Expr' && path.sub == 'Error');
             default: false;
           };
           if (!errorType) mapped;
+          else if (catches.length > 1)
+          {
+            // New Polymod already restores the caller context in both catches.
+            changed++;
+            mapped;
+          }
           else
           {
             var originalCatch = catches[0].expr;
@@ -198,6 +207,7 @@ class OriginScriptCompatMacro
   {
     var fields = haxe.macro.Context.getBuildFields();
     var hooks = 0;
+    var splitFunctionExpr = Lambda.exists(fields, field -> field.name == 'expr_EFunction');
     function arguments(expr:haxe.macro.Expr):haxe.macro.Expr
     {
       var mapped = haxe.macro.ExprTools.map(expr, arguments);
@@ -272,7 +282,8 @@ class OriginScriptCompatMacro
             fn.args.push({name:'originArgumentValues', opt:true,
               type:macro:Null<originfunkin.compat.LegacyFunctionArguments.ArgumentValues>});
             fn.expr = arguments(fn.expr);
-          case 'expr': fn.expr = closures(fn.expr);
+          case 'expr' if (!splitFunctionExpr): fn.expr = closures(fn.expr);
+          case 'expr_EFunction' if (splitFunctionExpr): fn.expr = closures(fn.expr);
           case 'resetVariables':
             var original = fn.expr;
             fn.expr = macro {originArgumentNames = null; $e{original};};

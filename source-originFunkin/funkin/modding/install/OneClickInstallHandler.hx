@@ -42,16 +42,20 @@ class OneClickInstallHandler
     if (initialized) return;
     initialized = true;
 
+    #if ((windows || linux) && !mobile)
     OneClickBridge.claimLock();
+    #end
 
     if (!ProtocolRegistrar.isRegistered()) ProtocolRegistrar.register();
 
     FlxG.stage.addEventListener(openfl.events.Event.ENTER_FRAME, onEnterFrame);
 
+    #if ((windows || linux) && !mobile)
     openfl.Lib.application.onExit.add(function(_):Void
     {
       OneClickBridge.releaseLock();
     });
+    #end
 
     #if (macos && cpp)
     funkin.external.apple.URLSchemeExtern.setCallback(cpp.Callable.fromStaticFunction(AppleURLCallbacks.onAppleURL));
@@ -59,8 +63,10 @@ class OneClickInstallHandler
     funkin.mobile.util.FNFLoaderProvider.onFNFMODOpen.add(handleLink);
     #end
 
+    #if ((windows || linux) && !mobile)
     // Anything queued while we were booting.
     for (link in OneClickBridge.drain()) handleLink(link);
+    #end
     #end
   }
 
@@ -168,7 +174,9 @@ class OneClickInstallHandler
     // Moves a running download's progress and result off its thread and onto this one.
     ModInstaller.pump();
 
+    #if ((windows || linux) && !mobile)
     for (link in OneClickBridge.update()) handleLink(link);
+    #end
 
     pumpQueue();
   }

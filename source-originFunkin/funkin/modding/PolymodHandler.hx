@@ -94,6 +94,11 @@ class PolymodHandler
     return DEFAULT_MOD_FOLDER;
   }
 
+  /** Compatibility path for 0.9 scripts; enabled IDs remain stored in NovaFlare's save. */
+  public static var ENABLED_MODS_PATH(get, never):String;
+
+  static function get_ENABLED_MODS_PATH():String return '$MOD_FOLDER/enabled.txt';
+
   static inline function getModFolder():String return MOD_FOLDER;
 
   public static final CORE_FOLDER:Null<String> =
@@ -529,6 +534,10 @@ class PolymodHandler
     // Lib.load() can load malicious DLLs
     Polymod.blacklistImport('cpp.Lib');
 
+    // Keep both aliases blocked while allowing safe Polymod metadata imports.
+    Polymod.blacklistStaticFields(polymod.patch.Patches, ['clear', 'run', 'registerDeclared', 'setLoadOrder']);
+    Polymod.blacklistImport('sys.Http');
+
     // `haxe.Http`
     // An alias for `sys.Http`, which is also a blacklisted package.
     Polymod.blacklistImport('haxe.Http');
@@ -632,7 +641,7 @@ class PolymodHandler
     // Contains functions which may allow for un-blacklisting other modules.
     for (cls in ClassMacro.listClassesInPackage('polymod'))
     {
-      if (cls == null) continue;
+      if (cls == null || cls == polymod.Polymod.ModMetadata || cls == polymod.patch.PatchState) continue;
       var className:String = Type.getClassName(cls);
       Polymod.blacklistImport(className);
     }
@@ -753,6 +762,20 @@ class PolymodHandler
   public static function getAllMods(force:Bool = false):Array<ModMetadata>
   {
     return scanMods(false, force);
+  }
+
+  /** Get an installed compatible mod by its metadata ID. */
+  public static function getMetadataByModId(id:String):Null<ModMetadata>
+  {
+    for (mod in getAllMods()) if (mod.id == id) return mod;
+    return null;
+  }
+
+  /** Get an installed compatible mod by its directory name. */
+  public static function getMetadataByModDir(dir:String):Null<ModMetadata>
+  {
+    for (mod in getAllMods()) if (mod.dirName == dir) return mod;
+    return null;
   }
 
   /**
