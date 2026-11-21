@@ -3,6 +3,8 @@ package games.objects;
 import general.backend.animation.PsychAnimationController;
 import general.shaders.RGBPalette;
 import general.shaders.ColorSwap;
+import general.shaders.NoteHSV;
+import general.backend.NoteSkinStyle;
 import flixel.system.FlxAssets.FlxShader;
 
 typedef RGB = {
@@ -31,6 +33,7 @@ typedef NoteSplashConfig = {
 class NoteSplash extends FlxSprite
 {
 	public var rgbShader:PixelSplashShaderRef;
+	// 保留字段供旧模组读取；着色已统一走 allowRGBShader() + shaders.NoteHSV，不再每实例建 ColorSwap
 	public var colorSwap:ColorSwap = null;
 	public var texture:String;
 	// 本次 loadSplash 被请求的皮肤名（可能与最终解析出的 texture 不同，见 loadSplash 的回退链）
@@ -57,29 +60,8 @@ class NoteSplash extends FlxSprite
 
 		rgbShader = new PixelSplashShaderRef();
 		shader = rgbShader.shader;
-		updateColorSwapShader();
 
 		loadSplash(splash);
-	}
-
-	// ClientPrefs.noteColorSwap 时换成 ColorSwap 的 shader，否则用 splashes 自带的 RGB shader
-	function updateColorSwapShader():Void
-	{
-		if (!ClientPrefs.data.noteColorSwap)
-		{
-			if (colorSwap != null)
-			{
-				colorSwap = null;
-				shader = rgbShader.shader;
-			}
-			return;
-		}
-
-		if (colorSwap == null)
-		{
-			colorSwap = new ColorSwap();
-			shader = colorSwap.shader;
-		}
 	}
 
 	public var maxAnims(default, set):Int = 0;
@@ -88,10 +70,11 @@ class NoteSplash extends FlxSprite
 		config = null;
 		maxAnims = 0;
 
-		if(splash == null)
+		// 与 FE 一致：没指定、或者指定的贴图磁盘上根本不存在，都重新走三级回退
+		if (splash == null || splash.length < 1 || !NoteSkinStyle.exists(splash, false))
 		{
-			splash = defaultNoteSplash + getSplashSkinPostfix();
-			if (PlayState.SONG != null && PlayState.SONG.splashSkin != null && PlayState.SONG.splashSkin.length > 0) splash = PlayState.SONG.splashSkin;
+			// 三级回退（note type 指定 → 谱面 splashSkin → 引擎自带旧版图集 → 默认 + 玩家后缀）
+			splash = resolveSplashTexture();
 		}
 
 		requestedSplash = splash;
@@ -229,10 +212,7 @@ class NoteSplash extends FlxSprite
 
 		if (!inEditor)
 		{
-			var loadedTexture:String = defaultNoteSplash + getSplashSkinPostfix();
-			if (note != null && note.noteSplashData.texture != null) loadedTexture = note.noteSplashData.texture;
-			else if (PlayState.SONG != null && PlayState.SONG.splashSkin != null && PlayState.SONG.splashSkin.length > 0) loadedTexture = PlayState.SONG.splashSkin;
-
+			var loadedTexture:String = resolveSplashTexture(note);
 			if (requestedSplash != loadedTexture) loadSplash(loadedTexture);
 		}
 
@@ -244,93 +224,81 @@ class NoteSplash extends FlxSprite
 		if (note != null)
 			noteData = note.noteData;
 
+		// 捕获原始 lane（在下面随机化 variant 之前）：splash 的颜色必须锁定 lane，
+		// 不能拿被随机序号污染的 noteData 取色，否则同一个键每次的颜色都不一样
+		final noteLane:Int = noteData % Note.colArray.length;
+
 		if (randomize && maxAnims > 1)
-			noteData = noteData % Note.colArray.length + (FlxG.random.int(0, maxAnims - 1) * Note.colArray.length);
+			noteData = noteLane + (FlxG.random.int(0, maxAnims - 1) * Note.colArray.length);
 
 		this.noteData = noteData;
 		var anim:String = playDefaultAnim();
 
 		var tempShader:RGBPalette = null;
-		if (config.allowRGB)
+		// 着色体系：RGB（通道重映射）/ legacy（HSV 整体偏移，0.6.3 行为）。见 NoteSplash.allowRGBShader()
+		var rgbAllowed:Bool = NoteSplash.allowRGBShader(note, config, inEditor, texture);
+		if (rgbAllowed)
 		{
-			Note.initializeGlobalRGBShader(noteData % Note.colArray.length);
-			if (inEditor || (note == null || note.noteSplashData.useRGBShader) && (PlayState.SONG == null || !PlayState.SONG.disableNoteRGB))
+			final lane:Int = noteLane;
+			Note.initializeGlobalRGBShader(lane);
+			// 只要允许 RGB 就必须给一份调色板：tempShader 留 null 会让 copyValues 把 mult 归零，
+			// 于是"强制 RGB"看起来完全没生效（旧代码的内层条件正是这个坑，这里按 FE 去掉）
+			tempShader = new RGBPalette();
+			// If Note RGB is enabled:
+			if ((note == null || !note.noteSplashData.useGlobalShader) || inEditor)
 			{
-				tempShader = new RGBPalette();
-				// If Note RGB is enabled:
-				if ((note == null || !note.noteSplashData.useGlobalShader) || inEditor)
+				var colors = config.rgb;
+				if (colors != null)
 				{
-					var colors = config.rgb;
-					if (colors != null)
+					for (i in 0...colors.length)
 					{
-						for (i in 0...colors.length)
+						if (i > 2) break;
+
+						var arr:Array<FlxColor> = ClientPrefs.data.arrowRGB[lane];
+						if (PlayState.isPixelStage) arr = ClientPrefs.data.arrowRGBPixel[lane];
+
+						var rgb = colors[i];
+						if (rgb == null)
 						{
-							if (i > 2) break;
-
-							var arr:Array<FlxColor> = ClientPrefs.data.arrowRGB[noteData % Note.colArray.length];
-							if (PlayState.isPixelStage) arr = ClientPrefs.data.arrowRGBPixel[noteData % Note.colArray.length];
-
-							var rgb = colors[i];
-							if (rgb == null)
-							{
-								if (i == 0) tempShader.r = arr[0];
-								else if (i == 1) tempShader.g = arr[1];
-								else if (i == 2) tempShader.b = arr[2];
-								continue;
-							}
-
-							var r:Null<Int> = rgb.r; 
-							var g:Null<Int> = rgb.g;
-							var b:Null<Int> = rgb.b;
-
-							if (r == null || Math.isNaN(r) || r < 0) r = arr[0];
-							if (g == null || Math.isNaN(g) || g < 0) g = arr[1];
-							if (b == null || Math.isNaN(b) || b < 0) b = arr[2];
-
-							var color:FlxColor = FlxColor.fromRGB(r, g, b);
-							if (i == 0) tempShader.r = color;
-							else if (i == 1) tempShader.g = color;
-							else if (i == 2) tempShader.b = color;
+							if (i == 0) tempShader.r = arr[0];
+							else if (i == 1) tempShader.g = arr[1];
+							else if (i == 2) tempShader.b = arr[2];
+							continue;
 						}
-					}
-					else tempShader.copyValues(Note.globalRgbShaders[noteData % Note.colArray.length]);
 
-					if (note != null)
-					{
-						if (note.noteSplashData.r != -1) tempShader.r = note.noteSplashData.r;
-						if (note.noteSplashData.g != -1) tempShader.g = note.noteSplashData.g;
-						if (note.noteSplashData.b != -1) tempShader.b = note.noteSplashData.b;
+						var r:Null<Int> = rgb.r;
+						var g:Null<Int> = rgb.g;
+						var b:Null<Int> = rgb.b;
+
+						if (r == null || Math.isNaN(r) || r < 0) r = arr[0];
+						if (g == null || Math.isNaN(g) || g < 0) g = arr[1];
+						if (b == null || Math.isNaN(b) || b < 0) b = arr[2];
+
+						var color:FlxColor = FlxColor.fromRGB(r, g, b);
+						if (i == 0) tempShader.r = color;
+						else if (i == 1) tempShader.g = color;
+						else if (i == 2) tempShader.b = color;
 					}
 				}
-				else tempShader.copyValues(Note.globalRgbShaders[noteData % Note.colArray.length]);
+				else tempShader.copyValues(Note.globalRgbShaders[lane]);
+
+				if (note != null)
+				{
+					if (note.noteSplashData.r != -1) tempShader.r = note.noteSplashData.r;
+					if (note.noteSplashData.g != -1) tempShader.g = note.noteSplashData.g;
+					if (note.noteSplashData.b != -1) tempShader.b = note.noteSplashData.b;
+				}
 			}
+			else tempShader.copyValues(Note.globalRgbShaders[lane]);
 		}
 		rgbShader.copyValues(tempShader);
-
-		// noteColorSwap 开启时改用 HSV 调色，覆盖上面的 RGB 结果
-		updateColorSwapShader();
-		if (colorSwap != null)
-		{
-			var arrowHSV:Array<Array<Float>> = ClientPrefs.data.arrowHSV;
-			var colorIndex:Int = noteData % arrowHSV.length;
-			var hue:Float = arrowHSV[colorIndex][0] / 360;
-			var sat:Float = arrowHSV[colorIndex][1] / 100;
-			var brt:Float = arrowHSV[colorIndex][2] / 100;
-
-			if (note != null)
-			{
-				hue = note.noteSplashHue;
-				sat = note.noteSplashSat;
-				brt = note.noteSplashBrt;
-			}
-
-			colorSwap.hue = hue;
-			colorSwap.saturation = sat;
-			colorSwap.brightness = brt;
-		}
-
 		if (!config.allowPixel) rgbShader.pixelAmount = 1;
 		else if (PlayState.isPixelStage) rgbShader.pixelAmount = 6;
+
+		// 着色体系：RGB（通道重映射）/ legacy（HSV 整体偏移，0.6.3 行为）/ 原图。
+		// 池对象复用会带着上一轮的 shader，所以两条分支都要显式写一次。
+		if (rgbAllowed) shader = rgbShader.shader;
+		else if (!NoteHSV.apply(this, noteLane)) shader = rgbShader.shader;
 
 		offset.set(10, 10);
 		var conf:NoteSplashAnim = config.animations.get(anim);
@@ -420,6 +388,57 @@ class NoteSplash extends FlxSprite
 		if (ClientPrefs.data.splashSkin != ClientPrefs.defaultData.splashSkin)
 			skin = '-' + ClientPrefs.data.splashSkin.trim().toLowerCase().replace(' ', '_');
 		return skin;
+	}
+
+	/**
+	 * 该用哪张 splash 贴图。三级回退：
+	 *   1. note type 自己指定的 / 谱面 splashSkin（文件存在才算数）；
+	 *   2. 引擎自带的旧版图集 images/noteSplashes.png（仅 legacy 体系；它在 images 根目录，不在 noteSplashes/ 里）；
+	 *   3. 都没有才退回默认（RGB）splash + 玩家后缀。
+	 * new 体系跳过谱面 splashSkin 这一级（Note.set_noteType 已经不写它了），note type 的显式指定仍然优先。
+	 */
+	public static function resolveSplashTexture(?note:Note):String
+	{
+		var fallback:String = defaultNoteSplash + getSplashSkinPostfix();
+
+		var custom:String = (note != null) ? note.noteSplashData.texture : null;
+		if (custom != null && custom.length > 0 && NoteSkinStyle.exists(custom, false)) return custom;
+
+		var mode:String = NoteSkinStyle.splashMode();
+		if (mode == NoteSkinStyle.NEW) return fallback;
+
+		var songSplash:String = (PlayState.SONG != null) ? PlayState.SONG.splashSkin : null;
+		if (NoteSkinStyle.exists(songSplash, false)) return songSplash;
+
+		if (mode == NoteSkinStyle.LEGACY && NoteSkinStyle.exists(NoteSkinStyle.LEGACY_SPLASH_SKIN, false))
+			return NoteSkinStyle.LEGACY_SPLASH_SKIN;
+
+		return fallback;
+	}
+
+	/**
+	 * 这一下 splash 用 RGB 还是 HSV。
+	 * 溅射体系（ClientPrefs.splashSystem）最高优先：new → RGB；
+	 * legacy → 只有真的拿到旧版图集（第 1/2 级）才 HSV，落到默认 RGB splash 时按 RGB；
+	 * auto 时看 note type 的显式覆盖（noteSplashData.useRGBShader = false）、splash json 的 allowRGB、
+	 * 以及音符贴图体系 —— legacy（烤色）贴图只能用 HSV，否则 splash 颜色会和箭头对不上。
+	 */
+	public static function allowRGBShader(?note:Note, ?config:NoteSplashConfig, ?inEditor:Bool = false, ?texture:String = null):Bool
+	{
+		// 编辑器里一直用 RGB 预览（沿用原行为），这样调色板改动能即时看到
+		if (inEditor) return true;
+
+		var mode:String = NoteSkinStyle.splashMode();
+		if (mode == NoteSkinStyle.NEW) return true;
+		if (mode == NoteSkinStyle.LEGACY)
+			return (texture == null || texture.length < 1 || texture.indexOf(defaultNoteSplash) == 0);
+
+		if (config != null && !config.allowRGB) return false;
+		if (note != null && !note.noteSplashData.useRGBShader) return false;
+
+		var style:String = (note != null) ? note.noteStyle
+			: Note.getNoteStyle(Note.getNoteSkinPath(), Note.getNoteSkinPostfix());
+		return style != NoteSkinStyle.LEGACY;
 	}
 
 	public static function createConfig():NoteSplashConfig

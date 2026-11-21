@@ -4,15 +4,24 @@ Skin => 皮肤设置
 Note => 箭头皮肤
 
 noteSkin => 类型
-noteRGB => 着色器
-noteColorSwap => 旧版着色器
+noteSystem => 着色体系
+noteSystem-auto => 自动
+noteSystem-legacy => 旧版 HSV
+noteSystem-new => 新版 RGB
 NotesSubState => 颜色设置
 NotesSubStateLegacy => 旧版颜色设置
+
+note_hsv_title => 旧版音符 HSV 调色
+note_hsv_desc => 只影响旧版（已上色）音符贴图；RGB 通道贴图请用颜色设置里的 RGB 调色板
+note_hsv_hue => 色相
+note_hsv_sat => 饱和度
+note_hsv_brt => 亮度
+note_hsv_tip => 点击：选中（再点进入微调）    滚轮：微调    上下：选轨    左右：选通道    确认：微调    重置：归零    可直接输入 0-9 / -
 
 
 Splash => 溅射皮肤
 
 showSplash => 显示
 splashSkin => 类型
-splashRGB => 着色器
+splashSystem => 着色体系
 splashAlpha => 透明度

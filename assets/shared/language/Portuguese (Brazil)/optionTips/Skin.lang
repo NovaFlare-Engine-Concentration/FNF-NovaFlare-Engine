@@ -4,8 +4,7 @@ Skin => Aparência
 Note => Nota
 
 noteSkin => Alterar a aparência atual das notas
-noteRGB => RGB das notas
-noteColorSwap => Usar coloração HSV como o psych antigo para as notas
+noteSystem => Automático detecta se a skin precisa de RGB ou HSV antigo; Antigo força HSV para skins anteriores a 0.7; Novo força RGB para skins com máscara de canais de 0.7+
 NotesSubState => Configuração de cor das notas
 NotesSubStateLegacy => Configuração HSV das notas
 
@@ -13,5 +12,5 @@ Splash => Splash
 
 showSplash => Mostrar ao acertar incrível/maravilhoso
 splashSkin => Alterar a aparência atual do splash
-splashRGB => RGB do splash
+splashSystem => Sistema de coloração do splash, mesmo significado do das notas
 splashAlpha => Transparência do splash

@@ -122,11 +122,12 @@ import general.shaders.MobileShaderConverter;
 
 	// Skin
 	public var noteSkin:String = 'Default';
-	public var noteRGB:Bool = true;
-	public var noteColorSwap:Bool = false;
+	// 音符着色体系三态：'auto' = 谱面皮肤优先 + 自动甄别 / 'legacy' = 沿用谱面皮肤 + 强制 HSV /
+	// 'new' = 忽略谱面皮肤（换玩家皮肤）+ 强制 RGB。取值见 general.backend.NoteSkinStyle
+	public var noteSystem:String = 'auto';
 	// splash s
 	public var splashSkin:String = 'Psych';
-	public var splashRGB:Bool = true;
+	public var splashSystem:String = 'auto';
 	public var showSplash:Bool = true;
 	public var splashAlpha:Float = 0.6;
 
@@ -207,8 +208,8 @@ import general.shaders.MobileShaderConverter;
 		[0xFFFF884E, 0xFFFFFAF5, 0xFF6C0000]
 	];
 
-	//其实这个也可以扔了,我们有多k，，，，，
-	public var arrowHSV:Array<Array<Float>> = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
+	// legacy 体系的每轨 HSV 偏移：16 轨（多键引擎里 10 键也够用），lane 越界由 shaders.NoteHSV 取模归一
+	public var arrowHSV:Array<Array<Float>> = [for (i in 0...16) [0.0, 0.0, 0.0]];
 
 	public var gameplaySettings:Map<String, Dynamic> = [
 		'scrollspeed' => 1.0,
@@ -745,9 +746,53 @@ class ClientPrefs
 		if (FlxG.save.data.mute != null)
 			FlxG.sound.muted = FlxG.save.data.mute;
 
+		normalizeNoteSystems();
+
 		#if DISCORD_ALLOWED
 		DiscordClient.check();
 		#end
+	}
+
+	/**
+	 * 音符 / 溅射着色体系的三态规范化，以及从已废弃的 noteRGB / noteColorSwap / splashRGB 迁移。
+	 *
+	 * 老存档里这三个 Bool 是"强制"语义：noteColorSwap=true 等价于强制 HSV（legacy），
+	 * noteRGB=false 是同一诉求的另一种写法；splashRGB=false 同理。新存档只写 noteSystem /
+	 * splashSystem，所以只在「还没有新键」时执行迁移，不会覆盖用户后来选的 auto。
+	 */
+	static function normalizeNoteSystems():Void
+	{
+		// 16 轨：老存档只有 4 项，补到 16 项；顺手把残缺项修成三元组。
+		// 重建一份新数组，别和 defaultData 共享同一份引用（否则"重置默认值"会带上用户的改动）
+		final oldHSV:Array<Array<Float>> = data.arrowHSV;
+		final normalized:Array<Array<Float>> = [];
+		for (i in 0...16)
+		{
+			final row:Array<Float> = (oldHSV != null && i < oldHSV.length) ? oldHSV[i] : null;
+			normalized.push((row != null && row.length >= 3) ? row.copy() : [0.0, 0.0, 0.0]);
+		}
+		data.arrowHSV = normalized;
+
+		// 新存档没有 noteRGB / noteColorSwap / splashRGB 这三个键，老存档才有
+		final savedNoteSystem:Dynamic = Reflect.field(FlxG.save.data, 'noteSystem');
+		if (savedNoteSystem == null)
+		{
+			final oldSwap:Dynamic = Reflect.field(FlxG.save.data, 'noteColorSwap');
+			final oldRGB:Dynamic = Reflect.field(FlxG.save.data, 'noteRGB');
+			if (oldSwap == true || oldRGB == false)
+				data.noteSystem = NoteSkinStyle.LEGACY;
+		}
+
+		final savedSplashSystem:Dynamic = Reflect.field(FlxG.save.data, 'splashSystem');
+		if (savedSplashSystem == null)
+		{
+			final oldSplashRGB:Dynamic = Reflect.field(FlxG.save.data, 'splashRGB');
+			if (oldSplashRGB == false)
+				data.splashSystem = NoteSkinStyle.LEGACY;
+		}
+
+		data.noteSystem = NoteSkinStyle.normalizeMode(data.noteSystem);
+		data.splashSystem = NoteSkinStyle.normalizeMode(data.splashSystem);
 	}
 
 	inline public static function getGameplaySetting(name:String, defaultValue:Dynamic = null, ?customDefaultValue:Bool = false):Dynamic

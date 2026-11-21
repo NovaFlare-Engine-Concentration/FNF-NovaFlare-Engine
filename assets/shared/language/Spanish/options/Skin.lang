@@ -3,14 +3,23 @@ Skin => Apariencia
 Note => Notas
 
 noteSkin => Apariencia de las notas
-noteRGB => Colores RGB de las notas
-noteColorSwap => Usar colores HSV para las notas
+noteSystem => Coloreado de las notas
+noteSystem-auto => Automático
+noteSystem-legacy => Antiguo (HSV)
+noteSystem-new => Nuevo (RGB)
 NotesSubState => Configurar colores de las notas
 NotesSubStateLegacy => Configuración antigua de colores
+
+note_hsv_title => Colores HSV antiguos de las notas
+note_hsv_desc => Solo afecta a las pieles de notas antiguas (ya coloreadas). Las pieles RGB usan la paleta RGB.
+note_hsv_hue => MATIZ
+note_hsv_sat => SATURACIÓN
+note_hsv_brt => BRILLO
+note_hsv_tip => CLIC: seleccionar (otra vez: ajustar)    RUEDA: ajustar    ARRIBA/ABAJO: pista    IZQ/DER: canal    ACEPTAR: ajustar    REINICIAR: restablecer    escribe 0-9 / -
 
 Splash => Efecto de acierto
 
 showSplash => Mostrar efecto al acertar
 splashSkin => Apariencia del efecto de acierto
-splashRGB => Colores RGB del efecto
+splashSystem => Coloreado del efecto
 splashAlpha => Opacidad del efecto
