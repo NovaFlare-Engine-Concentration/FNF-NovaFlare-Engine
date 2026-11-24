@@ -21,6 +21,7 @@ typedef SwagSong =
 	var gfVersion:String;
 	var stage:String;
 	var format:String;
+	@:optional var offset:Float;
 
 	@:optional var gameOverChar:String;
 	@:optional var gameOverSound:String;
@@ -79,7 +80,7 @@ class Song
 		if (songJson.events == null)
 		{
 			songJson.events = [];
-			for (secNum in 0...songJson.notes.length)
+			if (songJson.notes != null) for (secNum in 0...songJson.notes.length)
 			{
 				var sec:SwagSection = songJson.notes[secNum];
 
@@ -110,7 +111,8 @@ class Song
 			var beats:Null<Float> = cast section.sectionBeats;
 			if (beats == null || Math.isNaN(beats))
 			{
-				section.sectionBeats = 4;
+				var oldSteps:Dynamic = Reflect.field(section, 'lengthInSteps');
+				section.sectionBeats = oldSteps != null && oldSteps > 0 ? oldSteps / 4 : 4;
 				if (Reflect.hasField(section, 'lengthInSteps'))
 					Reflect.deleteField(section, 'lengthInSteps');
 			}
@@ -254,7 +256,7 @@ class Song
 	 *  - 'legacy'：相对 lane，note[1] 相对 mustHitSection 那一侧（0.7.x / legacy 编辑器输出）
 	 *  - 'absolute'：绝对 lane，0..cols-1 玩家侧、cols.. 对手侧（psych_v1）
 	 *
-	 * 由 parseJSON 按文件结构（有无 {"song":...} 包裹层）判定，不看 format 字段。
+	 * 由 parseJSON 优先按已知 format 判定，缺少有效标记时才看文件结构。
 	 */
 	public static var chartLaneSemantics:String = 'absolute';
 
@@ -304,53 +306,51 @@ class Song
 	}
 
 	/**
-	 * Parse a chart JSON string. Auto-detects format and converts if needed.
-	 *
-	 * Supports:
-	 *   - psych_v1 (1.0+): { "song": {...}, "format": "psych_v1" } or top-level format
-	 *   - Old format (0.7.x): { "song": {...} } without format field → auto-converted
-	 *   - Already converted: format "psych_v1_convert" → skip conversion
+	 * Parse and normalize a chart without changing its note lanes.
+	 * Recognized format markers take precedence over the JSON wrapper.
 	 */
 	public static function parseJSON(rawData:String, ?nameForError:String = null, ?convertTo:String = 'psych_v1',
 			?writeGlobalVersion:Bool = true):SwagSong
 	{
 		var parsedJson:Dynamic = Json.parse(rawData);
-		var hasWrapper:Bool = Reflect.hasField(parsedJson, 'song');
+		var rootFormat:Dynamic = Reflect.field(parsedJson, 'format');
+		var wrappedSong:Dynamic = Reflect.field(parsedJson, 'song');
+		var hasWrapper:Bool = wrappedSong != null && Type.typeof(wrappedSong) == TObject;
 
 		if (hasWrapper)
 		{
-			var subSong:Dynamic = Reflect.field(parsedJson, 'song');
-			if (subSong != null && Type.typeof(subSong) == TObject)
-				parsedJson = subSong;
+			parsedJson = wrappedSong;
 		}
 
 		var songJson:SwagSong = cast parsedJson;
 
-		// Detect original format: check format field first, wrapper as fallback
-		var fmt:String = songJson.format;
-		if (fmt != null && fmt.startsWith('psych_v1'))
-			detectedFormat = 'Pe-1.0.x';
-		else
-			detectedFormat = hasWrapper ? 'Pe-0.7.3' : 'Pe-1.0.x';
-		if (fmt == null || fmt.length == 0)
+		// Keep the historical preference for a known inner marker, but also accept one on the wrapper.
+		var fmt:Dynamic = songJson.format;
+		var formatFamily = getFormatFamily(fmt);
+		if (formatFamily == null && hasWrapper)
+		{
+			formatFamily = getFormatFamily(rootFormat);
+			if (formatFamily != null)
+				songJson.format = cast rootFormat;
+		}
+		detectedFormat = formatFamily != null ? formatFamily : (hasWrapper ? 'Pe-0.7.3' : 'Pe-1.0.x');
+		if (formatFamily == null && (!Std.isOfType(fmt, String) || fmt == ''))
 			songJson.format = detectedFormat;
+		var absoluteLanes = detectedFormat == 'Pe-1.0.x';
 
 		// Auto-detect engine version from chart format, or use forced override
 		// Both engines are supported natively at runtime (PlayState interprets notes accordingly)
 		var localVersion:String = (forceEngineVersion != null && forceEngineVersion.length > 0)
 			? forceEngineVersion
-			: ((detectedFormat == 'Pe-1.0.x') ? 'Pe-1.0.4' : 'Pe-0.7.3');
+			: (absoluteLanes ? 'Pe-1.0.4' : 'Pe-0.7.3');
 
 		// 附属文件（events / picospeaker）只贡献内容，不参与版本判定，也不覆盖主谱面的版本。
 		if (writeGlobalVersion)
 		{
 			chartEngineVersion = localVersion;
 
-			// lane 语义只看文件结构：带 {"song":...} 包裹层就是 legacy 输出（PE 0.7.3 /
-			// legacy 编辑器），lane 是"相对 + mustHitSection"语义。
-			// format 字段不可信 —— legacy 编辑器保存时会把 psych_v1 的 format 一并写进包裹层，
-			// 按它判定会当成绝对 lane 解释，音符整侧反转。
-			chartLaneSemantics = hasWrapper ? 'legacy' : 'absolute';
+			// 手动切换引擎版本不会改变文件实际存储的 lane 语义。
+			chartLaneSemantics = absoluteLanes ? 'absolute' : 'legacy';
 		}
 		else if (chartEngineVersion != null && localVersion != chartEngineVersion)
 		{
@@ -365,6 +365,14 @@ class Song
 		fixMissingFields(songJson);
 
 		return songJson;
+	}
+
+	private static function getFormatFamily(marker:Dynamic):Null<String>
+	{
+		if (!Std.isOfType(marker, String)) return null;
+		var format:String = cast marker;
+		if (format.startsWith('psych_v1') || format == 'Pe-1.0.x' || format == 'Pe-1.0.4') return 'Pe-1.0.x';
+		return format == 'Pe-0.7.3' ? 'Pe-0.7.3' : null;
 	}
 
 	public static function castVersion(songJson:SwagSong):SwagSong

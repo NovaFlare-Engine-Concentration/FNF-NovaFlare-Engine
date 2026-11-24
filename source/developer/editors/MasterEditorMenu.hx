@@ -117,7 +117,7 @@ class MasterEditorMenu extends MusicBeatState
 			switch (options[curSelected])
 			{
 				case 'Chart Editor': // felt it would be cool maybe
-					MusicBeatState.switchState(new ChartingState());
+					MusicBeatState.switchState(new developer.editors.psych104.Psych104ChartingState());
 				case 'Character Editor':
 					MusicBeatState.switchState(new CharacterEditorState(Character.DEFAULT_CHARACTER));
 				case 'Stage Editor':

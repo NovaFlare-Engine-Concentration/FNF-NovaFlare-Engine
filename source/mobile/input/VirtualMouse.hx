@@ -16,12 +16,17 @@ class VirtualMouse extends FlxMouse
     public var virtualActive(default, null):Bool = false;
     public var virtualX:Float = 0;
     public var virtualY:Float = 0;
-    public var onInputStep:Void->Void;
     var transitions:Array<{right:Bool, down:Bool}> = [];
     var previousFrameX:Int = 0;
     var previousFrameY:Int = 0;
     var previousFrameViewX:Int = 0;
     var previousFrameViewY:Int = 0;
+
+    public static function getActive():Null<VirtualMouse>
+    {
+        var mouse = Std.downcast(FlxG.mouse, VirtualMouse);
+        return mouse != null && mouse.virtualActive ? mouse : null;
+    }
 
     public static function install():VirtualMouse
     {
@@ -53,8 +58,7 @@ class VirtualMouse extends FlxMouse
     public function setVirtualActive(value:Bool):Void
     {
         if (virtualActive == value) return;
-        transitions = [];
-        reset();
+        cancelPendingButtons();
         virtualActive = value;
         if (value)
         {
@@ -98,6 +102,12 @@ class VirtualMouse extends FlxMouse
         if (virtualActive) transitions.push({right: right, down: down});
     }
 
+    public function cancelPendingButtons():Void
+    {
+        transitions.resize(0);
+        reset();
+    }
+
     public function scroll(delta:Int):Void
     {
         if (!virtualActive || delta == 0 || !enabled) return;
@@ -132,14 +142,8 @@ class VirtualMouse extends FlxMouse
         previousFrameY = y;
         previousFrameViewX = viewX;
         previousFrameViewY = viewY;
-        _leftButton.handleInput();
-        #if FLX_MOUSE_ADVANCED
-        _middleButton.handleInput();
-        _rightButton.handleInput();
-        #end
-        if (!_wheelUsed) wheel = 0;
-        _wheelUsed = false;
-        // A down and up delivered between frames must still be observable.
+        // Deliver one transition before Flixel samples the buttons. This keeps short
+        // taps visible and records each edge on exactly one logic update.
         if (transitions.length > 0)
         {
             var item = transitions.shift();
@@ -151,7 +155,13 @@ class VirtualMouse extends FlxMouse
             }
             else if (item.down) _leftButton.onDown(null); else _leftButton.onUp();
         }
-        if (onInputStep != null) onInputStep();
+        _leftButton.handleInput();
+        #if FLX_MOUSE_ADVANCED
+        _middleButton.handleInput();
+        _rightButton.handleInput();
+        #end
+        if (!_wheelUsed) wheel = 0;
+        _wheelUsed = false;
     }
 }
 #end

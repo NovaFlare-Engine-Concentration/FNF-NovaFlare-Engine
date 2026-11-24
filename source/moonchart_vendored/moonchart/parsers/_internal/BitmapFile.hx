@@ -19,7 +19,11 @@ class BitmapFile
 		var bmd = new BitmapFile();
 
 		#if openfl
+		#if (sys && lime && novaflare_image_compression)
+		bmd.data = BitmapData.fromImage(general.backend.ImageCompression.keepOriginal(lime.graphics.Image.fromFile(path)));
+		#else
 		bmd.data = #if sys BitmapData.fromFile(path); #else openfl.utils.Assets.getBitmapData(path); #end
+		#end
 		bmd.width = bmd.data.width;
 		bmd.height = bmd.data.height;
 		#elseif heaps

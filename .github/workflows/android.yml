@@ -25,7 +25,7 @@ jobs:
         uses: nttld/setup-ndk@main
         id: setup-ndk
         with:
-          ndk-version: r21e
+          ndk-version: r29
 
       - name: Setup Java JDK
         uses: actions/setup-java@main
@@ -74,8 +74,19 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 
+      - name: Prepare Origin editor layouts
+        shell: pwsh
+        run: ./tools/setup-origin-editor-layouts.ps1 -AssetsRoot "$env:GITHUB_WORKSPACE/_build/origin-editor-build-assets"
+
+      - name: Prepare render thread and Immix runtime
+        shell: pwsh
+        run: |
+          ./tools/setup-novaflare-render-dependencies.ps1 -Component GenerationalGC,ImmixReclaim,ImmixMark,RenderThreadRepair,ImageCoordinates
+          haxelib run lime rebuild android
+          if ($LASTEXITCODE -ne 0) { throw 'Lime native rebuild failed' }
+
       - name: Building
-        run: haxelib run lime build android -Dcommit_sha=$(git rev-parse --short HEAD)
+        run: haxelib run lime build android -Dcommit_sha=$(git rev-parse --short HEAD) "-DORIGIN_ASSETS_PATH=$GITHUB_WORKSPACE/_build/origin-editor-build-assets"
         env:
           cert_pass: nullfunni
           cert_alias_pass: nullfunni

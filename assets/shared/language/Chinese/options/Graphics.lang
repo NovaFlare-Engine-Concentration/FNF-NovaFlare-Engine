@@ -1,5 +1,9 @@
 Graphics => 图形设置
 
+gameQuality => 画面质量
+maxImageSize => 图片最长边
+minImageCompressionSize => 压缩起始边长
+imageCompressionRatio => 图片压缩比例
 
 FPScounter => 数据显示
 

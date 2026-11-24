@@ -1,11 +1,15 @@
 General => Geral
 
-framerate => Alterar o limite de FPS
-drawFramerate => Define o limite de quadros de renderização independentemente da taxa de atualização
+framerate => Limita as atualizações por segundo.
+scriptUpdateFrameLimit => Desativado segue as atualizações do jogo. Ativado segue os quadros desenhados.
+scriptUpdateRate => 0 segue o modo de atualização. Valores positivos limitam as atualizações de scripts por segundo.
+drawFramerate => Aplica-se com a renderização independente.
 language => Alterar o idioma do motor
-lockRender => Atualizará separadamente da atualização de desenho, o efeito é aumentar o número de frames em cerca de duas a três vezes (dependendo do desempenho do dispositivo)
+lockRender => Com a opção desativada, o desenho acompanha as atualizações.
 renderThread => Separar a thread de renderização melhora as taxas de frames
-gameQuality => Alterar a qualidade do jogo na tela
+vsync => Sincroniza os quadros com a tela.
+generationalGC => Vale na próxima abertura do jogo.
+androidPerformanceHints => Informe ao Android o tempo de cada quadro.
 lowQuality => Desativar alguns objetos nos cenários
 resolution => A resolução dos gráficos do jogo
 colorblindMode => Filtro para daltonismo, tornando o jogo mais acessível

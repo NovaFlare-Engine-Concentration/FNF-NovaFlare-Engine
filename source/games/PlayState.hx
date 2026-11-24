@@ -28,7 +28,6 @@ import modchart.Manager;
 import general.objects.AttachedSprite;
 import general.objects.screen.MouseEffect;
 import general.backend.DeepDebugTracker;
-import general.backend.gc.GCManager.GameplayGC;
 
 import states.storyMenuState.StoryMenuState;
 import states.freeplayState.FreeplayState;
@@ -129,6 +128,8 @@ class PlayState extends MusicBeatState
 	public var hscriptArray:Array<HScript> = [];
 	public var instancesExclude:Array<String> = [];
 	public var hscriptGrp:HScriptPack;
+	var hscriptInitialized = false;
+	var scriptedStrumPositions:Map<String, Float>;
 	#end
 
 	#if LUA_ALLOWED
@@ -471,6 +472,7 @@ class PlayState extends MusicBeatState
 			SONG.stage = StageData.vanillaSongStage(songName);
 		}
 		curStage = SONG.stage;
+		initializeScriptSongLength();
 
 		var stageData:StageFile = StageData.getStageFile(curStage);
 		if (stageData == null)
@@ -792,6 +794,7 @@ class PlayState extends MusicBeatState
 
 		if (replayMode) {
 			replayExam.load();
+			botplayTxt.visible = ClientPrefs.data.playOpponent ? cpuControlled_opponent : cpuControlled;
 		}
 
 		keyboardViewer = new KeyboardViewer(ClientPrefs.data.comboOffset[4], ClientPrefs.data.comboOffset[5]);
@@ -863,8 +866,7 @@ class PlayState extends MusicBeatState
 				#end
 			}
 		#end
-		hscriptGrp.execute();
-		hscriptGrp.call("onCreate");
+		initializeSongHScripts();
 
 		addMobileControls(false);
 
@@ -885,7 +887,7 @@ class PlayState extends MusicBeatState
 
 		resetRPC();
 
-		setOnScripts('mania', SONG.mania);
+		setOnSongScripts('mania', SONG.mania);
 
 		stagesFunc(function(stage:BaseStage) stage.createPost());
 		
@@ -945,7 +947,7 @@ class PlayState extends MusicBeatState
         playbackRate = value;
         FlxG.animationTimeScale = value;
         Conductor.safeZoneOffset = (ClientPrefs.data.safeFrames / 60) * 1000 * value;
-        setOnScripts('playbackRate', playbackRate);
+		setOnSongScripts('playbackRate', playbackRate, false);
         if (timing != null) timing.setPrimaryRate(playbackRate);
         #else
         playbackRate = 1.0; // ensuring -Crow
@@ -954,7 +956,7 @@ class PlayState extends MusicBeatState
     }
 
 	#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
-	public function addTextToDebug(text:String, color:FlxColor)
+	public function addTextToDebug(text:String, color:FlxColor, echo:Bool = true)
 	{
 		//if (!ClientPrefs.data.developerMode) return;
 		var newText:DebugLuaText = luaDebugGroup.recycle(DebugLuaText);
@@ -972,6 +974,7 @@ class PlayState extends MusicBeatState
 			spr.y += newText.height + 2;
 		});
 		luaDebugGroup.add(newText);
+		if (!echo) return;
 		#if sys
 		Sys.println(text);
 		#else
@@ -1091,14 +1094,7 @@ class PlayState extends MusicBeatState
 				doPush = true;
 		}
 
-		if (doPush)
-		{
-			if (HScript.instances.exists(scriptFile))
-				doPush = false;
-
-			if (doPush)
-				initHScript(scriptFile);
-		}
+		if (doPush) initHScript(scriptFile);
 		#end
 	}
 
@@ -1296,33 +1292,22 @@ class PlayState extends MusicBeatState
 			if (skipCountdown || startOnTime > 0) skipArrowStartTween = true;
 
 			canPause = true;
+			setOnSongScripts('mania', SONG.mania);
 			generateStaticArrows(0);
 			generateStaticArrows(1);
 
 			//funkin_modchart_instance = new Manager();
 			//addManager(funkin_modchart_instance);
 
-			for (i in 0...playerStrums.length)
-			{
-				setOnScripts('defaultPlayerStrumX' + i, playerStrums.members[i].x);
-				setOnScripts('defaultPlayerStrumY' + i, playerStrums.members[i].y);
-			}
-			for (i in 0...opponentStrums.length)
-			{
-				setOnScripts('defaultOpponentStrumX' + i, opponentStrums.members[i].x);
-				setOnScripts('defaultOpponentStrumY' + i, opponentStrums.members[i].y);
-				// if(ClientPrefs.data.middleScroll) opponentStrums.members[i].visible = false;
-			}
+			scriptedStrumPositions = [];
+			publishStrumPositions('Player', playerStrums);
+			publishStrumPositions('Opponent', opponentStrums);
 
             startedCountdown = true;
             Conductor.songPosition = -Conductor.crochet * 5;
 
-			setOnScripts('startedCountdown', true);
+			setOnSongScripts('startedCountdown', true, false);
 			callOnScripts('onCountdownStarted');
-			// All chart, stage and script setup is now live. Pay for one full GC
-			// before timing starts, then keep song-time collections nursery-only.
-			GameplayGC.begin();
-
 			var swagCounter:Int = 0;
 			if (startOnTime > 0)
 			{
@@ -1637,6 +1622,12 @@ class PlayState extends MusicBeatState
 
 		@:privateAccess
 		FlxG.sound.playMusic(inst._sound, 1, false);
+		#if ((windows || android) && cpp)
+		developer.diagnostics.FrameTimeline.markSongBoundary(false);
+		#end
+		#if (windows && cpp && novaflare_render_snapshot)
+		developer.diagnostics.RenderSnapshot.schedule(FlxG.stage);
+		#end
 		#if FLX_PITCH FlxG.sound.music.pitch = playbackRate; #end
 		FlxG.sound.music.onComplete = () -> finishSong();
 		vocals.play();
@@ -1680,7 +1671,7 @@ class PlayState extends MusicBeatState
 		if (autoUpdateRPC)
 			DiscordClient.changePresence(detailsText, SONG.song + " (" + storyDifficultyText + ")", iconP2.getCharacter(), true, songLength);
 		#end
-		setOnScripts('songLength', songLength);
+		setOnSongScripts('songLength', songLength, false);
 		callOnScripts('onSongStart');
 	}
 
@@ -1703,6 +1694,8 @@ class PlayState extends MusicBeatState
 
 		var songData = SONG;
 		Conductor.bpm = songData.bpm;
+		setOnSongScripts('bpm', songData.bpm);
+		publishScriptBpm();
 
 		curSong = songData.song;
 
@@ -1746,6 +1739,8 @@ class PlayState extends MusicBeatState
 		{
 		}
 		FlxG.sound.list.add(inst);
+		songLength = inst.length;
+		setOnSongScripts('songLength', songLength, false);
 
 		@:privateAccess
 		FlxG.sound.playMusic(inst._sound, 0, false);
@@ -1793,7 +1788,7 @@ class PlayState extends MusicBeatState
 				var daNoteData:Int = Std.int(songNotes[1] % (SONG.mania + 1));
 				var gottaHitNote:Bool;
 
-				var isPe104:Bool = (Song.chartEngineVersion == 'Pe-1.0.4');
+				var isPe104:Bool = (Song.chartLaneSemantics == 'absolute');
 				if (isPe104)
 				{
 					// Pe-1.0.4: lanes 0..mania = player, mania+1.. = opponent (no mustHitSection flip)
@@ -2269,13 +2264,6 @@ class PlayState extends MusicBeatState
 		{
 			persistentUpdate = true;
 			persistentDraw = true;
-			if (resumeGameplayGcAfterSubstate && !destroying && !endingSong && !transitioning && !isDead)
-			{
-				// Music is still paused here, so the safe-point full collection and
-				// heap preparation cannot move a live judgment window.
-				GameplayGC.begin();
-			}
-			resumeGameplayGcAfterSubstate = false;
 			if (FlxG.sound.music != null && !startingSong)
 				resyncVocals(true, pausedTimePos);
 
@@ -2436,8 +2424,6 @@ class PlayState extends MusicBeatState
 	#end
 
 	public var paused:Bool = false;
-	private var resumeGameplayGcAfterSubstate:Bool = false;
-	private var destroying:Bool = false;
 	public var canReset:Bool = true;
 
 	var startedCountdown:Bool = false;
@@ -2549,9 +2535,8 @@ class PlayState extends MusicBeatState
 		}
 		else
 			FlxG.camera.followLerp = 0;
-		onUpdateArgs[0] = elapsed;
-		callOnScripts('onUpdate', onUpdateArgs);
-
+		final scriptElapsed = general.backend.NovaFlareGame.scriptElapsedForUpdate(elapsed);
+		if (scriptElapsed != null) callScriptUpdate(scriptElapsed);
 		super.update(elapsed);
 
 		setOnScripts('curDecStep', curDecStep);
@@ -2790,25 +2775,15 @@ class PlayState extends MusicBeatState
 			npsCheck = nps;
 			scoreTxtUpdate();
 		}
-
-		onUpdatePostArgs[0] = elapsed;
-		callOnScripts('onUpdatePost', onUpdatePostArgs);
+		if (scriptElapsed != null) callScriptUpdatePost(scriptElapsed);
 	}
 
 	override function drawUpdate(elapsed:Float) {
+		final runScriptUpdate = general.backend.NovaFlareGame.scriptUpdateActive;
+		final scriptElapsed = general.backend.NovaFlareGame.scriptUpdateElapsed;
+		if (runScriptUpdate) callScriptUpdate(scriptElapsed);
 
-		{
-			var balls = notesHitArray.length - 1;
-			while (balls >= 0)
-			{
-				var cock:Date = notesHitArray[balls];
-				if (cock != null && cock.getTime() + 1000 < Date.now().getTime())
-					notesHitArray.remove(cock);
-				else
-					balls = 0;
-				balls--;
-			}
-		}
+		trimNoteHitTimes();
 
 		if (camZooming)
 		{
@@ -2817,6 +2792,39 @@ class PlayState extends MusicBeatState
 		}
 		
 		super.drawUpdate(elapsed);
+		if (runScriptUpdate) callScriptUpdatePost(scriptElapsed);
+	}
+
+	function callScriptUpdate(elapsed:Float):Void {
+		onUpdateArgs[0] = elapsed;
+		callOnScripts('onUpdate', onUpdateArgs);
+	}
+
+	function callScriptUpdatePost(elapsed:Float):Void {
+		onUpdatePostArgs[0] = elapsed;
+		callOnScripts('onUpdatePost', onUpdatePostArgs);
+	}
+
+	static inline function noteHitClock():Float {
+		#if cpp
+		final seconds:Float = untyped __global__.__hxcpp_date_now();
+		// Match the rounding through Haxe's Date.fromTime() and getTime().
+		return ((seconds * 1000.0) * 0.001) * 1000.0;
+		#else
+		return Date.now().getTime();
+		#end
+	}
+
+	function trimNoteHitTimes():Void {
+		var index = notesHitArray.length - 1;
+		if (index < 0) return;
+		final now = noteHitClock();
+		while (index >= 0) {
+			final hit = notesHitArray[index];
+			if (hit == null || !(hit.getTime() + 1000 < now)) return;
+			notesHitArray.remove(hit);
+			index--;
+		}
 	}
 
 	#if debug
@@ -2946,8 +2954,6 @@ class PlayState extends MusicBeatState
 			vocals.pause();
 			opponentVocals.pause();
 		}
-		resumeGameplayGcAfterSubstate = GameplayGC.active;
-		GameplayGC.pause();
 
 		if (replayMode) @:privateAccess replayExam.unblockKeys();
 		openSubState(new PauseSubState());
@@ -2977,7 +2983,7 @@ class PlayState extends MusicBeatState
 		DiscordClient.resetClientID();
 		#end
 
-		MusicBeatState.switchState(new ChartingState());
+		MusicBeatState.switchState(new developer.editors.psych104.Psych104ChartingState());
 	}
 
 	function openCharacterEditor()
@@ -3014,8 +3020,6 @@ class PlayState extends MusicBeatState
 				vocals.stop();
 				opponentVocals.stop();
 				FlxG.sound.music.stop();
-				resumeGameplayGcAfterSubstate = false;
-				GameplayGC.finish();
 				if (videoCutscene != null)
 				{
 					videoCutscene.pause();
@@ -3455,25 +3459,40 @@ class PlayState extends MusicBeatState
 
 	public function finishSong(?ignoreNoteOffset:Bool = false)
 	{
+		#if ((windows || android) && cpp)
+		developer.diagnostics.FrameTimeline.markSongBoundary(true);
+		#end
 		updateTime = false;
-		resumeGameplayGcAfterSubstate = false;
-		GameplayGC.finish();
+		#if (windows && cpp && novaflare_transition_trace)
+		var pauseVocalsBegin = developer.diagnostics.FrameTimeline.beginTransitionPhase();
+		#end
 		FlxG.sound.music.volume = 0;
 
 		vocals.volume = 0;
 		vocals.pause();
 		opponentVocals.volume = 0;
 		opponentVocals.pause();
+		#if (windows && cpp && novaflare_transition_trace)
+		developer.diagnostics.FrameTimeline.endTransitionPhase('pause_vocals', pauseVocalsBegin);
+		#end
 
 		if (ClientPrefs.data.noteOffset <= 0 || ignoreNoteOffset)
 		{
+			#if (windows && cpp && novaflare_transition_trace)
+			developer.diagnostics.FrameTimeline.traceSongEndCallback(endCallback);
+			#else
 			endCallback();
+			#end
 		}
 		else
 		{
 			finishTimer = new FlxTimer().start(ClientPrefs.data.noteOffset / 1000, function(tmr:FlxTimer)
 			{
+				#if (windows && cpp && novaflare_transition_trace)
+				developer.diagnostics.FrameTimeline.traceSongEndCallback(endCallback);
+				#else
 				endCallback();
+				#end
 			});
 		}
 	}
@@ -3508,7 +3527,13 @@ class PlayState extends MusicBeatState
 			}
 		}
 
+		#if (windows && cpp && novaflare_transition_trace)
+		var keyboardSaveBegin = developer.diagnostics.FrameTimeline.beginTransitionPhase();
+		#end
 		keyboardViewer.save();
+		#if (windows && cpp && novaflare_transition_trace)
+		developer.diagnostics.FrameTimeline.endTransitionPhase('keyboard_viewer_save', keyboardSaveBegin);
+		#end
 
 		timeBar.visible = false;
 		timeTxt.visible = false;
@@ -3529,7 +3554,13 @@ class PlayState extends MusicBeatState
 		checkForAchievement([weekNoMiss, 'ur_bad', 'ur_good', 'hype', 'two_keys', 'toastie', 'debugger']);
 		#end
 
+		#if (windows && cpp && novaflare_transition_trace)
+		var scriptsBegin = developer.diagnostics.FrameTimeline.beginTransitionPhase();
+		#end
 		var ret:Dynamic = callOnScripts('onEndSong', null, true);
+		#if (windows && cpp && novaflare_transition_trace)
+		developer.diagnostics.FrameTimeline.endTransitionPhase('on_end_song_scripts', scriptsBegin);
+		#end
 		if (ret != LuaUtils.Function_Stop && !transitioning)
 		{
 			DeepDebugTracker.finish('completed');
@@ -3556,7 +3587,13 @@ class PlayState extends MusicBeatState
 						NoteTime, NoteMs
 					]
 				];
+				#if (windows && cpp && novaflare_transition_trace)
+				var highscoreSaveBegin = developer.diagnostics.FrameTimeline.beginTransitionPhase();
+				#end
 				Highscore.saveGameData(SONG.song, storyDifficulty, details, null);
+				#if (windows && cpp && novaflare_transition_trace)
+				developer.diagnostics.FrameTimeline.endTransitionPhase('highscore_save_game_data', highscoreSaveBegin);
+				#end
 				
 				var record:games.backend.Replay.StateRecord = {
 					songName: songName,
@@ -3661,8 +3698,23 @@ class PlayState extends MusicBeatState
 
 			if (ClientPrefs.data.resultsScreen)
 			{
+				#if (windows && cpp && novaflare_transition_trace)
+				var constructResultsBegin = developer.diagnostics.FrameTimeline.beginTransitionPhase();
+				var results = new ResultsScreen(boyfriend.getScreenPosition().x, boyfriend.getScreenPosition().y);
+				developer.diagnostics.FrameTimeline.endTransitionPhase('results_construct', constructResultsBegin);
+				var openResultsBegin = developer.diagnostics.FrameTimeline.beginTransitionPhase();
+				openSubState(results);
+				developer.diagnostics.FrameTimeline.endTransitionPhase('results_open', openResultsBegin);
+				var loadMusicBegin = developer.diagnostics.FrameTimeline.beginTransitionPhase();
+				var menuMusic = Paths.music('freakyMenu');
+				developer.diagnostics.FrameTimeline.endTransitionPhase('menu_music_load', loadMusicBegin);
+				var playMusicBegin = developer.diagnostics.FrameTimeline.beginTransitionPhase();
+				FlxG.sound.playMusic(menuMusic, 0.7);
+				developer.diagnostics.FrameTimeline.endTransitionPhase('menu_music_play', playMusicBegin);
+				#else
 				openSubState(new ResultsScreen(boyfriend.getScreenPosition().x, boyfriend.getScreenPosition().y));
 				FlxG.sound.playMusic(Paths.music('freakyMenu'), 0.7);
+				#end
 			}
 			else
 			{
@@ -5086,10 +5138,6 @@ class PlayState extends MusicBeatState
 		pausedVideos.destroy();
 		#end
 
-		destroying = true;
-		resumeGameplayGcAfterSubstate = false;
-		GameplayGC.abort();
-
 		if (DeepDebugTracker.active)
 			DeepDebugTracker.finish(endingSong ? 'song_state_destroyed_after_end' : 'aborted_or_restarted');
 
@@ -5235,9 +5283,7 @@ class PlayState extends MusicBeatState
 			if (SONG.notes[curSection].changeBPM)
 			{
 				Conductor.bpm = SONG.notes[curSection].bpm;
-				setOnScripts('curBpm', Conductor.bpm);
-				setOnScripts('crochet', Conductor.crochet);
-				setOnScripts('stepCrochet', Conductor.stepCrochet);
+				publishScriptBpm();
 			}
 			setOnScripts('mustHitSection', SONG.notes[curSection].mustHitSection);
 			setOnScripts('altAnim', SONG.notes[curSection].altAnim);
@@ -5293,13 +5339,109 @@ class PlayState extends MusicBeatState
 		return false;
 	}
 
-	public function initHScript(file:String)
+	public function initHScript(file:String, allowDuplicate:Bool = false):Bool
 	{
+		if (!allowDuplicate)
+			for (script in hscriptArray)
+				if (script != null && script.active && script.matchesFile(file)) return false;
+
 		var newScript:HScript = new HScript(file, this);
 		trace('initialized hscript interp successfully: $file');
 		hscriptGrp.add(newScript);
+		if (hscriptInitialized && hscriptArray.contains(newScript)) {
+			newScript.execute();
+			newScript.call('onCreate');
+		}
+		return true;
 	}
 	#end
+
+	function initializeSongHScripts():Void {
+		hscriptGrp.execute();
+		var index = 0;
+		while (index < hscriptArray.length) {
+			final script = hscriptArray[index++];
+			if (script == null) continue;
+			// A script added by an initial onCreate still needs its top-level code.
+			script.execute();
+			script.call('onCreate');
+		}
+		hscriptInitialized = true;
+	}
+
+	function initializeScriptSongLength():Void {
+		try {
+			final instrumental:openfl.media.Sound = Paths.inst(SONG.song);
+			if (instrumental != null) songLength = instrumental.length;
+		} catch (error:haxe.Exception) {
+			trace('Could not read the duration of ${SONG.song}: ${error.message}');
+		}
+	}
+
+	public function provideSongScriptGlobals(set:(String, Dynamic)->Void, luaGlobals:Bool = false):Void {
+		if (SONG == null) return;
+		final difficultyName = Difficulty.getString();
+		set('songPath', Paths.formatToSongPath(SONG.song));
+		set('bpm', SONG.bpm);
+		set('curBpm', Conductor.bpm);
+		set('crochet', Conductor.crochet);
+		set('stepCrochet', Conductor.stepCrochet);
+		set('scrollSpeed', SONG.speed);
+		set('mania', SONG.mania);
+		set('hasVocals', SONG.needsVoices);
+		set('difficulty', storyDifficulty);
+		set('difficultyName', difficultyName);
+		set('difficultyPath', Paths.formatToSongPath(difficultyName));
+		set('weekRaw', storyWeek);
+		set('week', WeekData.weeksList[storyWeek]);
+		if (luaGlobals) {
+			set('songName', SONG.song);
+			set('songLength', songLength);
+			set('startedCountdown', startedCountdown);
+			set('playbackRate', #if FLX_PITCH playbackRate #else 1 #end);
+			set('curStage', curStage);
+			set('seenCutscene', seenCutscene);
+			set('isStoryMode', isStoryMode);
+			set('screenWidth', FlxG.width);
+			set('screenHeight', FlxG.height);
+			for (lane in 0...4) {
+				set('defaultPlayerStrumX' + lane, 0);
+				set('defaultPlayerStrumY' + lane, 0);
+				set('defaultOpponentStrumX' + lane, 0);
+				set('defaultOpponentStrumY' + lane, 0);
+			}
+		}
+		if (scriptedStrumPositions != null)
+			for (name => position in scriptedStrumPositions) set(name, position);
+	}
+
+	function publishStrumPositions(side:String, strums:FlxTypedGroup<StrumNote>):Void {
+		for (lane in 0...strums.length) {
+			final strum = strums.members[lane];
+			final nameX = 'default${side}StrumX$lane';
+			final nameY = 'default${side}StrumY$lane';
+			scriptedStrumPositions.set(nameX, strum.x);
+			scriptedStrumPositions.set(nameY, strum.y);
+			setOnSongScripts(nameX, strum.x);
+			setOnSongScripts(nameY, strum.y);
+		}
+	}
+
+	function publishScriptBpm():Void {
+		setOnSongScripts('curBpm', Conductor.bpm);
+		setOnSongScripts('crochet', Conductor.crochet);
+		setOnSongScripts('stepCrochet', Conductor.stepCrochet);
+	}
+
+	function setOnSongScripts(name:String, value:Dynamic, includeFileScripts:Bool = true):Void {
+		setOnLuas(name, value);
+		// File HScript can resolve live PlayState instance fields through its parent.
+		if (includeFileScripts) setOnHScript(name, value);
+		#if (LUA_ALLOWED && HSCRIPT_ALLOWED)
+		for (script in luaArray)
+			if (script != null && script.hscriptBase != null && !script.closed) script.hscriptBase.variables.set(name, value);
+		#end
+	}
 
 	public function callOnScripts(funcToCall:String, args:Array<Dynamic> = null, ignoreStops = false, exclusions:Array<String> = null,
 			excludeValues:Array<Dynamic> = null):Dynamic

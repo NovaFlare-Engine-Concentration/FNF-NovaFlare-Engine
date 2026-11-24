@@ -234,6 +234,18 @@ class ExtraOptionsMenu extends Page<OptionsState.OptionsMenuPageName>
       getCurrentMouseEffects()
     );
 
+    createPrefItemCheckbox('Trace Console', 'Show the game log.',
+      function(value:Bool):Void
+      {
+        final save = Save.instance;
+        save.options.novaSettings ??= Save.getDefaultData().options.novaSettings;
+        save.novaSettings.traceConsole = value;
+        save.flush();
+        developer.console.Console.setAvailability(Origin, value);
+      },
+      Save.instance.novaSettings?.traceConsole == true
+    );
+
     #if mobile
     createPrefItemCheckbox('Automatic Shader Conversion',
       'Automatically converts desktop OpenFL shaders for OpenGL ES 2.0 and 3.0+.',

@@ -89,7 +89,7 @@ class ExtraCounter extends Sprite
 		outputText += DataCalc.updateFPS + " / " + ClientPrefs.data.framerate + "tps (" + Display.fix(showTime, 2) + " ms) \n";
 		showTime = Math.floor((DataCalc.drawFrameTime) * 100) / 100;
 		outputText += DataCalc.drawFPS + " / " + (ClientPrefs.data.lockRender ? ClientPrefs.data.drawFramerate : ClientPrefs.data.framerate) + "fps (" + Display.fix(showTime, 2) + " ms) \n";
-		outputText += "APP:" + Display.fix(DataCalc.appMem, 2) + " GC:" + Display.fix(DataCalc.gcMem, 2) + " MB \n";
+		outputText += "APP:" + FlxMath.roundDecimal(DataCalc.appMem, 1) + " GC:" + FlxMath.roundDecimal(DataCalc.gcMem, 1) + " MB \n";
 		this.typeData.text = outputText;
 		typeData.width = typeData.textWidth;
 		typeData.x = bgSprite.x + bgSprite.width - typeData.width - 10;

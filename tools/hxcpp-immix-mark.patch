@@ -1,0 +1,53 @@
+diff --git a/src/hx/gc/Immix.cpp b/src/hx/gc/Immix.cpp
+--- a/src/hx/gc/Immix.cpp
++++ b/src/hx/gc/Immix.cpp
+@@ -2456,13 +2456,28 @@
+ }
+ 
+ 
++static inline void MarkArrayObject(hx::Object *object,hx::MarkContext *context,const unsigned int &markMask)
++{
++   if (object
++       #ifdef EMSCRIPTEN
++       && !(((size_t)object) & 3)
++       #endif
++       && !(((const unsigned int *)object)[-1] & markMask))
++      MarkObjectAllocUnchecked(object,context);
++}
++
+ void MarkObjectArray(hx::Object **inPtr, int inLength, hx::MarkContext *__inCtx)
+ {
+-   hx::Object *tmp;
++   #if defined(__ANDROID__) && defined(__aarch64__)
++   // The collector sets the mask before starting this round's marker workers.
++   const unsigned int markMask = gPrevMarkIdMask;
++   #else
++   const unsigned int &markMask = gPrevMarkIdMask;
++   #endif
+ 
+    int extra = inLength & 0x0f;
+    for(int i=0;i<extra;i++)
+-      if (inPtr[i]) MarkObjectAlloc(inPtr[i],__inCtx);
++      MarkArrayObject(inPtr[i],__inCtx,markMask);
+    if (inLength==extra)
+       return;
+ 
+@@ -2471,9 +2486,7 @@
+    hx::Object **end = ptrI + inLength;
+ 
+ 
+-   #define MARK_PTR_I \
+-   tmp = *ptrI++; \
+-   if (tmp) MarkObjectAlloc(tmp,__inCtx);
++   #define MARK_PTR_I MarkArrayObject(*ptrI++,__inCtx,markMask)
+ 
+ 
+ 
+@@ -2538,6 +2551,7 @@
+          MARK_PTR_I;
+       }
+    }
++   #undef MARK_PTR_I
+ }
+ 
+ void MarkStringArray(String *inPtr, int inLength, hx::MarkContext *__inCtx)

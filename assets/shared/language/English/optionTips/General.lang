@@ -1,11 +1,15 @@
 General => General
 
-framerate => Change your FPS cap
-drawFramerate => Sets the maximum draw frame rate independently from the update rate
+framerate => Limits game updates per second.
+scriptUpdateFrameLimit => Off follows game updates. On follows actual drawn frames.
+scriptUpdateRate => 0 follows the selected update mode. Higher values cap script updates per second.
+drawFramerate => Applies with independent rendering.
 language => Change engine language
-lockRender => Will update separate from the draw update, the effect is to increase the number of frames by about two to three times (depending on device performance)
+lockRender => When off, drawing follows updates.
 renderThread => Separating the rendering thread improves frame rates
-gameQuality => Change game quality for screen
+vsync => Synchronizes rendering with the display refresh.
+generationalGC => Applies at the next launch.
+androidPerformanceHints => Report frame timing to Android.
 lowQuality => Turn off some object on stages
 resolution => The resolution of the game graphics
 colorblindMode => Colorblind filter more playable for colorblind people

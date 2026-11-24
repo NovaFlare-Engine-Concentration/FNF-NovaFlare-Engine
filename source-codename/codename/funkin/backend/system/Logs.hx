@@ -8,6 +8,7 @@ import haxe.Log;
 
 final class Logs {
 	private static var __showing:Bool = false;
+	public static var routesFlixelLogs(default, null):Bool = false;
 
 	public static var nativeTrace = Log.trace;
 	public static function init() {
@@ -72,6 +73,7 @@ final class Logs {
 				Logs.trace('$prefix $e', level, color);
 			}
 		};
+		routesFlixelLogs = true;
 	}
 
 	public static function prepareColoredTrace(text:Array<LogText>, level:Level = INFO) {
@@ -131,8 +133,14 @@ final class Logs {
 		#end
 	}
 
-	public inline static function traceColored(text:Array<LogText>, level:Level = INFO)
+	public static function traceColored(text:Array<LogText>, level:Level = INFO) {
+		if (developer.console.Console.mode == CodeName) {
+			var message = new StringBuf();
+			for (part in text) message.add(part.text);
+			developer.console.TraceInterceptor.publishCodeName(level, message.toString());
+		}
 		__showInConsole(prepareColoredTrace(text, level));
+	}
 
 	public static function trace(text:String, level:Level = INFO, color:ConsoleColor = LIGHTGRAY, ?prefix:String) {
 		var text = [logText(text, color)];

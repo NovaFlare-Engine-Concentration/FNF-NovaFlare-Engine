@@ -33,7 +33,6 @@ NoteOffsetState => Deslocamento das Notas
 
 Gameplaybackend => Backend de Jogabilidade
 
-gameplayGC => Gerenciamento GameplayGC
 fixLNL => Corrigir Notas Longas
 saveScoreBase => Base de armazenamento de recorde
 replayQuality => Qualidade do Replay

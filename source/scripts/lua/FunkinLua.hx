@@ -33,7 +33,6 @@ import scripts.lua.LuaUtils.LuaTweenOptions;
 import scripts.lua.DebugLuaText;
 import scripts.lua.ModchartSprite;
 
-import games.backend.WeekData;
 import games.backend.Highscore;
 import games.backend.Song;
 import games.cutscenes.DialogueBoxPsych;
@@ -92,35 +91,11 @@ class FunkinLua
 		set('luaDeprecatedWarnings', true);
 		set('inChartEditor', false);
 
-		// Song/Week shit
-		set('curBpm', Conductor.bpm);
-		set('bpm', PlayState.SONG.bpm);
-		set('scrollSpeed', PlayState.SONG.speed);
-		set('crochet', Conductor.crochet);
-		set('stepCrochet', Conductor.stepCrochet);
-		set('songLength', FlxG.sound.music.length);
-		set('songName', PlayState.SONG.song);
-		set('songPath', Paths.formatToSongPath(PlayState.SONG.song));
-		set('startedCountdown', false);
-		set('curStage', PlayState.SONG.stage);
-
-		set('isStoryMode', PlayState.isStoryMode);
-		set('difficulty', PlayState.storyDifficulty);
-
-		set('difficultyName', Difficulty.getString());
-		set('difficultyPath', Paths.formatToSongPath(Difficulty.getString()));
-		set('weekRaw', PlayState.storyWeek);
-		set('week', WeekData.weeksList[PlayState.storyWeek]);
-		set('seenCutscene', PlayState.seenCutscene);
-		set('hasVocals', PlayState.SONG.needsVoices);
+		game.provideSongScriptGlobals(set, true);
 
 		// Camera poo
 		set('cameraX', 0);
 		set('cameraY', 0);
-
-		// Screen stuff
-		set('screenWidth', FlxG.width);
-		set('screenHeight', FlxG.height);
 
 		// PlayState variables
 		set('curSection', 0);
@@ -148,24 +123,10 @@ class FunkinLua
 		set('healthGainMult', game.healthGain);
 		set('healthLossMult', game.healthLoss);
 
-		#if FLX_PITCH
-		set('playbackRate', game.playbackRate);
-		#else
-		set('playbackRate', 1);
-		#end
-
 		set('guitarHeroSustains', game.guitarHeroSustains);
 		set('instakillOnMiss', game.instakillOnMiss);
 		set('botPlay', game.cpuControlled);
 		set('practice', game.practiceMode);
-
-		for (i in 0...4)
-		{
-			set('defaultPlayerStrumX' + i, 0);
-			set('defaultPlayerStrumY' + i, 0);
-			set('defaultOpponentStrumX' + i, 0);
-			set('defaultOpponentStrumY' + i, 0);
-		}
 
 		// Default character
 		set('defaultBoyfriendX', game.BF_X);
@@ -448,15 +409,8 @@ class FunkinLua
 			var foundScript:String = findScript(luaFile, '.hx');
 			if (foundScript != null)
 			{
-				if (!ignoreAlreadyRunning)
-					for (script in game.hscriptArray)
-						if (script.origin == foundScript)
-						{
-							luaTrace('addHScript: The script "' + foundScript + '" is already running!');
-							return;
-						}
-
-				PlayState.instance.initHScript(foundScript);
+				if (!game.initHScript(foundScript, ignoreAlreadyRunning))
+					luaTrace('addHScript: The script "' + foundScript + '" is already running!');
 				return;
 			}
 			luaTrace("addHScript: Script doesn't exist!", false, false, FlxColor.RED);
@@ -489,10 +443,10 @@ class FunkinLua
 			{
 				if (!ignoreAlreadyRunning)
 					for (script in game.hscriptArray)
-						if (script.origin == foundScript)
+						if (script != null && script.active && script.matchesFile(foundScript))
 						{
 							trace('Closing script ' + (script.origin != null ? script.origin : luaFile));
-							script.destroy();
+							game.hscriptGrp.remove(script, true);
 							return true;
 						}
 			}

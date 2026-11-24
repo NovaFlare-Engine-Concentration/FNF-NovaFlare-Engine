@@ -1,0 +1,67 @@
+diff --git a/project/src/backend/sdl/SDLApplication.cpp b/project/src/backend/sdl/SDLApplication.cpp
+index 3d4b733..c6072fe 100644
+--- a/project/src/backend/sdl/SDLApplication.cpp
++++ b/project/src/backend/sdl/SDLApplication.cpp
+@@ -832,8 +832,40 @@ namespace lime {
+ 	}
+ 
+ 
++	#if defined(HX_ANDROID) || defined(IPHONE)
++	bool SDLApplication::SuppressTouchMouseEvent (const SDL_Event& event) {
++
++		Uint32 source;
++		switch (event.type) {
++			case SDL_MOUSEBUTTONDOWN:
++			case SDL_MOUSEBUTTONUP: source = event.button.which; break;
++			case SDL_MOUSEMOTION: source = event.motion.which; break;
++			case SDL_MOUSEWHEEL: source = event.wheel.which; break;
++			default: return false;
++		}
++		if (source != SDL_TOUCH_MOUSEID) return false;
++
++		const bool virtualPointer = SDL_GetHintBoolean ("SDL_NOVAFLARE_VIRTUAL_POINTER", SDL_FALSE) == SDL_TRUE;
++		if (event.type == SDL_MOUSEBUTTONDOWN) {
++			suppressedTouchMouseDown = virtualPointer;
++			return virtualPointer;
++		}
++
++		const bool suppress = virtualPointer || suppressedTouchMouseDown;
++		if (event.type == SDL_MOUSEBUTTONUP) {
++			if (virtualPointer && !suppressedTouchMouseDown) SDL_CaptureMouse (SDL_FALSE);
++			suppressedTouchMouseDown = false;
++		}
++		return suppress;
++	}
++	#endif
++
+ 	void SDLApplication::ProcessMouseEvent (SDL_Event* event) {
+ 
++		#if defined(HX_ANDROID) || defined(IPHONE)
++		if (SuppressTouchMouseEvent (*event)) return;
++		#endif
++
+ 		if (MouseEvent::callback) {
+ 
+ 			switch (event->type) {
+diff --git a/project/src/backend/sdl/SDLApplication.h b/project/src/backend/sdl/SDLApplication.h
+index 46deaaf..5a8a0f9 100644
+--- a/project/src/backend/sdl/SDLApplication.h
++++ b/project/src/backend/sdl/SDLApplication.h
+@@ -49,6 +49,10 @@ namespace lime {
+ 			void ProcessJoystickEvent (SDL_Event* event);
+ 			void ProcessKeyEvent (SDL_Event* event);
+ 			void ProcessMouseEvent (SDL_Event* event);
++			#if defined(HX_ANDROID) || defined(IPHONE)
++			bool SuppressTouchMouseEvent (const SDL_Event& event);
++			bool suppressedTouchMouseDown = false;
++			#endif
+ 			void ProcessSensorEvent (SDL_Event* event);
+ 			void ProcessTextEvent (SDL_Event* event);
+ 			void ProcessTouchEvent (SDL_Event* event);
+@@ -91,4 +95,4 @@ namespace lime {
+ }
+ 
+ 
+-#endif
+\ No newline at end of file
++#endif

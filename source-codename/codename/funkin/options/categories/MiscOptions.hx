@@ -6,7 +6,7 @@ class MiscOptions extends TreeMenuScreen {
 	public function new() {
 		super('optionsTree.miscellaneous-name', 'optionsTree.miscellaneous-desc', 'MiscOptions.');
 
-		add(new Checkbox(getNameID('devMode'), getDescID('devMode'), 'devMode'));
+		add(new Checkbox(getNameID('devMode'), getDescID('devMode'), 'devMode', Options.applyDeveloperMode));
 		add(new Checkbox(getNameID('allowConfigWarning'), getDescID('allowConfigWarning'), 'allowConfigWarning'));
 		#if UPDATE_CHECKING
 		add(new Checkbox(getNameID('betaUpdates'), getDescID('betaUpdates'), 'betaUpdates'));

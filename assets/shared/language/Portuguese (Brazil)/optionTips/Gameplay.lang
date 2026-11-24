@@ -33,7 +33,6 @@ NoteOffsetState => Altera o deslocamento da música e a posição do julgamento
 
 Gameplaybackend => Backend de Jogabilidade
 
-gameplayGC => Permite que o GameplayGC gerencie a coleta de memória durante as músicas para reduzir pausas do GC. Pode aumentar o uso de memória.
 fixLNL => Reduzir o comprimento das notas longas
 saveScoreBase => Base de armazenamento de recorde, Pontuação: maior pontuação, Precisão: maior precisão, Erros: menor número de erros, Combo: maior combo
 showReplayWatermark => Mostra a marca d'água do replay no canto inferior direito durante a reprodução

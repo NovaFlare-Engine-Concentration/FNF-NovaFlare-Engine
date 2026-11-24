@@ -1,0 +1,149 @@
+diff --git a/project/src/graphics/AndroidPerformanceHints.cpp b/project/src/graphics/AndroidPerformanceHints.cpp
+index 55ac8c6..a1374ba 100644
+--- a/project/src/graphics/AndroidPerformanceHints.cpp
++++ b/project/src/graphics/AndroidPerformanceHints.cpp
+@@ -17,6 +17,11 @@ namespace AndroidPerformanceHints {
+ namespace {
+     constexpr std::size_t History = 16;
+     constexpr std::int64_t NanosPerSecond = 1000000000;
++    constexpr unsigned Enabled = 1;
++    constexpr unsigned Diagnostic = 2;
++    constexpr unsigned RequestFlags = Enabled | Diagnostic;
++    constexpr unsigned RequestStep = RequestFlags + 1;
++    std::atomic<unsigned> requestedState{0};
+     std::atomic<int> workerId{0};
+     std::atomic<bool> measuring{false};
+ 
+@@ -126,6 +131,7 @@ namespace {
+         std::int64_t pendingUpdate = 0;
+ 
+     private:
++        bool ApplyRequest();
+         void Send(const GameFrame& frame, std::int64_t swapBegan, std::int64_t priorSwapIdle = 0);
+         void Stop();
+         void ReadWorkerFrames();
+@@ -135,6 +141,7 @@ namespace {
+         std::uint64_t cycle = 0;
+         std::uint64_t consumed = 0;
+         std::int64_t target = 0;
++        unsigned request = 0;
+         int sessionWorker = 0;
+         int refresh = 60;
+         bool foreground = true;
+@@ -149,8 +156,22 @@ namespace {
+     thread_local Work worker;
+     thread_local bool workerThread = false;
+ 
++    bool FrameSession::ApplyRequest() {
++        const unsigned next = requestedState.load(std::memory_order_acquire);
++        if (next == request) return false;
++        Stop();
++        request = next;
++        attemptFailed = false;
++        const char* message = (request & Diagnostic)
++            ? ((request & Enabled) ? "enabled by diagnostic setting" : "disabled by diagnostic setting")
++            : ((request & Enabled) ? "enabled by preference" : "disabled by preference");
++        __android_log_write(ANDROID_LOG_INFO, "NovaFlareADPF", message);
++        return true;
++    }
++
+     void FrameSession::Begin(double periodMs, bool threaded) {
+-        if (!foreground || attemptFailed) return;
++        ApplyRequest();
++        if (!(request & Enabled) || !foreground || attemptFailed) return;
+         const int currentWorker = threaded ? workerId.load(std::memory_order_acquire) : 0;
+         if (threaded && !currentWorker) return;
+         if (running && currentWorker != sessionWorker) Stop();
+@@ -230,7 +251,7 @@ namespace {
+     }
+ 
+     void FrameSession::Finish() {
+-        if (!work.cycle) return;
++        if (!work.cycle || ApplyRequest()) return;
+         GameFrame frame;
+         frame.started = work.started;
+         frame.producerEnded = Now();
+@@ -247,6 +268,19 @@ namespace {
+     }
+ }
+ 
++static void SetEnabled(bool enabled, bool diagnostic) {
++    const unsigned flags = (enabled ? Enabled : 0) | (diagnostic ? Diagnostic : 0);
++    auto current = requestedState.load(std::memory_order_relaxed);
++    for (;;) {
++        if (!diagnostic && (current & Diagnostic)) return;
++        if ((current & RequestFlags) == flags) return;
++        // Preserve an off/on change even when both requests land before a frame.
++        const auto next = ((current & ~RequestFlags) + RequestStep) | flags;
++        if (requestedState.compare_exchange_weak(current, next, std::memory_order_release, std::memory_order_relaxed))
++            return;
++    }
++}
++
+ void BeginUpdate() {
+     if (measuring.load(std::memory_order_relaxed)) game.startedUpdate = Now();
+ }
+@@ -269,11 +303,11 @@ void RegisterWorker(bool running) {
+ 
+ void BeginWorkerBatch(std::uint64_t cycle) {
+     worker = {};
+-    worker.cycle = cycle;
++    if (cycle && measuring.load(std::memory_order_relaxed)) worker.cycle = cycle;
+ }
+ 
+ void EndWorkerBatch(bool finalSubmission) {
+-    if (!worker.cycle || !finalSubmission || !worker.swapBegan) return;
++    if (!worker.cycle || !finalSubmission || !worker.swapBegan || !measuring.load(std::memory_order_relaxed)) return;
+     {
+         std::lock_guard<std::mutex> lock(workerFramesMutex);
+         auto& rendered = workerFrames[worker.cycle % History];
+@@ -286,12 +320,17 @@ void EndWorkerBatch(bool finalSubmission) {
+ 
+ void BeforeSwap() {
+     auto& work = workerThread ? worker : game.work;
+-    if (work.cycle) work.swapBegan = Now();
++    if (work.cycle && measuring.load(std::memory_order_relaxed)) work.swapBegan = Now();
+ }
+ 
+ void AfterSwap() {
+-    if (workerThread && worker.swapBegan) worker.swapEnded = Now();
++    if (workerThread && worker.swapBegan && measuring.load(std::memory_order_relaxed)) worker.swapEnded = Now();
+ }
+ }
+ }
++
++extern "C" JNIEXPORT void JNICALL Java_org_haxe_lime_FramePerformanceHints_nativeSetEnabled(
++    JNIEnv*, jclass, jboolean enabled, jboolean diagnostic) {
++    lime::AndroidPerformanceHints::SetEnabled(enabled == JNI_TRUE, diagnostic == JNI_TRUE);
++}
+ #endif
+diff --git a/templates/android/template/app/src/main/java/org/haxe/lime/FramePerformanceHints.java b/templates/android/template/app/src/main/java/org/haxe/lime/FramePerformanceHints.java
+index f432326..0ab80b2 100644
+--- a/templates/android/template/app/src/main/java/org/haxe/lime/FramePerformanceHints.java
++++ b/templates/android/template/app/src/main/java/org/haxe/lime/FramePerformanceHints.java
+@@ -10,11 +10,13 @@ import android.util.Log;
+ final class FramePerformanceHints {
+     private static final String TAG = "NovaFlareADPF";
+ 
++    private static native void nativeSetEnabled(boolean enabled, boolean diagnostic);
++
++    static void setEnabled(boolean enabled) {
++        nativeSetEnabled(enabled, false);
++    }
++
+     static boolean start(Context context, int gameThread, int renderThread, long targetNanos) {
+-        if (isDiagnostic(context) && !((Activity) context).getIntent().getBooleanExtra("nova_adpf", false)) {
+-            Log.i(TAG, "disabled by diagnostic setting");
+-            return false;
+-        }
+         if (Build.VERSION.SDK_INT < 31) {
+             Log.i(TAG, "unavailable on Android API " + Build.VERSION.SDK_INT);
+             return false;
+@@ -37,6 +39,7 @@ final class FramePerformanceHints {
+     static void configureDiagnostics(GameActivity activity) {
+         if (!isDiagnostic(activity)) return;
+         Intent intent = activity.getIntent();
++        nativeSetEnabled(intent.getBooleanExtra("nova_adpf", false), true);
+         GameActivity.nativeSetenv("NOVAFLARE_ANDROID_DIAGNOSTICS", "1");
+         String song = intent.getStringExtra("nova_song");
+         if (song != null && song.matches("[A-Za-z0-9_-]+")) {

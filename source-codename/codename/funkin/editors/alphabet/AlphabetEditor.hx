@@ -518,6 +518,15 @@ class AlphabetEditor extends UIState {
 		else */FlxG.switchState(new AlphabetSelection());
 	}
 
+	#if mobile
+	public override function onMobileBack():Bool {
+		FlxG.signals.postUpdate.addOnce(() -> {
+			if (FlxG.state == this && subState == null) _file_exit(null);
+		});
+		return true;
+	}
+	#end
+
 	function _edit_main(_) {
 		FlxG.state.openSubState(new AlphabetMainDataScreen());
 	}

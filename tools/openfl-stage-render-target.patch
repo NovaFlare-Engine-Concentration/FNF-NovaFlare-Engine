@@ -1,0 +1,594 @@
+diff --git a/include.xml b/include.xml
+index 9ca5238..6d60ec7 100644
+--- a/include.xml
++++ b/include.xml
+@@ -9,6 +9,7 @@
+ 	<!-- <set name="lime-version" value="${expect-lime-version}" if="setup" unless="lime-version" /> -->
+ 
+ 	<haxedef name="native" if="cpp || neko" />
++	<haxedef name="nova_stage_render_target" if="cpp" />
+ 	<set name="native" if="cpp || neko" />
+ 
+ 	<window stencil-buffer="true" depth-buffer="true" color-depth="32" />
+diff --git a/src/openfl/display/Stage.hx b/src/openfl/display/Stage.hx
+index 5dd472b..f50579a 100644
+--- a/src/openfl/display/Stage.hx
++++ b/src/openfl/display/Stage.hx
+@@ -992,6 +992,17 @@ class Stage extends DisplayObjectContainer #if lime implements IModule #end
+ 	@:noCompletion private var __deltaTime:Float;
+ 	@:noCompletion private var __dirty:Bool;
+ 	@:noCompletion private var __displayMatrix:Matrix;
++
++	#if (cpp && lime)
++	private var __renderBoundWidth:Int = 0;
++	private var __renderBoundHeight:Int = 0;
++	private var __traceRenderResolution:Bool = false;
++	private var __configuredDrawableWidth:Int = 0;
++	private var __configuredDrawableHeight:Int = 0;
++	#end
++	#if (windows && cpp && lime && novaflare_render_snapshot)
++	private var __novaRenderSnapshot:Void->Void;
++	#end
+ 	@:noCompletion private var __displayRect:Rectangle;
+ 	@:noCompletion private var __displayState:StageDisplayState;
+ 	@:noCompletion private var __dragBounds:Rectangle;
+@@ -1387,6 +1398,10 @@ class Stage extends DisplayObjectContainer #if lime implements IModule #end
+ 	@:noCompletion private function __createRenderer():Void
+ 	{
+ 		#if lime
++		#if cpp
++		__configuredDrawableWidth = 0;
++		__configuredDrawableHeight = 0;
++		#end
+ 		var windowWidth = Std.int(window.width * window.scale);
+ 		var windowHeight = Std.int(window.height * window.scale);
+ 
+@@ -2325,8 +2340,28 @@ class Stage extends DisplayObjectContainer #if lime implements IModule #end
+ 		#end
+ 	}
+ 
++	#if (cpp && lime)
++	private inline function __syncScaledDrawableSize():Void
++	{
++		if (context3D != null && __renderBoundWidth > 0 && __renderBoundHeight > 0)
++		{
++			var windowWidth = Std.int(window.width * window.scale);
++			var windowHeight = Std.int(window.height * window.scale);
++			// A native resize can update Window before its SDL event reaches the stage.
++			if (windowWidth > 0 && windowHeight > 0
++				&& (windowWidth != __configuredDrawableWidth || windowHeight != __configuredDrawableHeight))
++			{
++				__resizeFromWindow();
++			}
++		}
++	}
++	#end
++
+ 	@:noCompletion private function __render(context:RenderContext):Bool
+ 	{
++		#if (cpp && lime)
++		__syncScaledDrawableSize();
++		#end
+ 		#if sys
+ 		var __novaStarted = __novaPerfTrace ? haxe.Timer.stamp() : 0.0;
+ 		var __novaAfterUpdate = 0.0;
+@@ -2355,6 +2390,10 @@ class Stage extends DisplayObjectContainer #if lime implements IModule #end
+ 			#if openfl_pool_events
+ 			Event.__pool.release(event);
+ 			#end
++			#if (cpp && lime)
++			// A render listener can resize the window after the initial size check.
++			__syncScaledDrawableSize();
++			#end
+ 		}
+ 
+ 		#if hxtelemetry
+@@ -2374,6 +2413,13 @@ class Stage extends DisplayObjectContainer #if lime implements IModule #end
+ 		#if lime
+ 		if (__renderer != null)
+ 		{
++			#if (cpp && lime)
++			var renderContext3D = context3D;
++			var scaledTarget = renderContext3D != null
++				&& renderContext3D.__beginRenderResolution(__renderBoundWidth, __renderBoundHeight, __traceRenderResolution);
++			try
++			{
++			#end
+ 			if (context3D != null)
+ 			{
+ 				for (stage3D in stage3Ds)
+@@ -2426,12 +2472,24 @@ class Stage extends DisplayObjectContainer #if lime implements IModule #end
+ 						__renderer.__clear();
+ 					}
+ 
++					#if (cpp && lime)
++					if (scaledTarget) renderContext3D.__stageRenderTarget.finish(true);
++					#end
+ 					context3D.__present = false;
+ 					context3D.__cleared = false;
+ 				}
+ 			}
+ 
+ 			__renderer.__cleared = false;
++			#if (cpp && lime)
++			}
++			catch (error:haxe.Exception)
++			{
++				if (scaledTarget) renderContext3D.__stageRenderTarget.finish(false);
++				throw error;
++			}
++			if (scaledTarget) renderContext3D.__stageRenderTarget.finish(false);
++			#end
+ 		}
+ 		#end
+ 
+@@ -2546,6 +2604,14 @@ class Stage extends DisplayObjectContainer #if lime implements IModule #end
+ 		{
+ 			window.onRender.cancel();
+ 		}
++		#if (windows && cpp && lime && novaflare_render_snapshot)
++		else if (__novaRenderSnapshot != null)
++		{
++			var snapshot = __novaRenderSnapshot;
++			__novaRenderSnapshot = null;
++			snapshot();
++		}
++		#end
+ 
+ 		__rendering = false;
+ 	}
+@@ -2880,16 +2946,7 @@ class Stage extends DisplayObjectContainer #if lime implements IModule #end
+ 	{
+ 		if (this.window == null || this.window != window) return;
+ 
+-		if (__desiredLogicalWidth > 0 && __desiredLogicalHeight > 0)
+-		{
+-			#if mobile
+-			calcScreen(this.window.width * this.window.scale, this.window.height * this.window.scale, __desiredLogicalWidth, __desiredLogicalHeight);
+-			#else
+-			calcScreen(this.window.width, this.window.height, __desiredLogicalWidth, __desiredLogicalHeight);
+-			#end
+-		}
+-
+-		__resize();
++		__resizeFromWindow();
+ 
+ 		#if android
+ 		// workaround for newer behavior
+@@ -2919,6 +2976,20 @@ class Stage extends DisplayObjectContainer #if lime implements IModule #end
+ 			__dispatchEvent(new FullScreenEvent(FullScreenEvent.FULL_SCREEN, false, false, false, true));
+ 		}
+ 	}
++
++	private function __resizeFromWindow():Void
++	{
++		if (__desiredLogicalWidth > 0 && __desiredLogicalHeight > 0)
++		{
++			#if mobile
++			calcScreen(window.width * window.scale, window.height * window.scale, __desiredLogicalWidth, __desiredLogicalHeight);
++			#else
++			calcScreen(window.width, window.height, __desiredLogicalWidth, __desiredLogicalHeight);
++			#end
++		}
++
++		__resize();
++	}
+ 	#end
+ 
+ 	@:noCompletion private function __onMouse(type:String, x:Float, y:Float, button:Int):Void
+@@ -3720,6 +3791,10 @@ class Stage extends DisplayObjectContainer #if lime implements IModule #end
+ 
+ 		var windowWidth = Std.int(window.width * window.scale);
+ 		var windowHeight = Std.int(window.height * window.scale);
++		#if (cpp && lime)
++		__configuredDrawableWidth = windowWidth;
++		__configuredDrawableHeight = windowHeight;
++		#end
+ 
+ 		__displayMatrix.identity();
+ 
+@@ -3898,6 +3973,20 @@ class Stage extends DisplayObjectContainer #if lime implements IModule #end
+ 		#end
+ 	}
+ 
++	/**
++		Sets a pixel bound for the stage's OpenGL render target. Zero selects the drawable.
++		The window and stage coordinate system do not depend on this bound.
++	**/
++	public function setRenderResolution(width:Int, height:Int, trace:Bool = false):Void
++	{
++		#if (cpp && lime)
++		__renderBoundWidth = width;
++		__renderBoundHeight = height;
++		__traceRenderResolution = trace;
++		__renderDirty = true;
++		#end
++	}
++
+ 	public function setLogicalSize(width:Int, height:Int):Void
+ 	{
+ 		__setLogicalSize(width, height);
+diff --git a/src/openfl/display3D/Context3D.hx b/src/openfl/display3D/Context3D.hx
+index 6452f76..8dd8ba2 100644
+--- a/src/openfl/display3D/Context3D.hx
++++ b/src/openfl/display3D/Context3D.hx
+@@ -292,6 +292,10 @@ import lime.math.Vector2;
+ 	@:noCompletion private var __quadIndexBufferElements:Int;
+ 	@:noCompletion private var __stage:Stage;
+ 	@:noCompletion private var __stage3D:Stage3D;
++
++	#if (cpp && lime)
++	@:noCompletion private var __stageRenderTarget:openfl.display3D._internal.StageRenderTarget;
++	#end
+ 	@:noCompletion private var __state:Context3DState;
+ 	@:noCompletion private var __vertexConstants:Float32Array;
+ 
+@@ -1068,6 +1072,12 @@ import lime.math.Vector2;
+ 	public function dispose(recreate:Bool = true):Void
+ 	{
+ 		// TODO: Dispose all related buffers
++		#if (cpp && lime)
++		if (gl != null && __stageRenderTarget != null)
++		{
++			__stageRenderTarget.dispose();
++		}
++		#end
+ 
+ 		gl = null;
+ 		__dispose();
+@@ -2062,6 +2072,9 @@ import lime.math.Vector2;
+ 
+ 	@:noCompletion private function __dispose():Void
+ 	{
++		#if (cpp && lime)
++		__stageRenderTarget = null;
++		#end
+ 		driverInfo += " (Disposed)";
+ 
+ 		if (__stage3D != null)
+@@ -2238,6 +2251,18 @@ import lime.math.Vector2;
+ 		}
+ 	}
+ 
++	#if (cpp && lime)
++	@:noCompletion private function __beginRenderResolution(width:Int, height:Int, trace:Bool):Bool
++	{
++		if (__stageRenderTarget == null)
++		{
++			if ((width <= 0 || height <= 0) && !trace) return false;
++			__stageRenderTarget = new openfl.display3D._internal.StageRenderTarget(this);
++		}
++		return __stageRenderTarget.begin(width, height, trace);
++	}
++	#end
++
+ 	@:noCompletion private function __flushGLFramebuffer():Void
+ 	{
+ 		if (__state.renderToTexture != null)
+@@ -2362,6 +2387,18 @@ import lime.math.Vector2;
+ 			{
+ 				var contextHeight = Std.int(__stage.window.height * __stage.window.scale);
+ 				scissorY = contextHeight - scissorHeight - scissorY;
++				#if (cpp && lime)
++				var target = __stageRenderTarget;
++				if (target != null && target.active)
++				{
++					var left = Math.floor(scissorX * target.scaleX);
++					var bottom = Math.floor(scissorY * target.scaleY);
++					scissorWidth = scissorWidth == 0 ? 0 : Math.ceil((scissorX + scissorWidth) * target.scaleX) - left;
++					scissorHeight = scissorHeight == 0 ? 0 : Math.ceil((scissorY + scissorHeight) * target.scaleY) - bottom;
++					scissorX = left;
++					scissorY = bottom;
++				}
++				#end
+ 			}
+ 
+ 			if (#if openfl_disable_context_cache true #else __contextState.scissorRectangle.x != scissorX
+@@ -2493,6 +2530,21 @@ import lime.math.Vector2;
+ 		}
+ 	}
+ 
++	@:noCompletion private function __setStageViewport(x:Int, y:Int, width:Int, height:Int):Void
++	{
++		#if (cpp && lime)
++		var target = __stageRenderTarget;
++		if (target != null && target.active && __state.renderToTexture == null)
++		{
++			x = Math.round(x * target.scaleX);
++			y = Math.round(y * target.scaleY);
++			width = Math.round(width * target.scaleX);
++			height = Math.round(height * target.scaleY);
++		}
++		#end
++		gl.viewport(x, y, width, height);
++	}
++
+ 	@:noCompletion private function __flushGLViewport():Void
+ 	{
+ 		// TODO: Cache
+@@ -2512,7 +2564,20 @@ import lime.math.Vector2;
+ 				#end
+ 				var x = __stage3D == null ? 0 : Std.int(__stage3D.x);
+ 				var y = Std.int((__stage.window.height * __stage.window.scale) - scaledBackBufferHeight - (__stage3D == null ? 0 : __stage3D.y));
+-					gl.viewport(x, y, scaledBackBufferWidth, scaledBackBufferHeight);
++				#if (cpp && lime)
++				var target = __stageRenderTarget;
++				if (target != null && target.presenting)
++				{
++					x = 0;
++					y = 0;
++					scaledBackBufferWidth = target.drawableWidth;
++					scaledBackBufferHeight = target.drawableHeight;
++				}
++				#end
++				__setStageViewport(x, y, scaledBackBufferWidth, scaledBackBufferHeight);
++				#if (cpp && lime)
++				if (target != null) target.reportViewport();
++				#end
+ 				}
+ 				else
+ 				{
+diff --git a/src/openfl/display3D/_internal/StageRenderTarget.hx b/src/openfl/display3D/_internal/StageRenderTarget.hx
+new file mode 100644
+index 0000000..8a27ff4
+--- /dev/null
++++ b/src/openfl/display3D/_internal/StageRenderTarget.hx
+@@ -0,0 +1,258 @@
++package openfl.display3D._internal;
++
++#if (cpp && lime)
++import lime.utils.Int32Array;
++import lime._internal.backend.native.NativeCFFI;
++import openfl.Vector;
++import openfl.display3D.textures.RectangleTexture;
++import openfl.utils.AGALMiniAssembler;
++import openfl.utils._internal.Log;
++
++@:access(openfl.display3D.Context3D)
++@:access(openfl.display3D._internal.Context3DState)
++@:access(openfl.display3D.textures.TextureBase)
++class StageRenderTarget
++{
++	public var active(default, null):Bool = false;
++	public var presenting(default, null):Bool = false;
++	public var scaleX(default, null):Float;
++	public var scaleY(default, null):Float;
++	public var drawableWidth(default, null):Int = 0;
++	public var drawableHeight(default, null):Int = 0;
++
++	final context:Context3D;
++	var texture:RectangleTexture;
++	var framebuffer:GLFramebuffer;
++	var screenFramebuffer:GLFramebuffer;
++	var compositeProgram:Program3D;
++	var compositeState:Context3DState;
++	var vertices:VertexBuffer3D;
++	var indices:IndexBuffer3D;
++	var width:Int = 0;
++	var height:Int = 0;
++	var actualWidth:Int = 0;
++	var actualHeight:Int = 0;
++	var reportPending:Bool = false;
++	var trace:Bool = false;
++	var mode:String;
++
++	public function new(context:Context3D)
++	{
++		this.context = context;
++	}
++
++	public function begin(boundsWidth:Int, boundsHeight:Int, trace:Bool):Bool
++	{
++		var outputWidth = Std.int(context.__stage.window.width * context.__stage.window.scale);
++		var outputHeight = Std.int(context.__stage.window.height * context.__stage.window.scale);
++		if (outputWidth <= 0 || outputHeight <= 0) return false;
++
++		if (trace && (!this.trace || outputWidth != drawableWidth || outputHeight != drawableHeight)) reportPending = true;
++		this.trace = trace;
++		drawableWidth = outputWidth;
++		drawableHeight = outputHeight;
++
++		var ratio = Math.min(boundsWidth / outputWidth, boundsHeight / outputHeight);
++		var targetWidth = Std.int(Math.max(1, Math.round(outputWidth * ratio)));
++		var targetHeight = Std.int(Math.max(1, Math.round(outputHeight * ratio)));
++		if (boundsWidth <= 0 || boundsHeight <= 0 || (targetWidth == outputWidth && targetHeight == outputHeight))
++		{
++			if (width != 0 || height != 0) dispose();
++			setMode('native');
++			return false;
++		}
++
++		if (width != targetWidth || height != targetHeight)
++			allocate(targetWidth, targetHeight);
++		if (framebuffer == null)
++		{
++			setMode('fallback');
++			return false;
++		}
++
++		setMode('scaled');
++		scaleX = width / drawableWidth;
++		scaleY = height / drawableHeight;
++		screenFramebuffer = context.__state.__primaryGLFramebuffer;
++		context.setRenderToBackBuffer();
++		context.__state.__primaryGLFramebuffer = framebuffer;
++		active = true;
++		return true;
++	}
++
++	function allocate(targetWidth:Int, targetHeight:Int):Void
++	{
++		release();
++		width = targetWidth;
++		height = targetHeight;
++		var gl = context.gl;
++		var nativeFramebuffer = context.__state.__primaryGLFramebuffer;
++		try
++		{
++			var limit = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE));
++			if (width > limit || height > limit) throw new haxe.Exception('Framebuffer exceeds device limits');
++			texture = context.createRectangleTexture(width, height, BGRA, true);
++			framebuffer = texture.__getGLFramebuffer(true, 0, 0);
++			context.__bindGLFramebuffer(framebuffer);
++			if (framebuffer == null || gl.checkFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE)
++				throw new haxe.Exception('Framebuffer incomplete');
++			if (trace) readAttachmentSize();
++			if (compositeProgram == null) createComposite();
++			reportPending = trace;
++		}
++		catch (error:haxe.Exception)
++		{
++			Log.warn('Render target ${width}x${height} unavailable: ${error.message}');
++			if (texture != null) texture.dispose();
++			disposeComposite();
++			texture = null;
++			framebuffer = null;
++		}
++		context.__bindGLFramebuffer(nativeFramebuffer);
++	}
++
++	function readAttachmentSize():Void
++	{
++		var gl = context.gl;
++		#if lime_cffi
++		var textureId = texture.__textureID;
++		var colorName = @:privateAccess NativeCFFI.lime_gl_get_framebuffer_attachment_parameteri(gl.FRAMEBUFFER,
++			gl.COLOR_ATTACHMENT0, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME);
++		if (textureId == null || colorName != @:privateAccess textureId.id) return;
++		var previous = context.__contextState.__currentGLTexture2D;
++		context.__bindGLTexture2D(textureId);
++		try
++		{
++			actualWidth = @:privateAccess NativeCFFI.lime_gl_get_tex_level_parameteri(gl.TEXTURE_2D, 0, 0x1000);
++			actualHeight = @:privateAccess NativeCFFI.lime_gl_get_tex_level_parameteri(gl.TEXTURE_2D, 0, 0x1001);
++		}
++		catch (_:haxe.Exception)
++		{
++			actualWidth = 0;
++			actualHeight = 0;
++		}
++		context.__bindGLTexture2D(previous);
++		#end
++	}
++
++	public function reportViewport():Void
++	{
++		if (!reportPending || !trace) return;
++		reportPending = false;
++		if (active && (actualWidth != width || actualHeight != height)) readAttachmentSize();
++		var viewport:Int32Array = context.gl.getParameter(context.gl.VIEWPORT);
++		var size = !active ? 'default' : (actualWidth > 0 && actualHeight > 0 ? '${actualWidth}x$actualHeight' : 'unavailable');
++		Sys.println('perf:render_target mode=$mode framebuffer=$size '
++			+ 'allocated=${width}x$height viewport=${viewport[2]}x${viewport[3]} drawable=${drawableWidth}x$drawableHeight '
++			+ 'viewport_origin=${viewport[0]},${viewport[1]}');
++	}
++
++	function setMode(value:String):Void
++	{
++		if (mode == value) return;
++		mode = value;
++		reportPending = trace;
++	}
++
++	public function finish(present:Bool):Void
++	{
++		if (!active) return;
++		active = false;
++		context.__state.__primaryGLFramebuffer = screenFramebuffer;
++		context.setRenderToBackBuffer();
++		if (!present)
++		{
++			restoreViewport();
++			return;
++		}
++		presenting = true;
++		var stageState = context.__state;
++		compositeState.__primaryGLFramebuffer = screenFramebuffer;
++		context.__state = compositeState;
++		try
++		{
++			composite();
++		}
++		catch (error:haxe.Exception)
++		{
++			context.__state = stageState;
++			presenting = false;
++			restoreViewport();
++			throw error;
++		}
++		context.__state = stageState;
++		presenting = false;
++	}
++
++	function createComposite():Void
++	{
++		var vertex = new AGALMiniAssembler();
++		vertex.assemble(Context3DProgramType.VERTEX, "mov op, va0\nmov v0, va1");
++		var fragment = new AGALMiniAssembler();
++		fragment.assemble(Context3DProgramType.FRAGMENT, "tex ft0, v0, fs0 <2d,linear,clamp,nomip>\nmov oc, ft0");
++		compositeProgram = context.createProgram();
++		compositeProgram.upload(vertex.agalcode, fragment.agalcode);
++		vertices = context.createVertexBuffer(4, 5);
++		vertices.uploadFromVector(Vector.ofArray([
++			-1.0, -1.0, 0.0, 0.0, 0.0,
++			 1.0, -1.0, 0.0, 1.0, 0.0,
++			 1.0,  1.0, 0.0, 1.0, 1.0,
++			-1.0,  1.0, 0.0, 0.0, 1.0
++		]), 0, 4);
++		indices = context.createIndexBuffer(6);
++		indices.uploadFromVector(Vector.ofArray([0, 1, 2, 0, 2, 3]), 0, 6);
++		compositeState = new Context3DState();
++	}
++
++	function composite():Void
++	{
++		context.setProgram(compositeProgram);
++		context.setBlendFactors(ONE, ZERO);
++		context.setColorMask(true, true, true, true);
++		context.setCulling(NONE);
++		context.setDepthTest(false, ALWAYS);
++		context.setStencilActions();
++		context.setStencilReferenceValue(0, 0, 0);
++		context.setScissorRectangle(null);
++		context.setTextureAt(0, texture);
++		context.setVertexBufferAt(0, vertices, 0, FLOAT_3);
++		context.setVertexBufferAt(1, vertices, 3, FLOAT_2);
++		context.drawTriangles(indices);
++	}
++
++	function restoreViewport():Void
++	{
++		context.__flushGLFramebuffer();
++		context.__flushGLViewport();
++	}
++
++	public function dispose():Void
++	{
++		finish(false);
++		release();
++		disposeComposite();
++	}
++
++	function disposeComposite():Void
++	{
++		if (compositeProgram != null) compositeProgram.dispose();
++		if (vertices != null) vertices.dispose();
++		if (indices != null) indices.dispose();
++		compositeProgram = null;
++		vertices = null;
++		indices = null;
++		compositeState = null;
++	}
++
++	function release():Void
++	{
++		if (texture != null) texture.dispose();
++		texture = null;
++		framebuffer = null;
++		width = 0;
++		height = 0;
++		actualWidth = 0;
++		actualHeight = 0;
++	}
++}
++#end

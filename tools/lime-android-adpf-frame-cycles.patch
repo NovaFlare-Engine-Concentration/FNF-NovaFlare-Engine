@@ -1,0 +1,47 @@
+diff --git a/project/src/graphics/AndroidPerformanceHints.cpp b/project/src/graphics/AndroidPerformanceHints.cpp
+index a1374ba..6121315 100644
+--- a/project/src/graphics/AndroidPerformanceHints.cpp
++++ b/project/src/graphics/AndroidPerformanceHints.cpp
+@@ -53,6 +53,7 @@ namespace {
+         std::int64_t producerEnded = 0;
+         std::int64_t updates = 0;
+         std::int64_t target = 0;
++        std::uint64_t cycle = 0;
+     };
+ 
+     struct JavaSession {
+@@ -230,12 +231,15 @@ namespace {
+         if (completed <= consumed) return;
+         const auto earliest = completed >= History ? completed - History + 1 : 1;
+         for (auto sample = std::max(consumed + 1, earliest); running && sample <= completed; ++sample) {
++            consumed = sample;
++            const auto& frame = gameFrames[sample % History];
++            if (frame.cycle != sample) continue;
+             WorkerFrame rendered;
+             std::int64_t priorSwapIdle = 0;
+-            const auto& frame = gameFrames[sample % History];
+             {
+                 std::lock_guard<std::mutex> lock(workerFramesMutex);
+                 rendered = workerFrames[sample % History];
++                if (rendered.cycle != sample) continue;
+                 // Deduct a preceding swap only when it blocked the worker
+                 // after this frame's producer had finished submitting work.
+                 for (const auto& previous : workerFrames) {
+@@ -245,8 +249,7 @@ namespace {
+                     if (end > start) priorSwapIdle += end - start;
+                 }
+             }
+-            consumed = sample;
+-            if (rendered.cycle == sample) Send(frame, rendered.swapBegan, priorSwapIdle);
++            Send(frame, rendered.swapBegan, priorSwapIdle);
+         }
+     }
+ 
+@@ -257,6 +260,7 @@ namespace {
+         frame.producerEnded = Now();
+         frame.updates = pendingUpdate;
+         frame.target = target;
++        frame.cycle = work.cycle;
+         if (sessionWorker) {
+             gameFrames[work.cycle % History] = frame;
+             ReadWorkerFrames();

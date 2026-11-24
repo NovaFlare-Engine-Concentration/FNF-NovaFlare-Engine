@@ -1,0 +1,7 @@
+<project>
+    <meta title="NovaFlare Render Thread Test" package="org.novaflare.tests.renderthread" version="1.0.0" company="NovaFlare Tests" />
+    <app main="Main" file="NovaFlareRenderThreadTest" path="../../../_build/render-thread-test" />
+    <window width="320" height="240" fps="60" hardware="true" vsync="true" antialiasing="0" />
+    <haxelib name="lime" />
+    <source path="." />
+</project>

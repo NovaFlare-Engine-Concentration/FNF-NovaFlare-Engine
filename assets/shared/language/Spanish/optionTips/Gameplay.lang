@@ -30,7 +30,6 @@ NoteOffsetState => Ajusta la sincronización de la música y la posición de las
 
 Gameplaybackend => Opciones internas de jugabilidad
 
-gameplayGC => GameplayGC gestiona la memoria durante las canciones para reducir pausas; puede aumentar el uso de memoria.
 fixLNL => Reduce la duración de las notas largas.
 saveScoreBase => Criterio para guardar récords: Score, mayor puntuación; Accuracy, mayor precisión; Misses, menos fallos; highestCombo, combo más alto.
 showReplayWatermark => Muestra la marca de agua de la repetición abajo a la derecha.

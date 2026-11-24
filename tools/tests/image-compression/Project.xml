@@ -1,0 +1,13 @@
+<project>
+    <meta title="NovaFlare Image Compression Test" package="org.novaflare.tests.imagecompression" version="1.0.0" />
+    <app main="Main" file="NovaFlareImageCompressionTest" path="../../../_build/image-compression-test" />
+    <window width="160" height="128" hardware="true" antialiasing="0" />
+    <haxelib name="flixel" />
+    <haxedef name="novaflare_image_live_test" />
+    <source path="." />
+    <source path="../../../_build/image-compression-test/source" />
+    <haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildImage())', 'lime.graphics.Image')" />
+    <haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildBitmapData())', 'openfl.display.BitmapData')" />
+    <haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildAssets())', 'openfl.utils.Assets')" />
+    <haxeflag name="--macro" value="addMetadata('@:build(AsyncDecodeTrace.instrument())', 'general.backend.ImageCompression')" />
+</project>

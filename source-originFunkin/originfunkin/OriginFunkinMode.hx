@@ -136,7 +136,7 @@ class OriginFunkinMode
 			mountedAssetCount = mountAssetLibraries(assetsRoot);
 			registeredFontCount = registerExternalFonts();
 
-			haxe.Log.trace = funkin.util.logging.AnsiTrace.trace;
+			developer.console.TraceInterceptor.initLocal(funkin.util.logging.AnsiTrace.trace);
 			funkin.util.logging.AnsiTrace.traceBF();
 
 			debugDisplay = new FunkinDebugDisplay(10, 10, 0xFFFFFF);
@@ -480,7 +480,6 @@ class OriginFunkinMode
 			throw 'Could not create the originFunkin asset library "$name".';
 		}
 
-		#if FEATURE_HAXEUI
 		if (name == "default")
 		{
 			var previous:lime.utils.AssetLibrary = Assets.getLibrary(name);
@@ -490,23 +489,27 @@ class OriginFunkinMode
 				if (Std.isOfType(previous, AssetLibrary) && (cast previous:AssetLibrary).__proxy != null)
 					previous = (cast previous:AssetLibrary).__proxy;
 				if (library.__proxy != null) target = library.__proxy;
-				// Retain the toolkit's embedded cursors/icons/fonts when replacing
-				// NF's default library with the external Origin manifest.
-				for (id in previous.list(null))
+				// The Origin manifest replaces the built-in library but does not supply all shared assets.
+				var retained:Array<String> = [];
+				#if FEATURE_HAXEUI
+				retained = previous.list(null).filter(id -> StringTools.startsWith(id, "haxeui-core/") || StringTools.startsWith(id, "haxeui-flixel/"));
+				#end
+				var flixelBeep = "flixel/sounds/beep.ogg";
+				if (!target.types.exists(flixelBeep) && previous.types.exists(flixelBeep)) retained.push(flixelBeep);
+				for (id in retained)
 				{
-					if (!StringTools.startsWith(id, "haxeui-core/") && !StringTools.startsWith(id, "haxeui-flixel/")) continue;
 					target.types.set(id, previous.types.get(id));
 					if (previous.classTypes.exists(id)) target.classTypes.set(id, previous.classTypes.get(id));
 					if (previous.paths.exists(id)) target.paths.set(id, previous.paths.get(id));
 					if (previous.sizes.exists(id)) target.sizes.set(id, previous.sizes.get(id));
 					if (previous.cachedBytes.exists(id)) target.cachedBytes.set(id, previous.cachedBytes.get(id));
+					if (previous.cachedAudioBuffers.exists(id)) target.cachedAudioBuffers.set(id, previous.cachedAudioBuffers.get(id));
 					if (previous.cachedImages.exists(id)) target.cachedImages.set(id, previous.cachedImages.get(id));
 					if (previous.cachedFonts.exists(id)) target.cachedFonts.set(id, previous.cachedFonts.get(id));
 					if (previous.cachedText.exists(id)) target.cachedText.set(id, previous.cachedText.get(id));
 				}
 			}
 		}
-		#end
 		Assets.registerLibrary(name, library);
 		mountedLibraries.push(name);
 	}

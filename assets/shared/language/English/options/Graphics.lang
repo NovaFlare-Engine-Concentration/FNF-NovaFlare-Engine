@@ -1,5 +1,9 @@
 Graphics => Graphics
 
+gameQuality => Game Quality
+maxImageSize => Maximum Image Side
+minImageCompressionSize => Compression Threshold
+imageCompressionRatio => Image Compression Ratio
 
 FPScounter => FPS Counter
 

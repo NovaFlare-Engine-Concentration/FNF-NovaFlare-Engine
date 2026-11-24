@@ -1,13 +1,17 @@
 General => General
 
 framerate => Update Framerate Cap
+scriptUpdateRate => Script Update Rate Cap
+scriptUpdateFrameLimit => Scripts Follow Rendering
 drawFramerate => Draw Framerate Cap
 lockRender => Independent Rendering
 language => Engine Language
-gameQuality => Game Quality
 lowQuality => Low Quality
 resolution => Resolution
 renderThread => Render Thread
+vsync => VSync
+generationalGC => Generational GC
+androidPerformanceHints => Performance Hints
 colorblindMode => Colorblind Filter
 antialiasing => Anti-Aliasing
 flashing => Flashing Lights

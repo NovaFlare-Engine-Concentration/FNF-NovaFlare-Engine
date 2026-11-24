@@ -33,7 +33,6 @@ NoteOffsetState => Note Offset
 
 Gameplaybackend => Gameplay Backend
 
-gameplayGC => GameplayGC Takeover
 fixLNL => Fix Long Notes
 saveScoreBase => playback record storage basis
 replayQuality => Replay Quality

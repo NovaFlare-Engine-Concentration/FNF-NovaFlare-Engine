@@ -1,0 +1,92 @@
+diff --git a/src/hx/gc/Immix.cpp b/src/hx/gc/Immix.cpp
+--- a/src/hx/gc/Immix.cpp
++++ b/src/hx/gc/Immix.cpp
+@@ -23,6 +23,10 @@
+ 
+ #include <string>
+ #include <stdlib.h>
++
++#ifdef _MSC_VER
++   #include <intrin.h>
++#endif
+ 
+ #if defined(_M_AMD64) || defined(_M_X64) || defined(__SSE2__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+    #include <emmintrin.h>
+@@ -1202,6 +1206,25 @@
+          mZeroed = ZEROED_NOT;
+    }
+ 
++   static unsigned int allocationStartIndex(unsigned int starts)
++   {
++      #ifdef _MSC_VER
++      unsigned long index;
++      _BitScanForward(&index, starts);
++      return index;
++      #elif defined(__GNUC__) || defined(__clang__)
++      return __builtin_ctz(starts);
++      #else
++      unsigned int index = 0;
++      while (!(starts & 1u))
++      {
++         starts >>= 1;
++         ++index;
++      }
++      return index;
++      #endif
++   }
++
+    template<bool FULL>
+    void reclaim(BlockDataStats *outStats)
+    {
+@@ -1258,39 +1281,19 @@
+                   unsigned int &starts = allocStart[r];
+                   if (starts)
+                   {
+-                     unsigned int *headerPtr = ((unsigned int *)mPtr->mRow[r]);
+-                     #define CHECK_FLAG(i,byteMask) \
+-                     { \
+-                        unsigned int mask = 1<<i; \
+-                        if ( starts & mask ) \
+-                        { \
+-                           unsigned int header = headerPtr[i]; \
+-                           if ( (header & IMMIX_ALLOC_MARK_ID) != hx::gMarkID ) \
+-                           { \
+-                              starts ^= mask; \
+-                              if (!(starts & byteMask)) \
+-                                 break; \
+-                           } \
+-                           else \
+-                              usedBytes += sizeof(int) + ((header & IMMIX_ALLOC_SIZE_MASK) >> IMMIX_ALLOC_SIZE_SHIFT); \
+-                        } \
++                     const unsigned int *headers = (const unsigned int *)mPtr->mRow[r];
++                     unsigned int liveStarts = 0;
++                     for (unsigned int remaining=starts; remaining; remaining &= remaining - 1)
++                     {
++                        const unsigned int index = allocationStartIndex(remaining);
++                        const unsigned int header = headers[index];
++                        if ((header & IMMIX_ALLOC_MARK_ID) == hx::gMarkID)
++                        {
++                           liveStarts |= 1u << index;
++                           usedBytes += sizeof(int) + ((header & IMMIX_ALLOC_SIZE_MASK) >> IMMIX_ALLOC_SIZE_SHIFT);
++                        }
+                      }
+-
+-                     if (starts & 0x000000ff)
+-                        for(int i=0;i<8;i++)
+-                           CHECK_FLAG(i,0x000000ff);
+-
+-                     if (starts & 0x0000ff00)
+-                        for(int i=8;i<16;i++)
+-                           CHECK_FLAG(i,0x0000ff00);
+-
+-                     if (starts & 0x00ff0000)
+-                        for(int i=16;i<24;i++)
+-                           CHECK_FLAG(i,0x00ff0000);
+-
+-                     if (starts & 0xff000000)
+-                        for(int i=24;i<32;i++)
+-                           CHECK_FLAG(i,0xff000000);
++                     starts = liveStarts;
+                   }
+                }
+                r++;

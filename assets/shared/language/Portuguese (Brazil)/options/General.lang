@@ -1,13 +1,17 @@
 General => Geral
 
-framerate => Taxa de quadros
-drawFramerate => Taxa de atualização visual
+framerate => Limite de atualização
+scriptUpdateRate => Limite de Atualização dos Scripts
+scriptUpdateFrameLimit => Scripts seguem a renderização
+drawFramerate => Limite de renderização
 lockRender => Renderização Independente
 language => Idioma da Engine
-gameQuality => Qualidade do Jogo
 lowQuality => Baixa Qualidade
 resolution => Resolução
 renderThread => Thread de Renderização
+vsync => Sincronização vertical
+generationalGC => GC geracional
+androidPerformanceHints => Dicas de desempenho
 colorblindMode => Filtro para Daltonismo
 antialiasing => Suavização de Bordas
 flashing => Luzes Piscantes

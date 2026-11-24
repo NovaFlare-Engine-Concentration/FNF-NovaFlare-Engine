@@ -1,4 +1,4 @@
-﻿package general.backend;
+package general.backend;
 
 import flixel.util.FlxSave;
 import flixel.input.keyboard.FlxKey;
@@ -8,7 +8,6 @@ import states.titleState.TitleState;
 
 import games.backend.ExtraKeysHandler.EKNoteColor;
 
-import lime.system.Display;
 
 #if mobile
 import general.objects.screen.MouseEffect;
@@ -25,19 +24,29 @@ import general.shaders.MobileShaderConverter;
 
 	// General
 	public var framerate:Int = 1000;
+	public var scriptUpdateRate:Int = 0;
+	public var scriptUpdateFrameLimit:Bool = false;
 	public var drawFramerate:Int = 1000;
 	public var lockRender:Bool = true;
 	public var renderThread:Bool = true;
+	public var vsync:Bool = true;
 	public var resolution:String = 'Native';
 	public var colorblindMode:String = 'None';
 	public var lowQuality:Bool = false;
 	public var gameQuality:Int = #if mobile 0 #else 1 #end;
+	public var maxImageSize:Int = 0;
+	public var minImageCompressionSize:Int = 0;
+	public var imageCompressionRatio:Float = 1.0;
 	public var antialiasing:Bool = true;
 	public var flashing:Bool = true;
 	public var shaders:Bool = true;
 	public var cacheOnGPU:Bool = false;
 	public var autoPause:Bool = true;
 	public var gcFreeZone:Bool = true;
+	public var generationalGC:Bool = false;
+	#if android
+	public var androidPerformanceHints:Bool = false;
+	#end
 	#if mobile
 	public var autoOrientation:Bool = false;
 	public var autoShaderConversion:Bool = true;
@@ -60,7 +69,6 @@ import general.shaders.MobileShaderConverter;
 
 	// Backend
 	// Gameplay backend s
-	public var gameplayGC:Bool = false;
 	public var fixLNL:Int = 0; // fix long note length
 	public var saveScoreBase:String = 'Score';
 	public var mainMusic:String = 'None';
@@ -393,7 +401,7 @@ class ClientPrefs
 		defaultButtons = [for (key => value in gamepadBinds) key => value.copy()];
 	}
 
-	public static function saveSettings()
+	public static function savePreferences():Bool
 	{
 		for (key in Reflect.fields(data))
 			if (key != 'arrowRGB' && key != 'arrowRGBPixel')
@@ -410,7 +418,12 @@ class ClientPrefs
 		FlxG.save.data.modsData = modsData;
 
 		#if ACHIEVEMENTS_ALLOWED Achievements.save(); #end
-		FlxG.save.flush();
+		return FlxG.save.flush();
+	}
+
+	public static function saveSettings():Void
+	{
+		final saved = savePreferences();
 
 		// Placing this in a separate save so that it can be manually deleted without removing your Score and stuff
 		var save:FlxSave = new FlxSave();
@@ -419,8 +432,35 @@ class ClientPrefs
 		save.data.gamepad = gamepadBinds;
 
 		save.flush();
-		FlxG.log.add("Settings saved!");
+		if (saved) FlxG.log.add("Settings saved!");
 	}
+
+	#if (cpp && NOVAFLARE_GC_GENERATIONAL_PREFERENCE && !hxcpp_zgc)
+	public static var generationalGCAtStartup(default, null):Bool = false;
+	static var generationalGCInitialized = false;
+
+	public static function initializeGenerationalGC():Void
+	{
+		if (generationalGCInitialized) return;
+		generationalGCInitialized = true;
+		final prefs = new FlxSave();
+		try
+		{
+			if (prefs.bind('funkin', CoolUtil.getSavePath()))
+			{
+				final saved:Dynamic = Reflect.field(prefs.data, 'generationalGC');
+				generationalGCAtStartup = Std.isOfType(saved, Bool) && saved == true;
+			}
+		}
+		catch (error:haxe.Exception)
+		{
+			trace('Could not read the generational GC preference: ${error.message}');
+		}
+		prefs.destroy();
+		data.generationalGC = generationalGCAtStartup;
+		general.backend.gc.GCManager.configureGenerationalGC(generationalGCAtStartup);
+	}
+	#end
 
 	#if sys
 	public static function saveArrowRGBData(path:String, rgbArray:Array<Array<FlxColor>>)
@@ -496,6 +536,16 @@ class ClientPrefs
 		}
 	}
 
+	public static function applyVSyncPreference():Bool
+	{
+		#if cpp
+		var window = lime.app.Application.current?.window;
+		return window != null && window.setVSyncMode(data.vsync ? lime.ui.WindowVSyncMode.ON : lime.ui.WindowVSyncMode.OFF);
+		#else
+		return false;
+		#end
+	}
+
 	public static function loadPrefs()
 	{
 		#if ACHIEVEMENTS_ALLOWED Achievements.load(); #end
@@ -508,6 +558,14 @@ class ClientPrefs
 			{
 				if (key == 'arrowRGB' || key == 'arrowRGBPixel' || key == 'modsData')
 					continue;
+				#if (cpp && NOVAFLARE_GC_GENERATIONAL_PREFERENCE && !hxcpp_zgc)
+				if (key == 'generationalGC')
+				{
+					data.generationalGC = generationalGCAtStartup;
+					Reflect.setField(FlxG.save.data, key, data.generationalGC);
+					continue;
+				}
+				#end
 				if (key == 'gameplaySettings')
 				{
 					data.gameplaySettings.clear();
@@ -578,6 +636,9 @@ class ClientPrefs
 					key != 'performanceDefaultsVersion' && Reflect.hasField(FlxG.save.data, key))
 				{
 					var savedValue:Dynamic = Reflect.field(FlxG.save.data, key);
+					#if (cpp && NOVAFLARE_GC_GENERATIONAL_PREFERENCE && !hxcpp_zgc)
+					if (key == 'generationalGC') savedValue = generationalGCAtStartup;
+					#end
 					// Older builds exposed this integer as a checkbox and may have saved a Bool.
 					if (key == 'fixLNL' && Std.isOfType(savedValue, Bool)) savedValue = savedValue ? 1 : 0;
 					Reflect.setField(data, key, savedValue);
@@ -692,7 +753,16 @@ class ClientPrefs
 			useRenderThread = true;
 		#end
 		lime.graphics.opengl.GL.setMultiThreaded(useRenderThread);
+		#if cpp
+		if (!applyVSyncPreference())
+		{
+			trace('Could not apply the saved VSync preference');
+		}
+		#end
 
+		#if android
+		mobile.backend.AndroidPerformanceHints.setEnabled(data.androidPerformanceHints);
+		#end
 		#if mobile
 		MobileShaderConverter.setEnabled(data.autoShaderConversion);
 		MouseEffect.setUserEffectsEnabled(data.mouseTrailEffect);
@@ -700,38 +770,13 @@ class ClientPrefs
 
 		FlxG.updateFramerate = data.framerate;
 		FlxG.drawFramerate = data.drawFramerate;
-		FlxG.stage.application.window.lockRender = data.lockRender;
+		var window = FlxG.stage.window;
+		window.lockRender = data.lockRender;
+		data.lockRender = window.lockRender;
 
-		var output:Array<Float> = [];
-		switch(data.resolution) {
-			case '360P':
-				output = [640, 360];
-			case '480P':
-				output = [854, 480];
-			case '540P':
-				output = [960, 540];
-			case '720P':
-				output = [1280, 720];
-			case '768P':
-				output = [1366, 768];
-			case '900P':
-				output = [1600, 900];
-			case '1080P':
-				output = [1920, 1080];
-			case '1440P (2K)':
-				output = [2560, 1440];
-			case '1600P':	
-				output = [2560, 1600];
-			case '1800P':
-				output = [3200, 1800];
-			case '2160P (4K)':	
-				output = [3840, 2160];
-			default:
-				var display:Display = lime.system.System.getDisplay(0);
-				output = [display.bounds.width, display.bounds.height];
-				data.resolution = "Native: " + display.bounds.width + "x" + display.bounds.height;
-		}
-		openfl.Lib.current.stage.setLogicalSize(Std.int(output[0]), Std.int(output[1]));
+		data.resolution = RenderResolution.normalize(data.resolution);
+		RenderResolution.configureStage(openfl.Lib.current.stage);
+		RenderResolution.apply(openfl.Lib.current.stage, data.resolution);
 
 		if (FlxG.save.data.gameplaySettings != null)
 		{

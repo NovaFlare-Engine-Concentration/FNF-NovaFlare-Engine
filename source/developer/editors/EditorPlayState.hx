@@ -430,6 +430,7 @@ class EditorPlayState extends MusicBeatSubstate
 
 		// NEW SHIT
 		noteData = songData.notes;
+		var absoluteLanes = games.backend.Song.chartLaneSemantics == 'absolute';
 		for (section in noteData)
 		{
 			for (songNotes in section.sectionNotes)
@@ -439,12 +440,9 @@ class EditorPlayState extends MusicBeatSubstate
 					continue;
 
 				var daNoteData:Int = Std.int(songNotes[1] % (PlayState.SONG.mania + 1));
-				var gottaHitNote:Bool = section.mustHitSection;
-
-				if (songNotes[1] > PlayState.SONG.mania)
-				{
-					gottaHitNote = !section.mustHitSection;
-				}
+				var firstSide = songNotes[1] <= PlayState.SONG.mania;
+				var gottaHitNote:Bool = absoluteLanes ? firstSide : (firstSide == section.mustHitSection);
+				var gfNote = section.gfSection && (absoluteLanes ? gottaHitNote == section.mustHitSection : firstSide);
 
 				var oldNote:Note;
 				if (unspawnNotes.length > 0)
@@ -455,7 +453,7 @@ class EditorPlayState extends MusicBeatSubstate
 				var swagNote:Note = new Note(daStrumTime, daNoteData, oldNote, false, false, instance);
 				swagNote.mustPress = gottaHitNote;
 				swagNote.sustainLength = songNotes[2];
-				swagNote.gfNote = (section.gfSection && (songNotes[1] < (PlayState.SONG.mania + 1)));
+				swagNote.gfNote = gfNote;
 				swagNote.noteType = songNotes[3];
 				if (!Std.isOfType(songNotes[3], String))
 					swagNote.noteType = ChartingState.noteTypeList[songNotes[3]]; // Backward compatibility + compatibility with Week 7 charts
@@ -476,7 +474,7 @@ class EditorPlayState extends MusicBeatSubstate
 						var sustainNote:Note = new Note(daStrumTime + (Conductor.stepCrochet * susNote), daNoteData, oldNote, true, false, instance);
 						sustainNote.hitMultUpdate(susNote, floorSus);
 						sustainNote.mustPress = gottaHitNote;
-						sustainNote.gfNote = (section.gfSection && (songNotes[1] < (PlayState.SONG.mania + 1)));
+						sustainNote.gfNote = gfNote;
 						sustainNote.noteType = swagNote.noteType;
 						sustainNote.scrollFactor.set();
 						sustainNote.parent = swagNote;

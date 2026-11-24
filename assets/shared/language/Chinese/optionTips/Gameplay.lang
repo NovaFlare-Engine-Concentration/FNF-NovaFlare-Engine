@@ -33,7 +33,6 @@ NoteOffsetState => 更改音乐偏移和UI贴图的位置
 
 Gameplaybackend => 游戏后端设置
 
-gameplayGC => 允许 GameplayGC 在歌曲进行中接管内存回收，以减少 GC 停顿；可能会增加内存占用。
 fixLNL => 减少长键长度
 saveScoreBase => 回放记录保存基础，Score：分数最高，Accuracy：准确率最高，Misses：错过数最少，highestCombo：连击最多
 showReplayWatermark => 回放时在右下角显示回放水印

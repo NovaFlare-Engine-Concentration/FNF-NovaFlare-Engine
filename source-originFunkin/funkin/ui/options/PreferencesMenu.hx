@@ -228,10 +228,9 @@ class PreferencesMenu extends Page<OptionsState.OptionsMenuPageName>
     }, Preferences.autoFullscreen);
     #end
 
-    // VSync is only exposed on desktop.
-    #if !(mobile || web)
+    #if !web
     createPrefItemEnum('VSync', "When enabled, the game attempts to match the framerate with your monitor's refresh rate.",
-      ["Off" => OriginVSyncMode.OFF, "On" => OriginVSyncMode.ON, "Adaptive" => OriginVSyncMode.ADAPTIVE,],
+      ["Off" => OriginVSyncMode.OFF, "On" => OriginVSyncMode.ON #if !mobile, "Adaptive" => OriginVSyncMode.ADAPTIVE #end],
       function(key:String, value:OriginVSyncMode):Void
     {
       trace("Setting vsync mode to " + key);
@@ -240,7 +239,7 @@ class PreferencesMenu extends Page<OptionsState.OptionsMenuPageName>
       {
         case OriginVSyncMode.OFF: "Off";
         case OriginVSyncMode.ON: "On";
-        case OriginVSyncMode.ADAPTIVE: "Adaptive";
+        case OriginVSyncMode.ADAPTIVE: #if mobile "On" #else "Adaptive" #end;
       });
     #end
 

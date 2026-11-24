@@ -32,11 +32,9 @@ class InterfaceGroup extends OptionCata
 		var option:Option = new Option(this, 'loadingScreen', BOOL);
 		addOption(option);
 
-		var maxthread:Int = Std.int(Math.max(1, CoolUtil.getCPUThreadsCount() - #if DISCORD_ALLOWED 2 #else 1 #end));
-		#if mobile
-		maxthread = Std.int(Math.min(maxthread, 2));
-		#end
-		var option:Option = new Option(this, 'loadThreads', INT, [1, maxthread, ' Thread']);
+		ClientPrefs.data.loadThreads = CoolUtil.loadingThreadCount(ClientPrefs.data.loadThreads);
+		var option:Option = new Option(this, 'loadThreads', INT, [1, CoolUtil.maxLoadingThreads(), ' Thread']);
+		option.onChange = () -> validateLoadingThreads(option);
 		addOption(option);
 
 		var option:Option = new Option(this, 'useFlixelCoords', BOOL);
@@ -51,5 +49,12 @@ class InterfaceGroup extends OptionCata
 
 	function changeState(type:Int) {
 		OptionsState.instance.moveState(type);
+	}
+
+	function validateLoadingThreads(option:Option):Void {
+		final threads = CoolUtil.loadingThreadCount(ClientPrefs.data.loadThreads);
+		if (threads == ClientPrefs.data.loadThreads) return;
+		option.setValue(threads);
+		option.refreshNumericDisplay();
 	}
 }

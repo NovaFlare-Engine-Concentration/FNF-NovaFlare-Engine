@@ -5,7 +5,7 @@ import sys.thread.Thread;
 import lime.app.Application;
 import lime.system.System as LimeSystem;
 import lime.graphics.opengl.GL;
-import lime.graphics.Image;
+import general.backend.ImageCompression;
 
 import openfl.display.Bitmap;
 import openfl.display.BitmapData;
@@ -75,6 +75,9 @@ class InitState extends MusicBeatState
 		FlxG.save.bind('funkin', CoolUtil.getSavePath());
 
 		ClientPrefs.loadPrefs();
+		var maxTextureSize:Int = GL.getParameter(GL.MAX_TEXTURE_SIZE);
+		ImageCompression.configure(maxTextureSize, ClientPrefs.data.maxImageSize, ClientPrefs.data.imageCompressionRatio,
+			ClientPrefs.data.minImageCompressionSize);
 
 		#if ACHIEVEMENTS_ALLOWED Achievements.load(); #end
 		GABridge.init();
@@ -124,9 +127,7 @@ class InitState extends MusicBeatState
 				Main.resetSpriteCache(FlxG.game);
 		});		
 
-		var maxTextureSize:Int = GL.getParameter(GL.MAX_TEXTURE_SIZE);
 		trace('maxTextureSize: ' + maxTextureSize);
-		Image.setMaxTextureSize(maxTextureSize);
 
 		trace("GL_VENDOR=" + GL.getString(GL.VENDOR));
 		trace("GL_RENDERER=" + GL.getString(GL.RENDERER));
@@ -174,7 +175,9 @@ class InitState extends MusicBeatState
 		#end
 
 		#if mobile
-		var allowAutomaticCopy:Bool = #if ios !CopyState.hasAttemptedIOSCopy() #else true #end;
+		var allowAutomaticCopy:Bool = #if ios !CopyState.hasAttemptedIOSCopy()
+			#elseif android Sys.getEnv('NOVAFLARE_ANDROID_DIAGNOSTICS') != '1'
+			#else true #end;
 		if (allowAutomaticCopy)
 		{
 			if (ClientPrefs.data.filesCheck && !ignoreCopy)
@@ -270,7 +273,7 @@ class InitState extends MusicBeatState
 		#if FREEPLAY
 		MusicBeatState.switchState(new FreeplayState());
 		#elseif CHARTING
-		MusicBeatState.switchState(new ChartingState());
+		MusicBeatState.switchState(new developer.editors.psych104.Psych104ChartingState());
 		#else
 		if (FlxG.save.data.openedFlash == null)
 		{
@@ -338,6 +341,14 @@ class InitState extends MusicBeatState
 
 			var chartName:String = Highscore.formatSong(requestedSong, difficulty);
 			PlayState.SONG = Song.loadFromJson(chartName, requestedSong);
+			#if (windows && cpp && FEATURE_DEBUG_FUNCTIONS && CODENAME_ENGINE_COMPAT)
+			if (Sys.args().contains('--cne-isolated-storage'))
+			{
+				var vsync = Sys.getEnv('NOVAFLARE_DIAGNOSTIC_VSYNC');
+				if (vsync == '0' || vsync == '1')
+					FlxG.stage.window.setVSyncMode(vsync == '1' ? lime.ui.WindowVSyncMode.ON : lime.ui.WindowVSyncMode.OFF);
+			}
+			#end
 			trace('diagnostic:gameplay prepared song=$requestedSong chart=$chartName '
 				+ 'difficulty=$difficulty mod=${Mods.currentModDirectory} botplay=$botplay');
 

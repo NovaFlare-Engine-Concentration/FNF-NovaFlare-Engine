@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <project>
 	<!-- _________________________ Application Settings _________________________ -->
-	<app title="NovaFlare Engine" file="NovaFlare Engine" packageName="com.NovaFlareEngineNew" package="com.NovaFlareEngineNew" main="Main" version="1.2.1" build-number="40261005" company="NF-crew" />
+	<app title="NovaFlare Engine" file="NovaFlare Engine" packageName="com.NovaFlareEngineNew" package="com.NovaFlareEngineNew" main="Main" version="1.2.5" build-number="40261123" company="NF-crew" />
+	<app package="com.NovaFlareEngineNew.renderdiagnostics" if="android novaflare_render_diagnostics" />
 
 	<!--Switch Export with Unique ApplicationID and Icon-->
 	<set name="APP_ID" value="0x0100f6c013bbc000" />
@@ -55,22 +56,24 @@
 	<define name="FEATURE_TOUCH_CONTROLS" if="mobile"/>
 	<define name="FEATURE_FUNKVIS"/>
 	<define name="FEATURE_MULTITHREADING"/>
-	<define name="origin_editors" if="desktop"/>
+	<define name="origin_editors" if="desktop || android"/>
+	<define name="FEATURE_DEBUG_MENU" if="origin_editors || android"/>
 	<section if="origin_editors">
 		<define name="FEATURE_HAXEUI"/>
-		<define name="FEATURE_DEBUG_MENU"/>
-		<define name="FEATURE_DEBUG_FUNCTIONS"/>
-		<define name="FEATURE_DEBUG_FILE_LOGGING"/>
-		<define name="FEATURE_DEBUG_DISPLAY"/>
-		<define name="FEATURE_SCREENSHOTS"/>
 		<define name="FEATURE_ANIMATION_EDITOR"/>
-		<define name="FEATURE_RESULTS_DEBUG"/>
-		<define name="FEATURE_POLYMOD_MODS"/>
 		<define name="FEATURE_CHART_EDITOR"/>
 		<define name="FEATURE_STAGE_EDITOR"/>
 		<define name="FEATURE_CAMERA_EDITOR"/>
 		<haxedef name="haxeui_dont_impose_base_class"/>
 		<haxedef name="haxeui_no_mouse_reset"/>
+	</section>
+	<section if="desktop">
+		<define name="FEATURE_DEBUG_FUNCTIONS"/>
+		<define name="FEATURE_DEBUG_FILE_LOGGING"/>
+		<define name="FEATURE_DEBUG_DISPLAY"/>
+		<define name="FEATURE_SCREENSHOTS"/>
+		<define name="FEATURE_RESULTS_DEBUG"/>
+		<define name="FEATURE_POLYMOD_MODS"/>
 	</section>
 	<section if="origin_tracy desktop">
 		<define name="FEATURE_DEBUG_TRACY"/>
@@ -95,16 +98,16 @@
 	<!-- ____________________________ Window Settings ___________________________ -->
 
 	<!--These window settings apply to all targets-->
-	<window width="1280" height="720" fps="60" background="#000000" hardware="true" vsync="false" allow-shaders="true" antialiasing="0" allowHighDPI="false" preserveDrawingBuffer="false" />
+	<window width="1280" height="720" fps="60" background="#000000" hardware="true" vsync="true" allow-shaders="true" antialiasing="0" allowHighDPI="false" preserveDrawingBuffer="false" />
 
 	<!--HTML5-specific-->
 	<window if="html5" resizable="true" />
 
 	<!--Desktop-specific-->
-	<window if="desktop" orientation="landscape" fullscreen="false" resizable="true" vsync="false"/>
+	<window if="desktop" orientation="landscape" fullscreen="false" resizable="true" vsync="true"/>
 
 	<!--Mobile-specific-->
-	<window if="mobile" orientation="landscape" fullscreen="true" resizable="false" allow-shaders="true" require-shaders="true" allow-high-dpi="true" vsync="false" />
+	<window if="mobile" orientation="landscape" fullscreen="true" resizable="false" allow-shaders="true" require-shaders="true" allow-high-dpi="true" vsync="true" />
 
 	<!--Switch-specific-->
 	<window if="switch" orientation="landscape" fullscreen="true" width="0" height="0" resizable="true" />
@@ -130,6 +133,7 @@
 	<classpath name="source-originFunkin" />
 	<classpath name="source-codename" if="CODENAME_ENGINE_COMPAT" />
 	<classpath name="source-originFunkin/editor-compat" if="origin_editors"/>
+	<classpath name="source-originFunkin/editor-compat-android" if="android"/>
 	<haxeflag name="--macro" value="originfunkin.macro.OriginEditorMacro.configure()" if="origin_editors"/>
 	<haxeflag name="--macro" value="originfunkin.macro.OriginScriptCompatMacro.configure()" />
 	<haxeflag name="--macro" value="addMetadata('@:build(originfunkin.macro.OriginScriptCompatMacro.allowBitmapOverrides())', 'flixel.system.frontEnds.BitmapFrontEnd')" />
@@ -267,7 +271,10 @@
 	<haxedef name="openfl_always_render" if="ios" />
 
 	<haxedef name="HXCPP_ALIGN_ALLOC"/>
-	<haxedef name="HXCPP_GC_GENERATIONAL" />
+	<section if="windows || android" unless="hxcpp_zgc">
+		<haxedef name="NOVAFLARE_GC_GENERATIONAL_PREFERENCE"/>
+		<haxedef name="HXCPP_GC_GENERATIONAL"/>
+	</section>
 	<!-- 默认关闭zgc -->
 	<!-- <haxedef name="hxcpp_zgc" if="windows" unless="legacy_gc_compare" /> -->
 	<!-- <haxedef name="novagc-precise" if="windows" unless="legacy_gc_compare" /> -->
@@ -314,7 +321,7 @@
 	<haxedef name="HXC_LIBVLC_LOGGING" if="debug hxCodec" />
 	
 	<!--Disable the Flixel core debugger. Automatically gets set whenever you compile in release mode!-->
-	<haxedef name="FLX_NO_DEBUG" unless="debug || origin_editors" />
+	<haxedef name="FLX_NO_DEBUG" unless="debug || desktop" />
 
 	<!--Enable this for Nape release builds for a serious peformance improvement-->
 	<haxedef name="NAPE_RELEASE_BUILD" unless="debug" />
@@ -361,6 +368,16 @@
 	<haxeflag name="--macro" value="originfunkin.macro.OriginIncludeMacro.includeFlixel()" if="origin_include_libs" />
 	<haxeflag name="--macro" value="originfunkin.macro.OriginIncludeMacro.includeFunkin()" if="origin_include_funkin" />
 	<haxeflag name="--macro" value="addMetadata('@:build(funkin.util.macro.FlxMacro.buildFlxSprite())', 'flixel.FlxSprite')" />
+	<haxedef name="novaflare_image_compression" />
+	<haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildImage())', 'lime.graphics.Image')" />
+	<haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildBitmapData())', 'openfl.display.BitmapData')" />
+	<haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildAssets())', 'openfl.utils.Assets')" />
+	<haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildAssetLibrary())', 'lime.utils.AssetLibrary')" />
+	<haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildDeferredAssetLibrary())', 'polymod.backends.LimeModLibrary')" />
+	<haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildDeferredAssetLibrary())', 'polymod.backends.LimeCoreLibrary')" />
+	<haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.checkFlixelPatch())', 'flixel.graphics.FlxGraphic')" />
+	<haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildSpineTextureLoader())', 'flixel.addons.editors.spine.texture.FlixelTextureLoader')" />
+	<haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildSpineTextureLoader())', 'spinehaxe.platform.openfl.BitmapDataTextureLoader')" />
 	<haxeflag name="--macro" value="addMetadata('@:build(originfunkin.macro.OriginFlixelCompatMacro.addZIndex())', 'flixel.FlxBasic')" />
 	<haxeflag name="--macro" value="addMetadata('@:build(originfunkin.macro.OriginFlixelCompatMacro.addContainsExact())', 'thx.Arrays')" />
 	<haxeflag name="--macro" value="addMetadata('@:build(originfunkin.macro.OriginFlixelCompatMacro.addTouchCompatibility())', 'flixel.input.touch.FlxTouch')" if="mobile" />

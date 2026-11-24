@@ -138,8 +138,8 @@ class GameOverSubstate extends MusicBeatSubstate
 	override function update(elapsed:Float)
 	{
 		super.update(elapsed);
-
-		PlayState.instance.callOnScripts('onUpdate', [elapsed]);
+		final scriptElapsed = general.backend.NovaFlareGame.scriptElapsedForUpdate(elapsed);
+		if (scriptElapsed != null) PlayState.instance.callOnScripts('onUpdate', [scriptElapsed]);
 
 		if (controls.ACCEPT)
 		{
@@ -218,7 +218,16 @@ class GameOverSubstate extends MusicBeatSubstate
 		{
 			Conductor.songPosition = FlxG.sound.music.time;
 		}
-		PlayState.instance.callOnScripts('onUpdatePost', [elapsed]);
+		if (scriptElapsed != null) PlayState.instance.callOnScripts('onUpdatePost', [scriptElapsed]);
+	}
+
+	override public function drawUpdate(elapsed:Float):Void
+	{
+		final runScriptUpdate = general.backend.NovaFlareGame.scriptUpdateActive;
+		final scriptElapsed = general.backend.NovaFlareGame.scriptUpdateElapsed;
+		if (runScriptUpdate) PlayState.instance.callOnScripts('onUpdate', [scriptElapsed]);
+		super.drawUpdate(elapsed);
+		if (runScriptUpdate) PlayState.instance.callOnScripts('onUpdatePost', [scriptElapsed]);
 	}
 
 	var isEnding:Bool = false;

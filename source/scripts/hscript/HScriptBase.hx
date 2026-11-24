@@ -18,6 +18,58 @@ import haxe.ValueException;
 import crowplexus.hscript.Interp;
 import crowplexus.hscript.Expr;
 import crowplexus.hscript.Parser;
+#if LUA_ALLOWED
+import crowplexus.iris.Iris;
+#end
+#if (LUA_ALLOWED && hscriptPos)
+import crowplexus.hscript.Expr.Error as HScriptError;
+import crowplexus.hscript.Printer;
+#end
+
+#if LUA_ALLOWED
+private typedef LuaHScriptCall =
+{
+	final label:String;
+	final file:String;
+	final line:Int;
+}
+
+private typedef LuaHScriptSnippet =
+{
+	final origin:String;
+	final raw:String;
+	final prepared:String;
+}
+#end
+
+#if (LUA_ALLOWED && hscriptPos)
+private class LuaSnippetInterp extends Interp
+{
+	public static inline final originPrefix = 'runHaxeCode#';
+
+	public static function isSnippetOrigin(origin:String):Bool
+	{
+		return origin != null && StringTools.startsWith(origin, originPrefix);
+	}
+
+	override public function posInfos():haxe.PosInfos
+	{
+		var pos = super.posInfos();
+		if (isSnippetOrigin(pos.fileName)) pos.fileName = 'hscript';
+		return pos;
+	}
+}
+
+private class LuaHScriptUnlocatedError
+{
+	public final cause:Dynamic;
+
+	public function new(cause:Dynamic)
+	{
+		this.cause = cause;
+	}
+}
+#end
 
 #if (LUA_ALLOWED && cpp && (windows || android))
 private typedef NativeHScriptSnapshotEntry =
@@ -47,6 +99,13 @@ class HScriptBase
 
 	public var variables(get, never):Map<String, Dynamic>;
 	public var parentLua:FunkinLua;
+	#if LUA_ALLOWED
+	private static final LUA_HSCRIPT_ERROR_LIMIT:Int = 32;
+	private var recentLuaHScriptErrors:Array<String> = [];
+	#if hscriptPos
+	private static var luaSnippetId:Int = 0;
+	#end
+	#end
 
 	private static function resolveLuaContext(funk:FunkinLua):String
 	{
@@ -297,7 +356,7 @@ class HScriptBase
 
 	public function new(parent:FunkinLua)
 	{
-		interp = new Interp();
+		interp = #if (LUA_ALLOWED && hscriptPos) new LuaSnippetInterp() #else new Interp() #end;
 		parentLua = parent;
 		interp.variables.set('FlxG', flixel.FlxG);
 		interp.variables.set('FlxSprite', flixel.FlxSprite);
@@ -318,6 +377,7 @@ class HScriptBase
 		#end
 		interp.variables.set('ShaderFilter', openfl.filters.ShaderFilter);
 		interp.variables.set('StringTools', StringTools);
+		if (PlayState.instance != null) PlayState.instance.provideSongScriptGlobals(interp.variables.set, true);
 
 		interp.variables.set('setVar', function(name:String, value:Dynamic)
 		{
@@ -392,14 +452,31 @@ class HScriptBase
 		interp.variables.set('parentLua', parentLua);
 	}
 
-	public function execute(codeToRun:String, ?funcToRun:String = null, ?funcArgs:Array<Dynamic>):Dynamic
+	public function execute(codeToRun:String, ?funcToRun:String = null, ?funcArgs:Array<Dynamic>, ?origin:String):Dynamic
 	{
 		@:privateAccess
 		HScriptBase.parser.line = 1;
 		HScriptBase.parser.allowTypes = true;
-		var expr:Expr = HScriptBase.parser.parseString(codeToRun);
+		var expr:Expr = origin == null ? HScriptBase.parser.parseString(codeToRun) : HScriptBase.parser.parseString(codeToRun, origin);
 		var value:Dynamic = interp.execute(expr);
-		return (funcToRun != null) ? executeFunction(funcToRun, funcArgs) : value;
+		if (funcToRun == null) return value;
+		#if (LUA_ALLOWED && hscriptPos)
+		var startingExpression = @:privateAccess interp.curExpr;
+		try
+		{
+			return executeFunction(funcToRun, funcArgs);
+		}
+		catch (e:Dynamic)
+		{
+			// Reflection can fail before the requested HScript function evaluates anything.
+			var failedExpression = @:privateAccess interp.curExpr;
+			if (origin != null && failedExpression == startingExpression)
+				throw new LuaHScriptUnlocatedError(e);
+			throw e;
+		}
+		#else
+		return executeFunction(funcToRun, funcArgs);
+		#end
 	}
 
 	public function executeFunction(funcToRun:String = null, funcArgs:Array<Dynamic>)
@@ -426,10 +503,12 @@ class HScriptBase
 			HScriptBase.syntaxFixEnabled = enabled;
 		});
 		funk.addLocalCallback("runHaxeCode",
-			function(codeToRun:String, ?varsToBring:Any = null, ?funcToRun:String = null, ?funcArgs:Array<Dynamic> = null, ?callerFile:String = null, ?callerLine:Int = 0, ?callerFunction:String = null)
+			function(codeToRun:String, ?varsToBring:Any = null, ?funcToRun:String = null, ?funcArgs:Array<Dynamic> = null, ?callerSource:String = null, ?callerLine:Int = 0, ?callerFunction:String = null)
 			{
 				var retVal:Dynamic = null;
-				var where:String = buildLuaCallSite(callerFile, callerLine, callerFunction, funk);
+				var call = getLuaCallSite(callerSource, callerLine, callerFunction);
+				var snippetOrigin:String = null;
+				var originalCode = codeToRun;
 
 				#if HSCRIPT_ALLOWED
 				#if (cpp && (windows || android))
@@ -444,7 +523,7 @@ class HScriptBase
 				{
 					HScriptBase.initHaxeModule(funk);
 					#if (cpp && (windows || android))
-					nativeSnapshot = funk.hscriptBase.getNativeExecutionSnapshot(funk, where, codeToRun, funcToRun);
+					nativeSnapshot = funk.hscriptBase.getNativeExecutionSnapshot(funk, call.label, codeToRun, funcToRun);
 					if (nativeSnapshot != null)
 					{
 						previousRegistrationSlot = funk.hscriptBase.activeNativeSnapshotSlot;
@@ -468,7 +547,10 @@ class HScriptBase
 					if (nativeSnapshot != null)
 						nativeFunctionsBefore = funk.hscriptBase.captureNativeFunctions();
 					#end
-					retVal = funk.hscriptBase.execute(codeToRun, funcToRun, funcArgs);
+					#if hscriptPos
+					snippetOrigin = LuaSnippetInterp.originPrefix + luaSnippetId++;
+					#end
+					retVal = funk.hscriptBase.execute(codeToRun, funcToRun, funcArgs, snippetOrigin);
 					#if (cpp && (windows || android))
 					if (nativeSnapshot != null)
 						funk.hscriptBase.rememberNativeFunctionOrigins(nativeFunctionsBefore, nativeSnapshot);
@@ -487,7 +569,7 @@ class HScriptBase
 						nativeSnapshotEntered = false;
 					}
 					#end
-					FunkinLua.luaTrace(funk.scriptName + ":" + resolveLuaContext(funk) + where + " - " + e, false, false, FlxColor.RED);
+					reportLuaHScriptError(funk, call, {origin: snippetOrigin, raw: originalCode, prepared: codeToRun}, e);
 				}
 				#if (cpp && (windows || android))
 				if (nativeSnapshotEntered)
@@ -506,26 +588,25 @@ class HScriptBase
 				return retVal;
 			});
 
-		// Wrap Lua-side runHaxeCode to append callsite info (script file + line) for errors.
+		// Pass the caller's untruncated debug source to Haxe.
 		var wrapperStatus:Int = LuaL.dostring(lua, "
 	if runHaxeCode and not _G.__novaRunHaxeCodeWrapped then
 	local __nova_runHaxeCode = runHaxeCode;
 	runHaxeCode = function(codeToRun, varsToBring, funcToRun, funcArgs)
 		local info = nil;
-		local file = 'unknown';
+		local source = nil;
 		local line = 0;
 		local name = nil;
 		if type(debug) == 'table' and type(debug.getinfo) == 'function' then
 			info = debug.getinfo(2, 'Sln');
 		end;
 		if info ~= nil then
-			file = info.short_src;
+			local debugSource = info.source;
+			source = type(debugSource) == 'string' and debugSource:sub(1, 1) == '@' and debugSource or '=';
 			line = info.currentline or 0;
 			name = info.name;
-			return __nova_runHaxeCode(codeToRun, varsToBring, funcToRun, funcArgs, file, line, name);
-		else
-			return __nova_runHaxeCode(codeToRun, varsToBring, funcToRun, funcArgs, file, line, name);
 		end;
+		return __nova_runHaxeCode(codeToRun, varsToBring, funcToRun, funcArgs, source, line, name);
 	end;
 	_G.__novaRunHaxeCodeWrapped = true;
 end
@@ -575,15 +656,61 @@ end
 		});
 	}
 
-	private static function buildLuaCallSite(callerFile:String, callerLine:Int, callerFunction:String, funk:FunkinLua):String
+	private static function getLuaCallSite(source:String, callerLine:Int, callerFunction:String):LuaHScriptCall
 	{
-		var file:String = (callerFile == null || callerFile == '') ? "unknown" : callerFile;
+		var file = source != null && StringTools.startsWith(source, '@') ? source.substr(1) : null;
+		var displayName = file != null ? file : (source == null ? '<unknown Lua caller>' : '<Lua string chunk>');
 		var line:String = (callerLine > 0) ? (':' + callerLine) : '';
 		var func:String = (callerFunction != null && callerFunction != '') ? (' #' + callerFunction) : '';
-		var callSite:String = '$file$line$func';
-		if (callSite == 'unknown')
-			callSite = funk.scriptName;
-		return ' [' + callSite + ']';
+		return {label: '[$displayName$line$func]', file: file, line: callerLine};
+	}
+
+	private static function reportLuaHScriptError(funk:FunkinLua, call:LuaHScriptCall, snippet:LuaHScriptSnippet, error:Dynamic):Void
+	{
+		var module = funk.hscriptBase;
+		var location = '';
+		#if hscriptPos
+		var unlocated = Std.downcast(error, LuaHScriptUnlocatedError);
+		if (unlocated != null) error = unlocated.cause;
+		var typed:HScriptError = Std.downcast(error, HScriptError);
+		var expression:Expr = module == null ? null : @:privateAccess module.interp.curExpr;
+		var origin = unlocated != null ? null : (typed != null ? typed.origin : (expression == null ? null : expression.origin));
+		var message = typed != null ? Printer.errorToString(typed, false) : Std.string(error);
+		var originalOffset:Null<Int> = null;
+		if (snippet.origin != null && origin == snippet.origin)
+		{
+			var offset = typed != null ? typed.pmin : expression.pmin;
+			originalOffset = LuaHScriptErrorLocation.originalOffset(snippet.raw, snippet.prepared, offset, _syntaxFixRegex);
+			if (originalOffset != null) location = ' [HScript line ${LuaHScriptErrorLocation.lineAt(snippet.raw, originalOffset)}]';
+		}
+		else if (snippet.origin != null && LuaSnippetInterp.isSnippetOrigin(origin))
+		{
+			var line = typed != null ? typed.line : expression.line;
+			if (line > 0) location = ' [earlier HScript snippet, parsed line $line]';
+		}
+		#else
+		var message = Std.string(error);
+		#end
+
+		var key = call.label + location + '\n' + message;
+		if (module != null)
+		{
+			if (module.recentLuaHScriptErrors.contains(key)) return;
+			if (module.recentLuaHScriptErrors.length >= LUA_HSCRIPT_ERROR_LIMIT) module.recentLuaHScriptErrors.shift();
+			module.recentLuaHScriptErrors.push(key);
+		}
+
+		#if hscriptPos
+		if (originalOffset != null && call.file != null && call.file == funk.scriptName)
+		{
+			var line = LuaHScriptErrorLocation.literalSourceLine(call.file, call.line, snippet.raw, originalOffset);
+			if (line != null) location += ' [Lua source ${call.file}:$line]';
+		}
+		#end
+		var text = 'runHaxeCode Lua call ${call.label}$location - $message';
+		Iris.error(text, null);
+		if (PlayState.instance != null && FunkinLua.lastCalledScript == funk && FunkinLua.getBool('luaDebugMode'))
+			PlayState.instance.addTextToDebug(text, FlxColor.RED, false);
 	}
 	#end
 }

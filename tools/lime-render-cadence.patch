@@ -1,0 +1,706 @@
+diff --git a/project/include/graphics/RenderThread.h b/project/include/graphics/RenderThread.h
+--- a/project/include/graphics/RenderThread.h
++++ b/project/include/graphics/RenderThread.h
+@@ -222,4 +222,6 @@
+         bool SetSwapInterval(int interval, bool useWorker = false);
+         bool ApplySwapInterval();
++        bool SetCurrentSwapInterval(int interval);
++        int ConfiguredSwapInterval() const { return swapInterval.load(); }
+         std::uint64_t SwapIntervalRevision() const { return swapIntervalRevision.load(std::memory_order_relaxed); }
+         bool WaitForContext(bool held, int timeoutMS);
+diff --git a/project/src/graphics/RenderThread.cpp b/project/src/graphics/RenderThread.cpp
+--- a/project/src/graphics/RenderThread.cpp
++++ b/project/src/graphics/RenderThread.cpp
+@@ -267,8 +267,7 @@
+     bool RenderThread::SetSwapInterval(int interval, bool useWorker) {
+         if (!IsApplicationThread() && !IsRenderThread()) return false;
+-        swapInterval = interval;
+-        if (IsContextCurrent()) return ApplySwapInterval();
++        if (IsContextCurrent()) return SetCurrentSwapInterval(interval);
+         if (useWorker && CanSubmit())
+-            return RunCommandAndWait<bool>("SDL_GL_SetSwapInterval", [this]() { return ApplySwapInterval(); });
++            return RunCommandAndWait<bool>("SDL_GL_SetSwapInterval", [this, interval]() { return SetCurrentSwapInterval(interval); });
+         return false;
+     }
+@@ -279,6 +278,10 @@
+ 
+     bool RenderThread::ApplySwapInterval() {
+-        if (!IsContextCurrent()) return false;
+-        const bool applied = SDL_GL_SetSwapInterval(swapInterval) == 0;
++        return IsContextCurrent() && SetCurrentSwapInterval(ConfiguredSwapInterval());
++    }
++
++    bool RenderThread::SetCurrentSwapInterval(int interval) {
++        const bool applied = SDL_GL_SetSwapInterval(interval) == 0;
++        if (applied) swapInterval = interval;
+         swapIntervalRevision.fetch_add(1, std::memory_order_relaxed);
+         return applied;
+@@ -359,5 +362,6 @@
+         const bool perfTrace = perfTraceValue != nullptr &&
+             perfTraceValue[0] != '\0' && perfTraceValue[0] != '0';
+-        auto perfWindowStarted = std::chrono::steady_clock::now();
++        auto perfWindowStarted = perfTrace ? std::chrono::steady_clock::now()
++            : std::chrono::steady_clock::time_point();
+         std::uint64_t perfFrames = 0;
+         std::uint64_t perfCommands = 0;
+@@ -370,6 +374,6 @@
+ #endif
+             const std::size_t commandCount = frame->commands.size();
+-            const auto executionStarted =
+-                std::chrono::steady_clock::now();
++            const auto executionStarted = perfTrace ? std::chrono::steady_clock::now()
++                : std::chrono::steady_clock::time_point();
+ #ifdef HX_WINDOWS
+             const auto timelineId = frame->timelineId;
+@@ -400,12 +404,8 @@
+             AndroidPerformanceHints::EndWorkerBatch(frame->androidFinalSubmission);
+ #endif
+-            const std::uint64_t executionMicros =
+-                static_cast<std::uint64_t>(
+-                    std::chrono::duration_cast<
+-                        std::chrono::microseconds>(
+-                            std::chrono::steady_clock::now() -
+-                            executionStarted).count());
+-
+             if (perfTrace) {
++                const auto now = std::chrono::steady_clock::now();
++                const auto executionMicros = static_cast<std::uint64_t>(
++                    std::chrono::duration_cast<std::chrono::microseconds>(now - executionStarted).count());
+                 ++perfFrames;
+                 perfCommands += commandCount;
+@@ -413,7 +413,5 @@
+                 if (executionMicros > perfMaximumExecutionMicros)
+                     perfMaximumExecutionMicros = executionMicros;
+-                const auto now = std::chrono::steady_clock::now();
+-                if (now - perfWindowStarted >=
+-                    std::chrono::seconds(1)) {
++                if (now - perfWindowStarted >= std::chrono::seconds(1)) {
+                     const double averageCommands = perfFrames == 0
+                         ? 0.0
+diff --git a/project/src/backend/sdl/SDLApplication.cpp b/project/src/backend/sdl/SDLApplication.cpp
+--- a/project/src/backend/sdl/SDLApplication.cpp
++++ b/project/src/backend/sdl/SDLApplication.cpp
+@@ -7,5 +7,4 @@
+ #include <graphics/AndroidPerformanceHints.h>
+ #include "../../graphics/opengl/OpenGLBindings.h"
+-#include <graphics/PerformanceMonitor.h>
+ #include <system/System.h>
+ #include <map>
+@@ -75,14 +74,7 @@
+ 	const int analogAxisDeadZone = 1000;
+ 	static std::map<int, std::map<int, int>> gamepadsAxisMap;
+-	static double accumulator = 0.0;
+ 	bool inBackground = false;
+-	static uint64_t perfFreq = 0;
+-	static uint64_t lastPerfCounter = 0;
+-	static uint64_t nextPerfCounter = 0;
+-	static uint64_t periodPerfTicks = 0;
+-	static uint64_t nextRenderPerfCounter = 0;
+-	static uint64_t periodRenderPerfTicks = 0;
+-	static bool hrInit = false;
+-
++
++	#ifdef _WIN32
+ 	static double FrameRateOverride (const char* name, double fallback) {
+ 		const char* value = std::getenv (name);
+@@ -93,5 +85,17 @@
+ 			? parsed : fallback;
+ 	}
+-
++	#endif
++
++	static Uint64 FramePeriodTicks (double periodMs, Uint64 frequency) {
++		const auto ticks = static_cast<Uint64>(periodMs * frequency / 1000.0);
++		return ticks ? ticks : 1;
++	}
++
++	static Uint64 AdvanceFrameDeadline (Uint64 deadline, Uint64 period, Uint64 now) {
++		const auto next = deadline + period;
++		return next > now ? next : now + period;
++	}
++
++	#if !defined(IPHONE) && !defined(EMSCRIPTEN)
+ 	// Sleep against an absolute high-resolution deadline and reserve only the
+ 	// final 100 microseconds for a short spin. The previous high-FPS path used
+@@ -146,4 +150,7 @@
+ 
+ 
++	#endif
++
++
+ 	SDLApplication::SDLApplication () {
+ 
+@@ -166,7 +173,4 @@
+ 		lockRender = false;
+ 
+-		currentUpdate = 0;
+-		lastUpdate = 0;
+-		nextUpdate = 0;
+ 
+ 		ApplicationEvent applicationEvent;
+@@ -249,4 +253,31 @@
+ 
+ 
++	void SDLApplication::DispatchScheduledUpdate () {
++
++		applicationEvent.type = UPDATE;
++		applicationEvent.deltaTime = framePeriod;
++		AndroidPerformanceHints::BeginUpdate();
++		FrameTimeline::BeginUpdate();
++		BeginTimelinePhase();
++		const auto update = FrameTimeline::CurrentUpdate();
++		{
++			FrameTimeline::Span duration("update", update);
++			ApplicationEvent::Dispatch (&applicationEvent);
++		}
++
++		renderEvent.type = RENDER_UPDATE;
++		{
++			FrameTimeline::Span duration("render_update", update);
++			RenderEvent::Dispatch (&renderEvent);
++		}
++
++		FrameTimeline::EndUpdate();
++		AndroidPerformanceHints::EndUpdate();
++
++		if (!lockRender) TryDispatchRender (framePeriod);
++
++	}
++
++
+ 	bool SDLApplication::TryDispatchRender (double periodMs) {
+ 
+@@ -264,5 +295,4 @@
+ 		windowRedrawRequested = false;
+ 		renderEvent.type = RENDER;
+-		PerformanceMonitor::Instance().StartFrame();
+ 		DispatchScheduledRender (&renderEvent, periodMs);
+ 		return true;
+@@ -285,70 +315,5 @@
+ 	void SDLApplication::HandleEvent (SDL_Event* event) {
+ 
+-		#if defined(IPHONE) || defined(EMSCRIPTEN)
+-
+-		int top = 0;
+-		gc_set_top_of_stack(&top,false);
+-
+-		#endif
+-
+ 		switch (event->type) {
+-
+-			case SDL_USEREVENT:
+-
+-				if (!inBackground) {
+-					if (!hrInit) {
+-						perfFreq = SDL_GetPerformanceFrequency ();
+-						lastPerfCounter = SDL_GetPerformanceCounter ();
+-						periodPerfTicks = (uint64_t)(framePeriod * (double)perfFreq / 1000.0);
+-						nextPerfCounter = lastPerfCounter + periodPerfTicks;
+-						periodRenderPerfTicks = (uint64_t)(renderFramePeriod * (double)perfFreq / 1000.0);
+-						nextRenderPerfCounter = lastPerfCounter + periodRenderPerfTicks;
+-						hrInit = true;
+-					}
+-
+-					uint64_t nowPerf = SDL_GetPerformanceCounter ();
+-
+-					if (event->user.code == 0) { // Update
+-						double realDeltaTime = (double)(nowPerf - lastPerfCounter) * 1000.0 / (double)perfFreq;
+-						const double MAX_DELTA_TIME = 10 * framePeriod;
+-						if (realDeltaTime < 0) realDeltaTime = 0;
+-						if (realDeltaTime > MAX_DELTA_TIME) realDeltaTime = MAX_DELTA_TIME;
+-						accumulator += realDeltaTime;
+-
+-						if (accumulator >= framePeriod) {
+-							lastPerfCounter = nowPerf;
+-							lastUpdate = (double)nowPerf * 1000.0 / (double)perfFreq;
+-
+-							applicationEvent.type = UPDATE;
+-							applicationEvent.deltaTime = framePeriod;
+-							AndroidPerformanceHints::BeginUpdate();
+-							FrameTimeline::BeginUpdate();
+-							BeginTimelinePhase();
+-							const auto update = FrameTimeline::CurrentUpdate();
+-							{
+-								FrameTimeline::Span duration("update", update);
+-								ApplicationEvent::Dispatch (&applicationEvent);
+-							}
+-
+-							renderEvent.type = RENDER_UPDATE;
+-							{
+-								FrameTimeline::Span duration("render_update", update);
+-								RenderEvent::Dispatch (&renderEvent);
+-							}
+-
+-							FrameTimeline::EndUpdate();
+-							AndroidPerformanceHints::EndUpdate();
+-
+-							if (!lockRender) TryDispatchRender (framePeriod);
+-
+-							accumulator -= framePeriod;
+-							if (accumulator > framePeriod * 2) accumulator = 0;
+-						}
+-
+-					}
+-				}
+-				
+-				
+-				break;
+ 
+ 			case SDL_APP_WILLENTERBACKGROUND:
+@@ -374,4 +339,5 @@
+ 
+ 				inBackground = false;
++				ResetFrameDeadlines ();
+ 				break;
+ 
+@@ -544,19 +510,17 @@
+ 
+ 		active = true;
+-		if (!hrInit) {
+-			perfFreq = SDL_GetPerformanceFrequency ();
+-			hrInit = true;
+-		}
+-		const uint64_t now = SDL_GetPerformanceCounter ();
+-		lastPerfCounter = now;
+-		periodPerfTicks = static_cast<uint64_t>(framePeriod * perfFreq / 1000.0);
+-		nextPerfCounter = now + periodPerfTicks;
+-		periodRenderPerfTicks = static_cast<uint64_t>(renderFramePeriod * perfFreq / 1000.0);
+-		nextRenderPerfCounter = now + periodRenderPerfTicks;
+-		
+-		double nowMs = (double)now * 1000.0 / (double)perfFreq;
+-		lastUpdate = nowMs;
+-		currentUpdate = nowMs;
+-		nextUpdate = nowMs + framePeriod;
++		ResetFrameDeadlines ();
++
++	}
++
++
++	void SDLApplication::ResetFrameDeadlines () {
++
++		if (!performanceFrequency) performanceFrequency = SDL_GetPerformanceFrequency ();
++		const auto now = SDL_GetPerformanceCounter ();
++		updatePeriodTicks = FramePeriodTicks (framePeriod, performanceFrequency);
++		renderPeriodTicks = FramePeriodTicks (renderFramePeriod, performanceFrequency);
++		nextUpdateCounter = now + updatePeriodTicks;
++		nextRenderCounter = now + renderPeriodTicks;
+ 
+ 	}
+@@ -1113,25 +1077,14 @@
+ 	void SDLApplication::SetFrameRate (double frameRate) {
+ 
+-		accumulator = 0.0;
+ 		#ifdef _WIN32
+ 		frameRate = FrameRateOverride ("NOVAFLARE_UPDATE_RATE", frameRate);
+ 		#endif
+-
+-		if (frameRate > 0) {
+-
+-			framePeriod = 1000.0 / frameRate;
+-			if (perfFreq) periodPerfTicks = (uint64_t)(framePeriod * (double)perfFreq / 1000.0);
+-
+-		} else {
+-
+-			framePeriod = 1000.0;
+-			if (perfFreq) periodPerfTicks = (uint64_t)(framePeriod * (double)perfFreq / 1000.0);
+-
+-		}
+-		if (perfFreq) {
+-			lastPerfCounter = SDL_GetPerformanceCounter ();
+-			nextPerfCounter = lastPerfCounter + periodPerfTicks;
++		framePeriod = frameRate > 0 ? 1000.0 / frameRate : 1000.0;
++		if (performanceFrequency) {
++			updatePeriodTicks = FramePeriodTicks (framePeriod, performanceFrequency);
++			nextUpdateCounter = SDL_GetPerformanceCounter () + updatePeriodTicks;
+ 		}
+ 		TraceFrameSetting("update_period_ns", static_cast<std::uint64_t>(framePeriod * 1000000.0 + .5));
++
+ 	}
+ 
+@@ -1142,19 +1095,11 @@
+ 		frameRate = FrameRateOverride ("NOVAFLARE_DRAW_RATE", frameRate);
+ 		#endif
+-
+-		if (frameRate > 0) {
+-
+-			renderFramePeriod = 1000.0 / frameRate;
+-			if (perfFreq) periodRenderPerfTicks = (uint64_t)(renderFramePeriod * (double)perfFreq / 1000.0);
+-
+-		} else {
+-
+-			renderFramePeriod = 1000.0;
+-			if (perfFreq) periodRenderPerfTicks = (uint64_t)(renderFramePeriod * (double)perfFreq / 1000.0);
+-
+-		}
+-		if (perfFreq) nextRenderPerfCounter = SDL_GetPerformanceCounter () + periodRenderPerfTicks;
+-
++		renderFramePeriod = frameRate > 0 ? 1000.0 / frameRate : 1000.0;
++		if (performanceFrequency) {
++			renderPeriodTicks = FramePeriodTicks (renderFramePeriod, performanceFrequency);
++			nextRenderCounter = SDL_GetPerformanceCounter () + renderPeriodTicks;
++		}
+ 		TraceFrameSetting("render_period_ns", static_cast<std::uint64_t>(renderFramePeriod * 1000000.0 + .5));
++
+ 	}
+ 
+@@ -1171,138 +1116,56 @@
+ 		lockRender = split;
+ 		TraceFrameSetting("split_render", split ? 1 : 0);
+-		if (split && perfFreq) nextRenderPerfCounter = SDL_GetPerformanceCounter () + periodRenderPerfTicks;
+-
+-	}
+-
+-
+-	static SDL_TimerID timerID = 0;
+-	bool timerActive = false;
+-	bool firstTime = true;
+-
+-	Uint32 OnTimer (Uint32 interval, void *) {
++		if (split && performanceFrequency) nextRenderCounter = SDL_GetPerformanceCounter () + renderPeriodTicks;
++
++	}
++
++
++	bool SDLApplication::Update () {
++
++		#if defined(IPHONE) || defined(EMSCRIPTEN)
++		int stackTop = 0;
++		gc_set_top_of_stack (&stackTop, false);
++		#endif
++
++		if (!active) return false;
+ 
+ 		SDL_Event event;
+-		SDL_UserEvent userevent;
+-		userevent.type = SDL_USEREVENT;
+-		userevent.code = 0;
+-		userevent.data1 = NULL;
+-		userevent.data2 = NULL;
+-		event.type = SDL_USEREVENT;
+-		event.user = userevent;
+-
+-		timerActive = false;
+-		timerID = 0;
+-
+-		SDL_PushEvent (&event);
+-
+-		return 0;
+-
+-	}
+-
+-
+-	bool SDLApplication::Update () {
+-
+-		SDL_Event event;
+-		event.type = -1;
+-
+-		#if (!defined (IPHONE) && !defined (EMSCRIPTEN))
+-
+-		if (active) {
+-			if (firstTime) {
+-				firstTime = false;
+-			} else {
+-				if (SDL_PollEvent (&event)) {
+-					HandleEvent (&event);
+-					event.type = -1;
+-					if (!active)
+-						return active;
+-				}
+-			}
+-
+-		#endif
+-
+ 		while (SDL_PollEvent (&event)) {
+-
+ 			HandleEvent (&event);
+-			event.type = -1;
+-			if (!active)
+-				return active;
+-
+-		}
+-		
+-		if (!hrInit) {
+-			perfFreq = SDL_GetPerformanceFrequency ();
+-			lastPerfCounter = SDL_GetPerformanceCounter ();
+-			periodPerfTicks = (uint64_t)(framePeriod * (double)perfFreq / 1000.0);
+-			nextPerfCounter = lastPerfCounter + periodPerfTicks;
+-			periodRenderPerfTicks = (uint64_t)(renderFramePeriod * (double)perfFreq / 1000.0);
+-			nextRenderPerfCounter = lastPerfCounter + periodRenderPerfTicks;
+-			hrInit = true;
+-		}
+-
+-		if (active && !inBackground && !OpenGLBindings::CanRender()) {
+-			SDLWindow::RetryContextRecovery();
+-		}
++			if (!active) return false;
++		}
++
++		if (!performanceFrequency) ResetFrameDeadlines ();
++		if (!inBackground && !OpenGLBindings::CanRender()) SDLWindow::RetryContextRecovery();
+ 		DispatchPendingRenderDeviceReset ();
+ 
+-		uint64_t nowPerf = SDL_GetPerformanceCounter ();
+-		double nowMs = (double)nowPerf * 1000.0 / (double)perfFreq;
+-		currentUpdate = (Uint32)nowMs;
+-
+-		#if defined (IPHONE) || defined (EMSCRIPTEN)
+-
+-			if (nowMs >= nextUpdate) {
+-
+-				event.type = SDL_USEREVENT;
+-				event.user.code = 0;
+-				event.user.data1 = NULL;
+-				event.user.data2 = NULL;
+-				HandleEvent (&event);
+-				event.type = -1;
+-
+-			}
+-
+-			if (windowRedrawRequested) TryDispatchRender (framePeriod);
+-
+-		#else
+-			const bool updatePending = nowPerf >= nextPerfCounter;
+-
+-			if (updatePending) {
+-				SDL_Event ev;
+-				ev.type = SDL_USEREVENT;
+-				ev.user.code = 0;
+-				ev.user.data1 = NULL;
+-				ev.user.data2 = NULL;
+-				
+-				HandleEvent (&ev);
+-				
+-				nextPerfCounter += periodPerfTicks;
+-				if (nextPerfCounter + periodPerfTicks < nowPerf) {
+-					nextPerfCounter = nowPerf + periodPerfTicks;
+-				}
+-			}
+-
+-			const bool renderPending = lockRender && nowPerf >= nextRenderPerfCounter;
+-			if (renderPending) {
+-				const uint64_t renderDeadline = nextRenderPerfCounter;
+-				TryDispatchRender (renderFramePeriod);
+-				if (nextRenderPerfCounter == renderDeadline) {
+-					nextRenderPerfCounter += periodRenderPerfTicks;
+-					if (nextRenderPerfCounter <= nowPerf) {
+-						nextRenderPerfCounter = nowPerf + periodRenderPerfTicks;
+-					}
+-				}
+-			}
+-
+-			const bool redrewWindow = windowRedrawRequested
+-				&& TryDispatchRender (lockRender ? renderFramePeriod : framePeriod);
+-			if (!updatePending && !renderPending && !redrewWindow) {
+-				uint64_t nextEventCounter = lockRender &&
+-					nextRenderPerfCounter < nextPerfCounter
+-					? nextRenderPerfCounter : nextPerfCounter;
+-				WaitForFrameDeadline (nextEventCounter, perfFreq);
+-			}
+-		}
+-
++		auto now = SDL_GetPerformanceCounter ();
++		const bool updateDue = now >= nextUpdateCounter;
++		if (updateDue) {
++			// Publish the next deadline before callbacks so a rate change inside
++			// UPDATE or RENDER_UPDATE can replace it.
++			nextUpdateCounter += updatePeriodTicks;
++			// Allow one missed update to run on the next pass through the event loop.
++			if (now >= nextUpdateCounter && now - nextUpdateCounter >= updatePeriodTicks)
++				nextUpdateCounter = now + updatePeriodTicks;
++			if (!inBackground) DispatchScheduledUpdate ();
++			if (!active) return false;
++			now = SDL_GetPerformanceCounter ();
++		}
++
++		const bool renderDue = lockRender && now >= nextRenderCounter;
++		if (renderDue) {
++			nextRenderCounter = AdvanceFrameDeadline (nextRenderCounter, renderPeriodTicks, now);
++			TryDispatchRender (renderFramePeriod);
++		}
++
++		if (windowRedrawRequested && TryDispatchRender (lockRender ? renderFramePeriod : framePeriod)) return active;
++
++		#if !defined(IPHONE) && !defined(EMSCRIPTEN)
++		if (active && !updateDue && !renderDue) {
++			const auto deadline = lockRender && nextRenderCounter < nextUpdateCounter
++				? nextRenderCounter : nextUpdateCounter;
++			WaitForFrameDeadline (deadline, performanceFrequency);
++		}
+ 		#endif
+ 
+diff --git a/project/src/backend/sdl/SDLApplication.h b/project/src/backend/sdl/SDLApplication.h
+--- a/project/src/backend/sdl/SDLApplication.h
++++ b/project/src/backend/sdl/SDLApplication.h
+@@ -43,4 +43,6 @@
+ 		private:
+ 
++			void ResetFrameDeadlines ();
++			void DispatchScheduledUpdate ();
+ 			bool TryDispatchRender (double periodMs);
+ 			void DispatchPendingRenderDeviceReset ();
+@@ -70,5 +72,5 @@
+ 			static SDLApplication* currentApplication;
+ 
+-			bool active;
++			bool active = false;
+ 			bool lockRender;
+ 			bool windowRedrawRequested = false;
+@@ -76,7 +78,11 @@
+ 			ApplicationEvent applicationEvent;
+ 			ClipboardEvent clipboardEvent;
+-			double currentUpdate;
+ 			double framePeriod;
+ 			double renderFramePeriod;
++			Uint64 performanceFrequency = 0;
++			Uint64 updatePeriodTicks = 0;
++			Uint64 renderPeriodTicks = 0;
++			Uint64 nextUpdateCounter = 0;
++			Uint64 nextRenderCounter = 0;
+ 			Uint32 initFlags;
+ 			DropEvent dropEvent;
+@@ -84,7 +90,5 @@
+ 			JoystickEvent joystickEvent;
+ 			KeyEvent keyEvent;
+-			double lastUpdate;
+ 			MouseEvent mouseEvent;
+-			double nextUpdate;
+ 			OrientationEvent orientationEvent;
+ 			RenderEvent renderEvent;
+diff --git a/project/src/backend/sdl/SDLWindow.cpp b/project/src/backend/sdl/SDLWindow.cpp
+--- a/project/src/backend/sdl/SDLWindow.cpp
++++ b/project/src/backend/sdl/SDLWindow.cpp
+@@ -4,5 +4,4 @@
+ #include "../../graphics/opengl/OpenGL.h"
+ #include "../../graphics/opengl/OpenGLBindings.h"
+-#include <graphics/PerformanceMonitor.h>
+ #include <graphics/FrameTimeline.h>
+ #include <graphics/AndroidPerformanceHints.h>
+@@ -81,5 +80,5 @@
+ 		if (!OpenGLBindings::WantsMultiThreaded() || !renderThread.IsRunning()) {
+ 			const bool direct = MakeGLContextCurrent();
+-			if (direct && renderThread.IsRunning()) renderThread.ApplySwapInterval();
++			if (direct) SetVSyncMode(renderThread.ConfiguredSwapInterval());
+ 			SetContextRouting(direct, !direct);
+ 			return;
+@@ -130,5 +129,5 @@
+ 
+ 		if (!MakeGLContextCurrent()) return;
+-		if (renderThread.IsRunning()) renderThread.ApplySwapInterval();
++		SetVSyncMode(renderThread.ConfiguredSwapInterval());
+ 		SetContextRouting(true, false);
+ 	}
+@@ -173,5 +172,5 @@
+ 
+ 		const int interval = (flags & WINDOW_FLAG_VSYNC) ? 1 : 0;
+-		SDL_GL_SetSwapInterval(interval);
++		renderThread.SetCurrentSwapInterval(interval);
+ 		OpenGLBindings::BindRenderThread(&renderThread);
+ 
+@@ -500,5 +499,6 @@
+ 			return renderThread.SetSwapInterval(mode, OpenGLBindings::isMultiThreaded);
+ 		}
+-		return SDL_GL_GetCurrentContext() == context && SDL_GL_SetSwapInterval(mode) == 0;
++		return SDL_GL_GetCurrentWindow() == sdlWindow && SDL_GL_GetCurrentContext() == context
++			&& renderThread.SetCurrentSwapInterval(mode);
+ 
+ 	}
+@@ -590,5 +590,4 @@
+ 				if (renderThread.PushCommand([this, frame]() {
+ 					SwapGLWindow(sdlWindow, renderThread, frame);
+-					PerformanceMonitor::Instance().EndFrame();
+ 				})) {
+ 					renderThread.Flip();
+@@ -596,5 +595,4 @@
+ 			} else if (SDL_GL_GetCurrentWindow() == sdlWindow) {
+ 				SwapGLWindow(sdlWindow, renderThread, frame);
+-				PerformanceMonitor::Instance().EndFrame();
+ 			}
+ 		} else if (sdlRenderer) {
+diff --git a/project/src/graphics/opengl/OpenGLBindings.cpp b/project/src/graphics/opengl/OpenGLBindings.cpp
+--- a/project/src/graphics/opengl/OpenGLBindings.cpp
++++ b/project/src/graphics/opengl/OpenGLBindings.cpp
+@@ -3414,24 +3414,19 @@
+ 	int lime_gl_get_buffer_parameteri (int target, int index) {
+ 
+-		GLint params = 0;
+-		glGetBufferParameteriv (target, index, &params);
+-		return params;
+-
+-	}
+-
+-
+-	HL_PRIM int HL_NAME(hl_gl_get_buffer_parameteri) (int target, int index) {
+-
+-		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+-				GLint params = 0;
+-				glGetBufferParameteriv (target, index, &params);
+-				return params;
+-			});
+-		} else {
++		auto query = [=] () {
+ 			GLint params = 0;
+ 			glGetBufferParameteriv (target, index, &params);
+ 			return params;
+-		}
++		};
++		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded)
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, query);
++		return query();
++
++	}
++
++
++	HL_PRIM int HL_NAME(hl_gl_get_buffer_parameteri) (int target, int index) {
++
++		return lime_gl_get_buffer_parameteri (target, index);
+ 
+ 	}
+@@ -3441,5 +3436,11 @@
+ 
+ 		#ifdef LIME_GLES3_API
+-		glGetBufferParameteri64v (target, index, (GLint64*)(uintptr_t)params);
++		auto query = [=] () {
++			glGetBufferParameteri64v (target, index, (GLint64*)(uintptr_t)params);
++		};
++		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded)
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, query);
++		else
++			query();
+ 		#endif
+ 
+@@ -3449,7 +3450,5 @@
+ 	HL_PRIM void HL_NAME(hl_gl_get_buffer_parameteri64v) (int target, int index, double params) {
+ 
+-		#ifdef LIME_GLES3_API
+-		glGetBufferParameteri64v (target, index, (GLint64*)(uintptr_t)params);
+-		#endif
++		lime_gl_get_buffer_parameteri64v (target, index, params);
+ 
+ 	}
+@@ -3458,5 +3457,11 @@
+ 	void lime_gl_get_buffer_parameteriv (int target, int index, double params) {
+ 
+-		glGetBufferParameteriv (target, index, (GLint*)(uintptr_t)params);
++		auto query = [=] () {
++			glGetBufferParameteriv (target, index, (GLint*)(uintptr_t)params);
++		};
++		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded)
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, query);
++		else
++			query();
+ 
+ 	}
+@@ -3465,11 +3470,5 @@
+ 	HL_PRIM void HL_NAME(hl_gl_get_buffer_parameteriv) (int target, int index, double params) {
+ 
+-		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+-				glGetBufferParameteriv (target, index, (GLint*)(uintptr_t)params);
+-			});
+-		} else {
+-			glGetBufferParameteriv (target, index, (GLint*)(uintptr_t)params);
+-		}
++		lime_gl_get_buffer_parameteriv (target, index, params);
+ 
+ 	}

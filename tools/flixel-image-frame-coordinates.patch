@@ -1,0 +1,372 @@
+diff --git a/flixel/FlxSprite.hx b/flixel/FlxSprite.hx
+index 4e9bcab..197254e 100644
+--- a/flixel/FlxSprite.hx
++++ b/flixel/FlxSprite.hx
+@@ -7,6 +7,7 @@ import flixel.FlxBasic.IFlxBasic;
+ import flixel.animation.FlxAnimationController;
+ import flixel.graphics.FlxGraphic;
+ import flixel.graphics.frames.FlxFrame;
++import flixel.graphics.frames.FlxImageFrame;
+ import flixel.graphics.frames.FlxFramesCollection;
+ import flixel.graphics.frames.FlxTileFrames;
+ #if CODENAME_ENGINE_COMPAT
+@@ -577,11 +578,6 @@ class FlxSprite extends FlxObject
+ 		if (graph == null)
+ 			return this;
+ 
+-		if (graph.bitmap.graphicScale != 1) {
+-			graphicScale.set(1/graph.bitmap.graphicScale, 1/graph.bitmap.graphicScale);
+-			canIgoreScaleCheck = true;
+-		}
+-
+ 		if (frameWidth == 0)
+ 		{
+ 			frameWidth = animated ? graph.height : graph.width;
+@@ -629,21 +625,17 @@ class FlxSprite extends FlxObject
+ 		if (brushGraphic == null)
+ 			return this;
+ 
+-		var brush:BitmapData = brushGraphic.bitmap;
++		var brushWidth = brushGraphic.width;
++		var brushHeight = brushGraphic.height;
+ 		var key:String = brushGraphic.key;
+ 
+ 		if (Frame >= 0)
+ 		{
+ 			// we assume that source graphic has one row frame animation with equal width and height
+-			var brushSize:Int = brush.height;
+-			var framesNum:Int = Std.int(brush.width / brushSize);
++			var framesNum = Std.int(brushWidth / brushHeight);
+ 			Frame = (framesNum > Frame || framesNum == 0) ? Frame : (Frame % framesNum);
+ 			key += ":" + Frame;
+-
+-			var full:BitmapData = brush;
+-			brush = new BitmapData(brushSize, brushSize, true, FlxColor.TRANSPARENT);
+-			_flashRect.setTo(Frame * brushSize, 0, brushSize, brushSize);
+-			brush.copyPixels(full, _flashRect, _flashPointZero);
++			brushWidth = brushHeight;
+ 		}
+ 
+ 		key += ":" + Rotations + ":" + AutoBuffer;
+@@ -652,7 +644,16 @@ class FlxSprite extends FlxObject
+ 		var tempGraph:FlxGraphic = FlxG.bitmap.get(key);
+ 		if (tempGraph == null)
+ 		{
++			var region = Frame >= 0 ? FlxRect.weak(Frame * brushHeight, 0, brushWidth, brushHeight) : null;
++			var brush = brushGraphic.bitmap;
++			if (region != null || brushGraphic.isTextureScaled)
++			{
++				var target = region != null ? new BitmapData(brushWidth, brushHeight, true, FlxColor.TRANSPARENT) : null;
++				brush = FlxImageFrame.fromGraphic(brushGraphic, region).frame.paint(target);
++			}
+ 			var bitmap:BitmapData = FlxBitmapDataUtil.generateRotations(brush, Rotations, AntiAliasing, AutoBuffer);
++			if (brush != brushGraphic.bitmap)
++				brush.dispose();
+ 			tempGraph = FlxGraphic.fromBitmapData(bitmap, false, key);
+ 		}
+ 		
+@@ -660,15 +661,15 @@ class FlxSprite extends FlxObject
+ 		tempGraph.trackingInfo = 'loadRotatedGraphic($ID, $Rotations, $Frame, $AntiAliasing, $AutoBuffer)';
+ 		#end
+ 		
+-		var max:Int = (brush.height > brush.width) ? brush.height : brush.width;
++		var max = brushHeight > brushWidth ? brushHeight : brushWidth;
+ 		max = AutoBuffer ? Std.int(max * 1.5) : max;
+ 
+ 		frames = FlxTileFrames.fromGraphic(tempGraph, FlxPoint.get(max, max));
+ 
+ 		if (AutoBuffer)
+ 		{
+-			width = brush.width;
+-			height = brush.height;
++			width = brushWidth;
++			height = brushHeight;
+ 			centerOffsets();
+ 		}
+ 
+@@ -984,7 +985,7 @@ class FlxSprite extends FlxObject
+ 		{
+ 			var graphicsShader:FlxGraphicsShader = cast shader;
+ 			if (FlxCamera.supportsCNEShaderSizing(graphicsShader))
+-				graphicsShader.setCamSize(_frame.frame.x, _frame.frame.y, _frame.frame.width, _frame.frame.height);
++				graphicsShader.setFrameCamSize(_frame);
+ 		}
+ 		#end
+ 
+@@ -1826,8 +1827,6 @@ class FlxSprite extends FlxObject
+ 	/**
+ 	 * for skip check scale when set frames at LoadGraphic() function
+ 	 */
+-	var canIgoreScaleCheck:Bool = false;
+-
+ 	/**
+ 	 * Frames setter. Used by `loadGraphic` methods, but you can load generated frames yourself
+ 	 * (this should be even faster since engine doesn't need to do bunch of additional stuff).
+@@ -1853,32 +1852,10 @@ class FlxSprite extends FlxObject
+ 			animation.frameIndex = 0;
+ 			graphicLoaded();
+ 
+-			// 检查是否需要应用缩放
+-			if (Frames.graphicScale != 1.0 || canIgoreScaleCheck)
+-			{
+-				// 重置 graphicScale，确保从 Frames 获取的值不会导致累积或错误
+-				if (graphicScale == null)
+-					graphicScale = FlxPoint.get();
+-				
+-				if (!canIgoreScaleCheck) {
+-					// 计算缩放值
+-					var scaleVal = 1 / Frames.graphicScale;
+-					// 仅在值实际改变时设置，避免不必要的脏标记
+-					if (graphicScale.x != scaleVal || graphicScale.y != scaleVal)
+-					{
+-						graphicScale.set(scaleVal, scaleVal);
+-						
+-						// 更新附加位移
+-						additionalX = frameWidth * (graphicScale.x - 1) / 2;
+-						additionalY = frameHeight * (graphicScale.y - 1) / 2;
+-					}
+-				} else {
+-					additionalX = frameWidth * (graphicScale.x - 1) / 2;
+-					additionalY = frameHeight * (graphicScale.y - 1) / 2;
+-				}
+-
+-				canIgoreScaleCheck = false;
+-			}
++			var frameScale = 1 / Frames.graphicScale;
++			graphicScale.set(frameScale, frameScale);
++			additionalX = frameWidth * (frameScale - 1) / 2;
++			additionalY = frameHeight * (frameScale - 1) / 2;
+ 		}
+ 		else
+ 		{
+diff --git a/flixel/graphics/FlxGraphic.hx b/flixel/graphics/FlxGraphic.hx
+index 8f544ac..c9b87fc 100644
+--- a/flixel/graphics/FlxGraphic.hx
++++ b/flixel/graphics/FlxGraphic.hx
+@@ -646,6 +646,26 @@ class FlxGraphic implements IFlxDestroyable
+ 		return FlxAtlasFrames.findFrame(this, null);
+ 	}
+ 
++	/** Ratios from original image pixels to the bitmap's stored pixels. */
++	@:noCompletion public var textureScaleX(get, never):Float;
++	@:noCompletion public var textureScaleY(get, never):Float;
++	@:noCompletion public var isTextureScaled(get, never):Bool;
++
++	inline function get_textureScaleX():Float
++	{
++		return bitmap != null && width > 0 ? bitmap.width / width : 1.0;
++	}
++
++	inline function get_textureScaleY():Float
++	{
++		return bitmap != null && height > 0 ? bitmap.height / height : 1.0;
++	}
++
++	inline function get_isTextureScaled():Bool
++	{
++		return bitmap != null && width > 0 && height > 0 && (bitmap.width != width || bitmap.height != height);
++	}
++
+ 	function set_bitmap(value:BitmapData):BitmapData
+ 	{
+ 		if (value != null)
+@@ -653,13 +673,20 @@ class FlxGraphic implements IFlxDestroyable
+ 			bitmap = value;
+ 			width = bitmap.width;
+ 			height = bitmap.height;
++			#if !flash
++			if (bitmap.imageSourceWidth > 0 && bitmap.imageSourceHeight > 0)
++			{
++				width = bitmap.imageSourceWidth;
++				height = bitmap.imageSourceHeight;
++			}
++			#end
+ 
+ 			#if FLX_OPENGL_AVAILABLE
+ 			var max:Int = FlxG.bitmap.maxTextureSize;
+ 			if (max > 0)
+ 			{
+-				if (width > max || height > max)
+-					FlxG.log.warn('Graphic dimensions (${width}x${height}) exceed the maximum allowed size (${max}x${max}), which may cause rendering issues.');
++				if (bitmap.width > max || bitmap.height > max)
++					FlxG.log.warn('Bitmap dimensions (${bitmap.width}x${bitmap.height}) exceed the maximum allowed size (${max}x${max}), which may cause rendering issues.');
+ 			}
+ 			#end
+ 		}
+diff --git a/flixel/graphics/frames/FlxAtlasFrames.hx b/flixel/graphics/frames/FlxAtlasFrames.hx
+index 7b03b19..4198aaf 100644
+--- a/flixel/graphics/frames/FlxAtlasFrames.hx
++++ b/flixel/graphics/frames/FlxAtlasFrames.hx
+@@ -247,10 +247,7 @@ class FlxAtlasFrames extends FlxFramesCollection
+ 		if (graphic == null || xml == null)
+ 			return null;
+ 
+-		var graphicScale = Math.abs(graphic.bitmap.graphicScale);
+-
+ 		frames = new FlxAtlasFrames(graphic);
+-		frames.graphicScale = graphicScale;
+ 
+ 		var data:Access = new Access(xml.getXml().firstElement());
+ 
+@@ -268,14 +265,6 @@ class FlxAtlasFrames extends FlxFramesCollection
+ 			var rect = FlxRect.get(Std.parseFloat(texture.att.x), Std.parseFloat(texture.att.y), Std.parseFloat(texture.att.width),
+ 				Std.parseFloat(texture.att.height));
+ 
+-			if (graphicScale != 1.0)
+-			{
+-				rect.x *= graphicScale;
+-				rect.y *= graphicScale;
+-				rect.width *= graphicScale;
+-				rect.height *= graphicScale;
+-			}
+-			
+ 			var size = if (trimmed)
+ 			{
+ 				FlxRect.get(Std.parseInt(texture.att.frameX), Std.parseInt(texture.att.frameY), Std.parseInt(texture.att.frameWidth),
+@@ -286,14 +275,6 @@ class FlxAtlasFrames extends FlxFramesCollection
+ 				FlxRect.get(0, 0, rect.width, rect.height);
+ 			}
+ 
+-			if (graphicScale != 1.0 && trimmed)
+-			{
+-				size.x *= graphicScale;
+-				size.y *= graphicScale;
+-				size.width *= graphicScale;
+-				size.height *= graphicScale;
+-			}
+-
+ 			var angle = rotated ? FlxFrameAngle.ANGLE_NEG_90 : FlxFrameAngle.ANGLE_0;
+ 
+ 			var offset = FlxPoint.get(-size.x, -size.y);
+diff --git a/flixel/graphics/frames/FlxFrame.hx b/flixel/graphics/frames/FlxFrame.hx
+index 03781a1..251ed45 100644
+--- a/flixel/graphics/frames/FlxFrame.hx
++++ b/flixel/graphics/frames/FlxFrame.hx
+@@ -343,10 +343,13 @@ class FlxFrame implements IFlxDestroyable
+ 
+ 	inline function fillBlitMatrix(mat:FlxMatrix):FlxMatrix
+ 	{
+-		mat.a = blitMatrix[0];
+-		mat.b = blitMatrix[1];
+-		mat.c = blitMatrix[2];
+-		mat.d = blitMatrix[3];
++		// Resolve bitmap density when painting so the logical cache survives a texture resize.
++		var scaleX = 1 / parent.textureScaleX;
++		var scaleY = 1 / parent.textureScaleY;
++		mat.a = blitMatrix[0] * scaleX;
++		mat.b = blitMatrix[1] * scaleX;
++		mat.c = blitMatrix[2] * scaleY;
++		mat.d = blitMatrix[3] * scaleY;
+ 		mat.tx = blitMatrix[4];
+ 		mat.ty = blitMatrix[5];
+ 		return mat;
+@@ -371,7 +374,7 @@ class FlxFrame implements IFlxDestroyable
+ 		if (type == FlxFrameType.EMPTY)
+ 			return bmd;
+ 
+-		if (angle == FlxFrameAngle.ANGLE_0)
++		if (angle == FlxFrameAngle.ANGLE_0 && !parent.isTextureScaled)
+ 		{
+ 			offset.copyToFlash(_point);
+ 			if (point != null)
+@@ -478,8 +481,8 @@ class FlxFrame implements IFlxDestroyable
+ 	 */
+ 	inline function getDrawFrameRect(mat:FlxMatrix, rect:Rectangle):Rectangle
+ 	{
+-		final p1 = FlxPoint.weak(frame.x, frame.y);
+-		final p2 = FlxPoint.weak(frame.right, frame.bottom);
++		final p1 = FlxPoint.weak(frame.x * parent.textureScaleX, frame.y * parent.textureScaleY);
++		final p2 = FlxPoint.weak(frame.right * parent.textureScaleX, frame.bottom * parent.textureScaleY);
+ 
+ 		p1.transform(mat);
+ 		p2.transform(mat);
+diff --git a/flixel/graphics/frames/FlxImageFrame.hx b/flixel/graphics/frames/FlxImageFrame.hx
+index 6f3fc3c..f9597fa 100644
+--- a/flixel/graphics/frames/FlxImageFrame.hx
++++ b/flixel/graphics/frames/FlxImageFrame.hx
+@@ -163,11 +163,14 @@ class FlxImageFrame extends FlxFramesCollection
+ 		var result:FlxGraphic = FlxG.bitmap.get(key);
+ 		if (result == null)
+ 		{
+-			var bitmap:BitmapData = FlxBitmapDataUtil.addSpacesAndBorders(graphic.bitmap, null, null, border, region);
++			var input = graphic.isTextureScaled ? graphic.imageFrame.frame.paint() : graphic.bitmap;
++			var bitmap:BitmapData = FlxBitmapDataUtil.addSpacesAndBorders(input, null, null, border, region);
++			if (input != graphic.bitmap)
++				input.dispose();
+ 			result = FlxG.bitmap.add(bitmap, false, key);
+ 		}
+ 
+-		var imageFrame:FlxImageFrame = FlxImageFrame.fromGraphic(graphic);
++		var imageFrame:FlxImageFrame = FlxImageFrame.fromGraphic(result);
+ 		return imageFrame.addBorder(border);
+ 	}
+ 
+diff --git a/flixel/graphics/frames/FlxTileFrames.hx b/flixel/graphics/frames/FlxTileFrames.hx
+index ae209f7..b30d6ea 100644
+--- a/flixel/graphics/frames/FlxTileFrames.hx
++++ b/flixel/graphics/frames/FlxTileFrames.hx
+@@ -78,7 +78,10 @@ class FlxTileFrames extends FlxFramesCollection
+ 		var result:FlxGraphic = FlxG.bitmap.get(key);
+ 		if (result == null)
+ 		{
+-			var bitmap:BitmapData = FlxBitmapDataUtil.addSpacesAndBorders(graphic.bitmap, tileSize, tileSpacing, tileBorder, region);
++			var input = graphic.isTextureScaled ? graphic.imageFrame.frame.paint() : graphic.bitmap;
++			var bitmap:BitmapData = FlxBitmapDataUtil.addSpacesAndBorders(input, tileSize, tileSpacing, tileBorder, region);
++			if (input != graphic.bitmap)
++				input.dispose();
+ 			result = FlxG.bitmap.add(bitmap, false, key);
+ 		}
+ 
+diff --git a/flixel/graphics/tile/FlxDrawQuadsItem.hx b/flixel/graphics/tile/FlxDrawQuadsItem.hx
+index 55330a5..640197e 100644
+--- a/flixel/graphics/tile/FlxDrawQuadsItem.hx
++++ b/flixel/graphics/tile/FlxDrawQuadsItem.hx
+@@ -55,15 +55,20 @@ class FlxDrawQuadsItem extends FlxDrawBaseItem<FlxDrawQuadsItem>
+ 	override public function addQuad(frame:FlxFrame, matrix:FlxMatrix, ?transform:ColorTransform):Void
+ 	{
+ 		var rect = frame.frame;
+-		rects.push(rect.x);
+-		rects.push(rect.y);
+-		rects.push(rect.width);
+-		rects.push(rect.height);
+-
+-		transforms.push(matrix.a);
+-		transforms.push(matrix.b);
+-		transforms.push(matrix.c);
+-		transforms.push(matrix.d);
++		var scaleX = frame.parent.textureScaleX;
++		var scaleY = frame.parent.textureScaleY;
++		rects.push(rect.x * scaleX);
++		rects.push(rect.y * scaleY);
++		rects.push(rect.width * scaleX);
++		rects.push(rect.height * scaleY);
++
++		// The backend transforms vertices built from stored bitmap pixels.
++		var logicalScaleX = 1 / scaleX;
++		var logicalScaleY = 1 / scaleY;
++		transforms.push(matrix.a * logicalScaleX);
++		transforms.push(matrix.b * logicalScaleX);
++		transforms.push(matrix.c * logicalScaleY);
++		transforms.push(matrix.d * logicalScaleY);
+ 		transforms.push(matrix.tx);
+ 		transforms.push(matrix.ty);
+ 
+diff --git a/flixel/graphics/tile/FlxGraphicsShader.hx b/flixel/graphics/tile/FlxGraphicsShader.hx
+index 62e6e74..37b6510 100644
+--- a/flixel/graphics/tile/FlxGraphicsShader.hx
++++ b/flixel/graphics/tile/FlxGraphicsShader.hx
+@@ -94,6 +94,14 @@ class FlxGraphicsShader extends GraphicsShader
+ 	}
+ 
+ 	#if CODENAME_ENGINE_COMPAT
++	public function setFrameCamSize(frame:flixel.graphics.frames.FlxFrame):Void
++	{
++		var rect = frame.frame;
++		var scaleX = frame.parent.textureScaleX;
++		var scaleY = frame.parent.textureScaleY;
++		setCamSize(rect.x * scaleX, rect.y * scaleY, rect.width * scaleX, rect.height * scaleY);
++	}
++
+ 	public function setCamSize(x:Float, y:Float, width:Float, height:Float):Void
+ 	{
+ 		data._camSize.value = [x, y, width, height];

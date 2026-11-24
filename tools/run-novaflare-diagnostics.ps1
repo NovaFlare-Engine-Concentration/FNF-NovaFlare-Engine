@@ -33,7 +33,9 @@ param(
 
     [bool]$CaptureFullDumpOnHang = $true,
 
-    [bool]$CaptureEtwCpuStacks = $true
+    [bool]$CaptureEtwCpuStacks = $true,
+
+    [switch]$CaptureFrameTimeline
 )
 
 $ErrorActionPreference = 'Stop'
@@ -69,6 +71,8 @@ $gcCsv = Join-Path $runPath 'gc-cycles.csv'
 $gcJson = Join-Path $runPath 'gc-cycles.jsonl'
 $gcDiagnostics = Join-Path $runPath 'gc-diagnostics.log'
 $frameCsv = Join-Path $runPath 'frame-rate-from-haxe.csv'
+$frameTimeline = Join-Path $runPath 'frame-timeline.csv'
+$gcPauseTimeline = Join-Path $runPath 'gc-pauses-qpc.csv'
 $processLog = Join-Path $runPath 'process-samples.csv'
 $monitorStdout = Join-Path $runPath 'process-monitor.stdout.log'
 $monitorStderr = Join-Path $runPath 'process-monitor.stderr.log'
@@ -92,6 +96,8 @@ $manifestPath = Join-Path $runPath 'diagnostic-manifest.json'
     'HXCPP_NOVAGC_DIAGNOSTIC_LOG',
     'HXCPP_NOVAGC_TYPE_TELEMETRY',
     'NOVAGC_PERF_TRACE',
+    'NOVAFLARE_FRAME_TIMELINE',
+    'NOVAFLARE_GC_PAUSE_TIMELINE',
     'NOVAFLARE_DIAGNOSTIC_DIR',
     'NOVAFLARE_NATIVE_DUMP_DIR',
     'NOVAFLARE_DIAGNOSTIC_SONG',
@@ -105,6 +111,10 @@ $env:HXCPP_NOVAGC_CSV_LOG = $gcCsv
 $env:HXCPP_NOVAGC_JSON_LOG = $gcJson
 $env:HXCPP_NOVAGC_DIAGNOSTIC_LOG = $gcDiagnostics
 $env:NOVAGC_PERF_TRACE = '1'
+if ($CaptureFrameTimeline) {
+    $env:NOVAFLARE_FRAME_TIMELINE = $frameTimeline
+    $env:NOVAFLARE_GC_PAUSE_TIMELINE = $gcPauseTimeline
+}
 $env:NOVAFLARE_DIAGNOSTIC_DIR = $runPath
 $env:NOVAFLARE_NATIVE_DUMP_DIR = $dumpDirectory
 if ($EnableTypeTelemetry) {
@@ -492,6 +502,12 @@ $hardwareRows = if (Test-Path -LiteralPath $hardwareLog) {
 $frameSamples = if ($null -ne $frameConversion) {
     [int]$frameConversion.samples
 } else { 0 }
+$frameTimelineRows = if (Test-Path -LiteralPath $frameTimeline -PathType Leaf) {
+    [Math]::Max(0, ([IO.File]::ReadAllLines($frameTimeline).Length - 2))
+} else { 0 }
+$gcPauseTimelineRows = if (Test-Path -LiteralPath $gcPauseTimeline -PathType Leaf) {
+    [Math]::Max(0, ([IO.File]::ReadAllLines($gcPauseTimeline).Length - 1))
+} else { 0 }
 $haxeLogExists = Test-Path -LiteralPath $haxeLog -PathType Leaf
 $nativeErrorLogExists =
     Test-Path -LiteralPath $nativeErrorLog -PathType Leaf
@@ -536,6 +552,9 @@ $captureContract = [ordered]@{
     process_resources = $processRows -gt 0
     hardware_resources = $hardwareRows -gt 0
     windows_crash_events = $windowsEventsExist
+}
+if ($CaptureFrameTimeline) {
+    $captureContract['native_frame_timeline'] = $frameTimelineRows -gt 0
 }
 $captureContractComplete =
     @($captureContract.Values | Where-Object { -not $_ }).Count -eq 0
@@ -686,6 +705,13 @@ $manifest = [ordered]@{
             path = $frameCsv
             samples = $frameSamples
             source = 'NOVAGC_PERF_TRACE'
+        }
+        frame_timeline = [ordered]@{
+            requested = [bool]$CaptureFrameTimeline
+            path = $frameTimeline
+            rows = $frameTimelineRows
+            immix_pause_path = $gcPauseTimeline
+            immix_pauses = $gcPauseTimelineRows
         }
         process_log = [ordered]@{
             path = $processLog

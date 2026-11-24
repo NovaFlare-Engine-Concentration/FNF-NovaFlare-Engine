@@ -5,7 +5,6 @@ import haxe.Json;
 import sys.thread.Mutex;
 
 import openfl.display.BitmapData;
-import openfl.display3D.textures.RectangleTexture;
 import openfl.utils.AssetType;
 import openfl.utils.Assets;
 import openfl.system.System;
@@ -505,6 +504,17 @@ class Paths
 		return null;
 	}
 
+	static public function imageWithOriginalPixels(key:String):BitmapData
+	{
+		#if MODS_ALLOWED
+		var file = modsImages(key);
+		if (FileSystem.exists(file))
+			return BitmapData.fromImage(ImageCompression.keepOriginal(lime.graphics.Image.fromFile(file)));
+		#end
+		var image = lime.utils.Assets.getImage(getPath('images/$key.png', IMAGE), false);
+		return BitmapData.fromImage(ImageCompression.keepOriginal(image));
+	}
+
 	static var bitmapMutex:Mutex = new Mutex();
 	static public function cacheBitmap(file:String, ?bitmap:BitmapData = null, ?allowGPU:Bool = true, ?threadLoad:Bool = false)
 	{
@@ -531,14 +541,7 @@ class Paths
 		Cache.trackLocalAsset(file);
 		
 		if (allowGPU && ClientPrefs.data.cacheOnGPU && !thread)
-		{
-			var texture:RectangleTexture = FlxG.stage.context3D.createRectangleTexture(bitmap.width, bitmap.height, BGRA, true);
-			texture.uploadFromBitmapData(bitmap);
-			bitmap.image.data = null;
-			bitmap.dispose();
-			bitmap.disposeImage();
-			bitmap = BitmapData.fromTexture(texture);
-		}
+			bitmap.disposeOnUpload = true;
 		var newGraphic:FlxGraphic = FlxGraphic.fromBitmapData(bitmap, false, file);
 		newGraphic.persist = true;
 		newGraphic.destroyOnNoUse = false;
@@ -569,34 +572,27 @@ class Paths
 
 	static public function getMultiImage(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxAtlasFrames
 	{
-		var myFrames = new FlxAtlasFrames(null);
-		var pngList:Array<String> = [];
-		var files:Array<String> = general.backend.CoolUtil.readDirectoryRecursive(Paths.getPath('images/' + key, null, library));
-		for (file in files){
-		var root = Paths.getPath('images/' + key) + '/';
-			if (file.endsWith('.png'))
-			{
-				if (file.startsWith(root))
-				{
-				file = file.substr(root.length,file.length);
-				}
-			file = file.substr(0,file.length - 4);
-			if (!pngList.contains(file))
-			pngList.push(file);
-			}
+		var frames = new FlxAtlasFrames(null);
+		var paths = new Map<String, Bool>();
+		var root = getPath('images/' + key, null, library);
+		var prefix = root + '/';
+		for (file in CoolUtil.readDirectoryRecursive(root))
+		{
+			if (!file.endsWith('.png')) continue;
+			if (file.startsWith(prefix)) file = file.substr(prefix.length);
+			var name = file.substr(0, file.length - 4);
+			if (paths.exists(name)) continue;
+			paths.set(name, true);
+
+			var graphic = image(key + '/' + name, library, allowGPU);
+			if (graphic == null) continue;
+			var frame = @:privateAccess new FlxFrame(graphic);
+			frame.name = name;
+			frame.frame = FlxRect.get(0, 0, graphic.width, graphic.height);
+			frame.sourceSize.set(graphic.width, graphic.height);
+			frames.pushFrame(frame);
 		}
-		for (fileName in pngList){
-                             var image:FlxGraphic = image(key + '/' + fileName, null, allowGPU);
-		@:privateAccess
-      		var anim = new FlxFrame(image);
-    		anim.name = fileName;
-    		anim.frame = FlxRect.get(0, 0, image.bitmap.width, image.bitmap.height);
-    		anim.sourceSize.set(image.bitmap.width, image.bitmap.height);
-    		anim.offset.set(0, 0);
-    		myFrames.pushFrame(anim);
-    		}
-		
-		return myFrames;
+		return frames;
 	}
 
 	static public function getTextFromFile(key:String, ?ignoreMods:Bool = false):String

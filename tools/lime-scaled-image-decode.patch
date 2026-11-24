@@ -1,0 +1,455 @@
+diff --git a/project/include/graphics/format/JPEG.h b/project/include/graphics/format/JPEG.h
+index 7be39f8b..f002c9dd 100644
+--- a/project/include/graphics/format/JPEG.h
++++ b/project/include/graphics/format/JPEG.h
+@@ -3,6 +3,7 @@
+ 
+ 
+ #include <graphics/ImageBuffer.h>
++#include <graphics/format/ImageDecodeScale.h>
+ #include <utils/Bytes.h>
+ #include <utils/Resource.h>
+ 
+@@ -15,7 +16,7 @@ namespace lime {
+ 
+ 		public:
+ 
+-			static bool Decode (Resource *resource, ImageBuffer *imageBuffer, bool decodeData = true);
++			static bool Decode (Resource *resource, ImageBuffer *imageBuffer, bool decodeData = true, ImageDecodeScale *scale = NULL);
+ 			static bool Encode (ImageBuffer *imageBuffer, Bytes *bytes, int quality);
+ 
+ 
+@@ -25,4 +26,4 @@ namespace lime {
+ }
+ 
+ 
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/project/include/graphics/format/PNG.h b/project/include/graphics/format/PNG.h
+index c69b2fa7..4d1a7a11 100644
+--- a/project/include/graphics/format/PNG.h
++++ b/project/include/graphics/format/PNG.h
+@@ -3,6 +3,7 @@
+ 
+ 
+ #include <graphics/ImageBuffer.h>
++#include <graphics/format/ImageDecodeScale.h>
+ #include <utils/Bytes.h>
+ #include <utils/Resource.h>
+ 
+@@ -15,7 +16,7 @@ namespace lime {
+ 
+ 		public:
+ 
+-			static bool Decode (Resource *resource, ImageBuffer *imageBuffer, bool decodeData = true);
++			static bool Decode (Resource *resource, ImageBuffer *imageBuffer, bool decodeData = true, ImageDecodeScale *scale = NULL);
+ 			static bool Encode (ImageBuffer *imageBuffer, Bytes *bytes);
+ 
+ 
+@@ -25,4 +26,4 @@ namespace lime {
+ }
+ 
+ 
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/project/src/ExternalInterface.cpp b/project/src/ExternalInterface.cpp
+index 742835af..9318802f 100644
+--- a/project/src/ExternalInterface.cpp
++++ b/project/src/ExternalInterface.cpp
+@@ -2427,6 +2427,59 @@ namespace lime {
+ 	}
+ 
+ 
++	#if defined(LIME_PNG) || defined(LIME_JPEG)
++	static value DecodeScaledImage (value data, value buffer, ImageDecodeScale& scale) {
++
++		Bytes bytes;
++		Resource resource;
++		if (val_is_string (data)) {
++			resource = Resource (val_string (data));
++		} else {
++			bytes.Set (data);
++			if (!bytes.b || bytes.length == 0) return alloc_null ();
++			resource = Resource (&bytes);
++		}
++
++		ImageBuffer imageBuffer (alloc_null ());
++		bool decoded = false;
++		#ifdef LIME_PNG
++		decoded = PNG::Decode (&resource, &imageBuffer, true, &scale);
++		#endif
++		#ifdef LIME_JPEG
++		if (!decoded && !scale.pngRecognized && !scale.allocationFailed) decoded = JPEG::Decode (&resource, &imageBuffer, true, &scale);
++		#endif
++		if (!decoded) return alloc_null ();
++
++		value result = alloc_empty_object ();
++		alloc_field (result, val_id ("buffer"), imageBuffer.Value (buffer));
++		alloc_field (result, val_id ("sourceWidth"), alloc_int (scale.sourceWidth));
++		alloc_field (result, val_id ("sourceHeight"), alloc_int (scale.sourceHeight));
++		return result;
++
++	}
++	#endif
++
++
++	value lime_image_load_scaled (value data, value buffer, value options) {
++
++		#if defined(LIME_PNG) || defined(LIME_JPEG)
++		if (val_is_null (data) || val_is_null (buffer) || val_is_null (options)) return alloc_null ();
++		ImageDecodeScale scale = {};
++		scale.maximum = val_int (val_field (options, val_id ("maximum")));
++		scale.threshold = val_int (val_field (options, val_id ("threshold")));
++		scale.ratio = val_number (val_field (options, val_id ("ratio")));
++		if (scale.maximum <= 0 && scale.ratio >= 1) return alloc_null ();
++
++		value result = DecodeScaledImage (data, buffer, scale);
++		if (scale.allocationFailed) val_throw (alloc_string ("Could not allocate resized image pixels"));
++		return result;
++		#else
++		return alloc_null ();
++		#endif
++
++	}
++
++
+ 	void lime_image_data_util_color_transform (value image, value rect, value colorMatrix) {
+ 
+ 		Image _image = Image (image);
+@@ -4510,6 +4563,7 @@ namespace lime {
+ 	DEFINE_PRIME2 (lime_image_load);
+ 	DEFINE_PRIME2 (lime_image_load_bytes);
+ 	DEFINE_PRIME2 (lime_image_load_file);
++	DEFINE_PRIME3 (lime_image_load_scaled);
+ 	DEFINE_PRIME1v (lime_image_set_max_texture_size);
+ 	DEFINE_PRIME0 (lime_jni_getenv);
+ 	DEFINE_PRIME2v (lime_joystick_event_manager_register);
+diff --git a/project/src/graphics/format/JPEG.cpp b/project/src/graphics/format/JPEG.cpp
+index 93f6c4c5..4a3a1271 100644
+--- a/project/src/graphics/format/JPEG.cpp
++++ b/project/src/graphics/format/JPEG.cpp
+@@ -4,6 +4,7 @@ extern "C" {
+ 	#include <sys/types.h>
+ 	#include <stdio.h>
+ 	#include <jpeglib.h>
++	#include <jerror.h>
+ 
+ }
+ 
+@@ -188,7 +189,50 @@ namespace lime {
+ 	};
+ 
+ 
+-	bool JPEG::Decode (Resource *resource, ImageBuffer* imageBuffer, bool decodeData) {
++	static bool DecodeScaled (j_decompress_ptr decoder, ImageBuffer *imageBuffer, ImageDecodeScale& scale) {
++
++		if (decoder->jpeg_color_space == JCS_CMYK || decoder->jpeg_color_space == JCS_YCCK) return false;
++		decoder->out_color_space = JCS_RGB;
++		decoder->scale_num = 1;
++		for (decoder->scale_denom = 8; decoder->scale_denom > 1; decoder->scale_denom /= 2) {
++			jpeg_calc_output_dimensions (decoder);
++			if (decoder->output_width >= (JDIMENSION)scale.width && decoder->output_height >= (JDIMENSION)scale.height) break;
++		}
++
++		if (!jpeg_start_decompress (decoder)) return false;
++		int inputWidth = decoder->output_width;
++		int inputHeight = decoder->output_height;
++		if (decoder->output_components != 3 || inputWidth < scale.width || inputHeight < scale.height) return false;
++
++		JSAMPARRAY colorRow = decoder->mem->alloc_sarray ((j_common_ptr)decoder, JPOOL_IMAGE, inputWidth * 3, 1);
++		JSAMPARRAY rows = decoder->mem->alloc_sarray ((j_common_ptr)decoder, JPOOL_IMAGE, inputWidth * 4, 2);
++		JSAMPROW current = rows[0];
++		JSAMPROW previous = rows[1];
++		imageBuffer->Resize (scale.width, scale.height, 32);
++		if (!imageBuffer->data || !imageBuffer->data->buffer || !imageBuffer->data->buffer->b) {
++			scale.allocationFailed = true;
++			return false;
++		}
++		ScaleImageRows scaler (inputWidth, inputHeight, scale, imageBuffer->data->buffer->b);
++
++		for (int row = 0; row < inputHeight; row++) {
++			if (jpeg_read_scanlines (decoder, colorRow, 1) != 1) return false;
++			for (int column = 0; column < inputWidth; column++) {
++				memcpy (current + column * 4, colorRow[0] + column * 3, 3);
++				current[column * 4 + 3] = 255;
++			}
++			scaler.Read (previous, current, row);
++			std::swap (current, previous);
++		}
++		imageBuffer->format = BGRA32;
++		imageBuffer->premultiplied = true;
++		imageBuffer->transparent = false;
++		return jpeg_finish_decompress (decoder) && scaler.IsComplete ();
++
++	}
++
++
++	bool JPEG::Decode (Resource *resource, ImageBuffer* imageBuffer, bool decodeData, ImageDecodeScale *scale) {
+ 
+ 		struct jpeg_decompress_struct cinfo;
+ 
+@@ -217,6 +261,7 @@ namespace lime {
+ 		}
+ 
+ 		if (setjmp (jpegError.on_error)) {
++			if (scale && jpegError.base.msg_code == JERR_OUT_OF_MEMORY) scale->allocationFailed = true;
+ 
+ 			if (file) {
+ 
+@@ -268,7 +313,10 @@ namespace lime {
+ 
+ 		bool decoded = false;
+ 
+-		if (jpeg_read_header (&cinfo, TRUE) == JPEG_HEADER_OK) {
++		int header = jpeg_read_header (&cinfo, TRUE);
++		if (header == JPEG_HEADER_OK && scale) {
++			decoded = decodeData && scale->SetTarget (cinfo.image_width, cinfo.image_height) && DecodeScaled (&cinfo, imageBuffer, *scale);
++		} else if (header == JPEG_HEADER_OK) {
+ 
+ 			switch (cinfo.jpeg_color_space) {
+ 
+diff --git a/project/src/graphics/format/PNG.cpp b/project/src/graphics/format/PNG.cpp
+index 4102b21f..e8d0955c 100644
+--- a/project/src/graphics/format/PNG.cpp
++++ b/project/src/graphics/format/PNG.cpp
+@@ -3,12 +3,64 @@
+ #include <graphics/ImageBuffer.h>
+ #include <system/System.h>
+ #include <utils/Bytes.h>
++#include <memory>
+ 
+ 
+ namespace lime {
+ 
+ 
+-	bool PNG::Decode (Resource *resource, ImageBuffer *imageBuffer, bool decodeData) {
++	static int ReadPngStream (spng_ctx*, void *user, void *destination, size_t length) {
++
++		return lime::fread (destination, 1, length, (FILE_HANDLE*)user) == length ? SPNG_OK : SPNG_IO_EOF;
++
++	}
++
++
++	static bool CheckDecodeResult (int result, int expected, ImageDecodeScale& scale) {
++
++		if (result == SPNG_EMEM) scale.allocationFailed = true;
++		return result == expected;
++
++	}
++
++
++	static bool DecodeScaled (spng_ctx *ctx, ImageBuffer *imageBuffer, ImageDecodeScale& scale) {
++
++		size_t rowBytes = (size_t)scale.sourceWidth * 4;
++		std::unique_ptr<unsigned char, decltype (&free)> rows ((unsigned char*)malloc (rowBytes * 2), free);
++		if (!rows) {
++			scale.allocationFailed = true;
++			return false;
++		}
++
++		int result = spng_decode_image (ctx, NULL, 0, SPNG_FMT_RGBA8, SPNG_DECODE_TRNS | SPNG_DECODE_PROGRESSIVE);
++		if (!CheckDecodeResult (result, SPNG_OK, scale)) return false;
++
++		imageBuffer->Resize (scale.width, scale.height, 32);
++		if (!imageBuffer->data || !imageBuffer->data->buffer || !imageBuffer->data->buffer->b) {
++			scale.allocationFailed = true;
++			return false;
++		}
++		ScaleImageRows scaler (scale.sourceWidth, scale.sourceHeight, scale, imageBuffer->data->buffer->b);
++		unsigned char *current = rows.get ();
++		unsigned char *previous = current + rowBytes;
++
++		for (int row = 0; row < scale.sourceHeight; row++) {
++			result = spng_decode_row (ctx, current, rowBytes);
++			if (!CheckDecodeResult (result, row == scale.sourceHeight - 1 ? SPNG_EOI : SPNG_OK, scale)) return false;
++			scaler.Read (previous, current, row);
++			std::swap (current, previous);
++		}
++
++		imageBuffer->format = BGRA32;
++		imageBuffer->premultiplied = true;
++		imageBuffer->transparent = scaler.IsTransparent ();
++		return scaler.IsComplete ();
++
++	}
++
++
++	bool PNG::Decode (Resource *resource, ImageBuffer *imageBuffer, bool decodeData, ImageDecodeScale *scale) {
+ 
+ 		FILE_HANDLE* file = NULL;
+ 		Bytes* data = NULL;
+@@ -21,6 +73,7 @@ namespace lime {
+ 
+ 		spng_ctx *ctx = spng_ctx_new (0);
+ 		if (!ctx) {
++			if (scale) scale->allocationFailed = true;
+ 			if (file) lime::fclose (file);
+ 			return false;
+ 		}
+@@ -33,6 +86,10 @@ namespace lime {
+ 
+ 				result = spng_set_png_file (ctx, file->getFile ());
+ 
++			} else if (scale) {
++
++				result = spng_set_png_stream (ctx, ReadPngStream, file);
++
+ 			} else {
+ 
+ 				data = new Bytes ();
+@@ -48,6 +105,7 @@ namespace lime {
+ 		}
+ 
+ 		if (result != SPNG_OK) {
++			if (scale && result == SPNG_EMEM) scale->allocationFailed = true;
+ 			spng_ctx_free (ctx);
+ 			if (file) lime::fclose (file);
+ 			if (data) delete data;
+@@ -58,12 +116,25 @@ namespace lime {
+ 		result = spng_get_ihdr (ctx, &ihdr);
+ 
+ 		if (result != SPNG_OK) {
++			if (scale && result == SPNG_EMEM) scale->allocationFailed = true;
+ 			spng_ctx_free (ctx);
+ 			if (file) lime::fclose (file);
+ 			if (data) delete data;
+ 			return false;
+ 		}
+ 
++		if (scale) {
++
++			scale->pngRecognized = true;
++			bool decoded = decodeData && ihdr.interlace_method == 0 && scale->SetTarget (ihdr.width, ihdr.height)
++				&& DecodeScaled (ctx, imageBuffer, *scale);
++			spng_ctx_free (ctx);
++			if (file) lime::fclose (file);
++			if (data) delete data;
++			return decoded;
++
++		}
++
+ 		if (decodeData) {
+ 			size_t imageSize = 0;
+ 			result = spng_decoded_image_size (ctx, SPNG_FMT_RGBA8, &imageSize);
+diff --git a/project/include/graphics/format/ImageDecodeScale.h b/project/include/graphics/format/ImageDecodeScale.h
+new file mode 100644
+index 00000000..028a4ade
+--- /dev/null
++++ b/project/include/graphics/format/ImageDecodeScale.h
+@@ -0,0 +1,114 @@
++#ifndef LIME_GRAPHICS_FORMAT_IMAGE_DECODE_SCALE_H
++#define LIME_GRAPHICS_FORMAT_IMAGE_DECODE_SCALE_H
++
++#include <algorithm>
++#include <climits>
++#include <cmath>
++#include <stdint.h>
++
++namespace lime {
++
++
++	struct ImageDecodeScale {
++
++		int maximum;
++		int threshold;
++		double ratio;
++		int sourceWidth;
++		int sourceHeight;
++		int width;
++		int height;
++		bool allocationFailed;
++		bool pngRecognized;
++
++		bool SetTarget (uint32_t originalWidth, uint32_t originalHeight) {
++
++			if (!originalWidth || !originalHeight || originalWidth > INT_MAX / 4 || originalHeight > INT_MAX) return false;
++
++			sourceWidth = originalWidth;
++			sourceHeight = originalHeight;
++			int longest = std::max (sourceWidth, sourceHeight);
++			double scale = longest >= threshold && std::isfinite (ratio) ? std::sqrt (std::max (0.1, std::min (ratio, 1.0))) : 1.0;
++			if (maximum > 0) scale = std::min (scale, (double)maximum / longest);
++			width = std::max (1, (int)std::floor (sourceWidth * scale + 1e-9));
++			height = std::max (1, (int)std::floor (sourceHeight * scale + 1e-9));
++			if (maximum > 0) {
++				width = std::min (width, maximum);
++				height = std::min (height, maximum);
++			}
++			return (width != sourceWidth || height != sourceHeight) && height <= INT_MAX / 4 / width;
++
++		}
++
++	};
++
++
++	class ScaleImageRows {
++
++		public:
++
++			ScaleImageRows (int inputWidth, int inputHeight, const ImageDecodeScale& target, unsigned char *pixels)
++				: inputWidth (inputWidth), inputHeight (inputHeight), target (target), pixels (pixels),
++				  stepX ((double)inputWidth / target.width), stepY ((double)inputHeight / target.height), row (0), transparent (false) {}
++
++			void Read (const unsigned char *previous, const unsigned char *current, int inputRow) {
++
++				while (row < target.height) {
++
++					double sampleY = (row + 0.5) * stepY - 0.5;
++					int top = (int)sampleY;
++					int bottom = std::min (top + 1, inputHeight - 1);
++					if (bottom != inputRow) return;
++					Write (top == bottom ? current : previous, current, sampleY - top);
++					row++;
++				}
++
++			}
++
++			bool IsComplete () const { return row == target.height; }
++			bool IsTransparent () const { return transparent; }
++
++		private:
++
++			void Write (const unsigned char *upper, const unsigned char *lower, double vertical) {
++
++				for (int column = 0; column < target.width; column++) {
++					double sampleX = (column + 0.5) * stepX - 0.5;
++					int left = (int)sampleX * 4;
++					int right = std::min (left + 4, inputWidth * 4 - 4);
++					double horizontal = sampleX - (int)sampleX;
++					const unsigned char *neighbors[] = {upper + left, upper + right, lower + left, lower + right};
++					double weights[] = {(1 - horizontal) * (1 - vertical), horizontal * (1 - vertical),
++						(1 - horizontal) * vertical, horizontal * vertical};
++					double alpha = 0;
++					for (int neighbor = 0; neighbor < 4; neighbor++) {
++						weights[neighbor] *= neighbors[neighbor][3];
++						alpha += weights[neighbor];
++					}
++					for (int channel = 0; channel < 3; channel++) {
++						double value = 0;
++						for (int neighbor = 0; neighbor < 4; neighbor++) value += neighbors[neighbor][channel] * weights[neighbor];
++						pixels[2 - channel] = (unsigned char)(value / 255 + 0.5);
++					}
++					pixels[3] = (unsigned char)(alpha + 0.5);
++					if (pixels[3] != 255) transparent = true;
++					pixels += 4;
++				}
++
++			}
++
++			int inputWidth;
++			int inputHeight;
++			const ImageDecodeScale& target;
++			unsigned char *pixels;
++			double stepX;
++			double stepY;
++			int row;
++			bool transparent;
++
++	};
++
++
++}
++
++#endif

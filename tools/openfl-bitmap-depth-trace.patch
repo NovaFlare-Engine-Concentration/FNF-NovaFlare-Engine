@@ -1,0 +1,158 @@
+diff --git a/src/openfl/display/BitmapData.hx b/src/openfl/display/BitmapData.hx
+index 935c532..e62501e 100644
+--- a/src/openfl/display/BitmapData.hx
++++ b/src/openfl/display/BitmapData.hx
+@@ -8,6 +8,9 @@ import openfl.display._internal.PerlinNoise;
+ import openfl.display3D._internal.GLFramebuffer;
+ import openfl.display3D._internal.GLRenderbuffer;
+ import openfl.display3D.textures.TextureBase;
++#if (windows && cpp && lime && novaflare_render_attachment_trace)
++import openfl.display3D._internal.RenderAttachmentTrace;
++#end
+ import openfl.display3D.Context3DClearMask;
+ import openfl.display3D.Context3D;
+ import openfl.display3D.IndexBuffer3D;
+@@ -3254,9 +3257,16 @@ class BitmapData implements IBitmapDrawable
+ 		var cacheRTTAntiAlias = context.__state.renderToTextureAntiAlias;
+ 		var cacheRTTSurfaceSelector = context.__state.renderToTextureSurfaceSelector;
+ 
+-		context.setRenderToTexture(getTexture(context), true);
+-
++		var texture = getTexture(context);
++		context.setRenderToTexture(texture, true);
++		#if (windows && cpp && lime && novaflare_render_attachment_trace)
++		var begin:cpp.Int64 = RenderAttachmentTrace.enabled && texture != null && texture.__glDepthRenderbuffer == null
++			? RenderAttachmentTrace.qpc() : 0;
++		#end
+ 		renderer.__render(source);
++		#if (windows && cpp && lime && novaflare_render_attachment_trace)
++		var end:cpp.Int64 = begin != (0:cpp.Int64) && texture.__glDepthRenderbuffer != null ? RenderAttachmentTrace.qpc() : 0;
++		#end
+ 
+ 		if (cacheRTT != null)
+ 		{
+@@ -3266,8 +3276,35 @@ class BitmapData implements IBitmapDrawable
+ 		{
+ 			context.setRenderToBackBuffer();
+ 		}
++		#if (windows && cpp && lime && novaflare_render_attachment_trace)
++		if (end != (0:cpp.Int64)) __traceDepthAttachment(source, texture, begin, end);
++		#end
+ 	}
+ 
++	#if (windows && cpp && lime && novaflare_render_attachment_trace)
++	private function __traceDepthAttachment(source:IBitmapDrawable, texture:TextureBase, begin:cpp.Int64, end:cpp.Int64):Void
++	{
++		var displayObject = Std.downcast(source, DisplayObject);
++		var parent = displayObject == null ? null : displayObject.parent;
++		var filters = displayObject == null ? null : displayObject.__filters;
++		RenderAttachmentTrace.write("render_attachment", begin, end, {
++			texture: RenderAttachmentTrace.objectId(texture.__textureID),
++			framebuffer: RenderAttachmentTrace.objectId(texture.__glFramebuffer),
++			depth: RenderAttachmentTrace.objectId(texture.__glDepthRenderbuffer),
++			width: texture.__width,
++			height: texture.__height,
++			source_class: Type.getClassName(Type.getClass(source)),
++			source_name: displayObject == null ? null : displayObject.name,
++			parent_class: parent == null ? null : Type.getClassName(Type.getClass(parent)),
++			parent_name: parent == null ? null : parent.name,
++			cache_bitmap: displayObject != null && displayObject.__cacheBitmapData == this,
++			cache_render: displayObject != null && displayObject.__isCacheBitmapRender,
++			filter_count: filters == null ? 0 : filters.length,
++			filters: filters == null ? [] : [for (filter in filters) Type.getClassName(Type.getClass(filter))]
++		});
++	}
++	#end
++
+ 	@:noCompletion private function __fillRect(rect:Rectangle, color:Int, allowFramebuffer:Bool):Void
+ 	{
+ 		#if lime
+diff --git a/src/openfl/display3D/_internal/RenderAttachmentTrace.hx b/src/openfl/display3D/_internal/RenderAttachmentTrace.hx
+new file mode 100644
+index 0000000..c8c11d5
+--- /dev/null
++++ b/src/openfl/display3D/_internal/RenderAttachmentTrace.hx
+@@ -0,0 +1,36 @@
++package openfl.display3D._internal;
++
++#if (windows && cpp && lime && novaflare_render_attachment_trace)
++import lime.graphics.opengl.GL.GLObject;
++
++@:cppFileCode('
++#include <windows.h>
++#include <cstdio>
++')
++@:noCompletion
++class RenderAttachmentTrace
++{
++	public static final enabled = Sys.getEnv("NOVAFLARE_RENDER_ATTACHMENT_TRACE") == "1";
++
++	public static inline function objectId(object:GLObject):Int
++	{
++		if (object == null) return 0;
++		return @:privateAccess object.id;
++	}
++
++	public static function qpc():cpp.Int64
++	{
++		untyped __cpp__('LARGE_INTEGER counter');
++		return untyped __cpp__('QueryPerformanceCounter(&counter) ? counter.QuadPart : 0');
++	}
++
++	public static function write(event:String, begin:cpp.Int64, end:cpp.Int64, details:Dynamic):Void
++	{
++		var payload = haxe.Json.stringify(details);
++		untyped __cpp__('std::printf("perf:%s begin_qpc=%llu end_qpc=%llu %s\\n", {0}.utf8_str(),
++			static_cast<unsigned long long>({1}), static_cast<unsigned long long>({2}), {3}.utf8_str())',
++			event, begin, end, payload);
++		untyped __cpp__('std::fflush(stdout)');
++	}
++}
++#end
+diff --git a/src/openfl/display3D/textures/TextureBase.hx b/src/openfl/display3D/textures/TextureBase.hx
+index 42c3ec8..81880e3 100644
+--- a/src/openfl/display3D/textures/TextureBase.hx
++++ b/src/openfl/display3D/textures/TextureBase.hx
+@@ -8,6 +8,9 @@ import openfl.display3D._internal.GLFramebuffer;
+ import openfl.display3D._internal.GLRenderbuffer;
+ import openfl.display3D._internal.GLTexture;
+ import openfl.display3D._internal.ATFGPUFormat;
++#if (windows && cpp && lime && novaflare_render_attachment_trace)
++import openfl.display3D._internal.RenderAttachmentTrace;
++#end
+ import openfl.display._internal.SamplerState;
+ import openfl.display.BitmapData;
+ import openfl.events.EventDispatcher;
+@@ -209,6 +212,9 @@ class TextureBase extends EventDispatcher
+ 
+ 		if (enableDepthAndStencil && __glDepthRenderbuffer == null)
+ 		{
++			#if (windows && cpp && lime && novaflare_render_attachment_trace)
++			var begin:cpp.Int64 = RenderAttachmentTrace.enabled ? RenderAttachmentTrace.qpc() : 0;
++			#end
+ 			__context.__bindGLFramebuffer(__glFramebuffer);
+ 
+ 			if (Context3D.__glDepthStencil != 0)
+@@ -245,6 +251,22 @@ class TextureBase extends EventDispatcher
+ 			}
+ 
+ 			gl.bindRenderbuffer(gl.RENDERBUFFER, null);
++			#if (windows && cpp && lime && novaflare_render_attachment_trace)
++			if (begin != (0:cpp.Int64) && __glDepthRenderbuffer != null)
++			{
++				var end = RenderAttachmentTrace.qpc();
++				if (end != (0:cpp.Int64))
++				{
++					RenderAttachmentTrace.write("render_attachment_allocation", begin, end, {
++						texture: RenderAttachmentTrace.objectId(__textureID),
++						framebuffer: RenderAttachmentTrace.objectId(__glFramebuffer),
++						depth: RenderAttachmentTrace.objectId(__glDepthRenderbuffer),
++						width: __width,
++						height: __height
++					});
++				}
++			}
++			#end
+ 		}
+ 
+ 		return __glFramebuffer;

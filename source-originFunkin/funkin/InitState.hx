@@ -189,20 +189,6 @@ class InitState extends FlxState
         );
       });
 
-      // SDL for some reason enables VSync on focus lost/gained in Android
-      // Since we don't really need VSync on Android we're gonna forcefully disable it on these signals for now
-      // This is fixed on SDL3 from what I've heared but that doodoo isn't working poperly for Android
-      #if android
-      FlxG.signals.focusLost.add(function()
-      {
-        WindowUtil.setVSyncMode(originfunkin.OriginVSyncMode.OFF);
-      });
-      FlxG.signals.focusGained.add(function()
-      {
-        WindowUtil.setVSyncMode(originfunkin.OriginVSyncMode.OFF);
-      });
-      #end
-
       //
       // NEWGROUNDS API SETUP
       //
@@ -292,28 +278,12 @@ class InitState extends FlxState
     _lastFocusVolume = FlxG.sound.volume;
     FlxG.sound.volume *= Constants.LOST_FOCUS_VOLUME_MULTIPLIER;
   }
-  #end
-
   function onGainFocus():Void
   {
-    #if !mobile
-    if (Preferences.unlockedFramerate)
-    {
-      FlxG.updateFramerate = 0;
-      FlxG.drawFramerate = 0;
-    }
-    else
-    {
-      FlxG.updateFramerate = Preferences.framerate;
-      FlxG.drawFramerate = Preferences.framerate;
-    }
-    #end
-
-    #if FEATURE_LOST_FOCUS_VOLUME
     if (FlxG.sound.muted || FlxG.sound.volume == 0 || FlxG.autoPause) return;
     if (_lastFocusVolume != null) FlxG.sound.volume = _lastFocusVolume;
-    #end
   }
+  #end
 
   /**
    * Start the game.

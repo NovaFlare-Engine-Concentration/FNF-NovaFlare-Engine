@@ -1,0 +1,43 @@
+diff --git a/src/openfl/display/_internal/Context3DBuffer.hx b/src/openfl/display/_internal/Context3DBuffer.hx
+--- a/src/openfl/display/_internal/Context3DBuffer.hx
++++ b/src/openfl/display/_internal/Context3DBuffer.hx
+@@ -74,5 +74,5 @@
+ 	}
+ 
+-	public function flushVertexBufferData():Void
++	public function flushVertexBufferData(usedFloats:Int = -1):Void
+ 	{
+ 		if (vertexBufferData.length > vertexCount)
+@@ -82,5 +82,6 @@
+ 		}
+ 
+-		vertexBuffer.uploadFromTypedArray(vertexBufferData);
++		var byteLength = usedFloats >= 0 ? usedFloats * Float32Array.BYTES_PER_ELEMENT : -1;
++		vertexBuffer.uploadFromTypedArray(vertexBufferData, byteLength);
+ 	}
+ 
+diff --git a/src/openfl/display/_internal/Context3DGraphics.hx b/src/openfl/display/_internal/Context3DGraphics.hx
+--- a/src/openfl/display/_internal/Context3DGraphics.hx
++++ b/src/openfl/display/_internal/Context3DGraphics.hx
+@@ -463,5 +463,5 @@
+ 		if (quadBufferPosition > 0)
+ 		{
+-			graphics.__quadBuffer.flushVertexBufferData();
++			graphics.__quadBuffer.flushVertexBufferData(quadBufferPosition * 4 * graphics.__quadBuffer.dataPerVertex);
+ 		}
+ 
+diff --git a/src/openfl/display3D/VertexBuffer3D.hx b/src/openfl/display3D/VertexBuffer3D.hx
+--- a/src/openfl/display3D/VertexBuffer3D.hx
++++ b/src/openfl/display3D/VertexBuffer3D.hx
+@@ -130,4 +130,11 @@
+ 
+ 		__context.__bindGLArrayBuffer(__id);
++		#if (lime && sys && lime_cffi && (lime_opengl || lime_opengles) && !doc_gen)
++		if (byteLength >= 0 && byteLength < data.byteLength)
++		{
++			__context.__context.gles2.bufferData(gl.ARRAY_BUFFER, byteLength, data, __usage);
++			return;
++		}
++		#end
+ 		gl.bufferData(gl.ARRAY_BUFFER, data, __usage);
+ 	}

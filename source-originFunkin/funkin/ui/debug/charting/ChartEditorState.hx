@@ -4117,6 +4117,11 @@ class ChartEditorState extends UIState // UIState derives from MusicBeatState
 
   override public function update(elapsed:Float):Void
   {
+    #if android
+    if (subState == null && originfunkin.input.OriginEditorBack.handle(() -> quitChartEditor(true),
+      funkin.ui.debug.charting.dialogs.ChartEditorWelcomeDialog)) return;
+    #end
+
     // Override F4 behavior to include the autosave.
     if (FlxG.keys.justPressed.F4 && !criticalFailure)
     {

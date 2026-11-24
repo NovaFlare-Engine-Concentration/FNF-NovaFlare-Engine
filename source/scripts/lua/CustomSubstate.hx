@@ -87,9 +87,21 @@ class CustomSubstate extends MusicBeatSubstate
 
 	override function update(elapsed:Float)
 	{
-		PlayState.instance.callOnScripts('onCustomSubstateUpdate', [name, elapsed]);
+		final scriptElapsed = general.backend.NovaFlareGame.scriptElapsedForUpdate(elapsed);
+		if (scriptElapsed != null) PlayState.instance.callOnScripts('onCustomSubstateUpdate', [name, scriptElapsed]);
 		super.update(elapsed);
-		PlayState.instance.callOnScripts('onCustomSubstateUpdatePost', [name, elapsed]);
+		if (scriptElapsed != null) PlayState.instance.callOnScripts('onCustomSubstateUpdatePost', [name, scriptElapsed]);
+	}
+
+	override public function drawUpdate(elapsed:Float):Void
+	{
+		final runScriptUpdate = general.backend.NovaFlareGame.scriptUpdateActive;
+		final scriptElapsed = general.backend.NovaFlareGame.scriptUpdateElapsed;
+		if (runScriptUpdate)
+			PlayState.instance.callOnScripts('onCustomSubstateUpdate', [name, scriptElapsed]);
+		super.drawUpdate(elapsed);
+		if (runScriptUpdate)
+			PlayState.instance.callOnScripts('onCustomSubstateUpdatePost', [name, scriptElapsed]);
 	}
 
 	override function destroy()

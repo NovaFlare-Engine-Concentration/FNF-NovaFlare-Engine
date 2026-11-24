@@ -4,6 +4,8 @@ class Watermark extends Bitmap
 {
 	private var lastStageHeight:Int = -1;
 	private var lastScale:Float = -1;
+	private var lastBitmapWidth:Int = -1;
+	private var lastBitmapHeight:Int = -1;
 
 	public function new(x:Float = 10, y:Float = 10, Alpha:Float = 0.5, ?sourceBitmapData:BitmapData)
 	{
@@ -24,16 +26,28 @@ class Watermark extends Bitmap
 		this.alpha = Alpha;
 	}
 
-	private override function __enterFrame(deltaTime:Float):Void
+	public function updateLayout():Void
 	{
-		if (!visible) return;
+		if (bitmapData == null) return;
 		var stageHeight = Lib.current.stage.stageHeight;
 		var scale = ClientPrefs.data.watermarkScale;
-		if (stageHeight == lastStageHeight && scale == lastScale) return;
+		if (stageHeight == lastStageHeight && scale == lastScale
+			&& bitmapData.width == lastBitmapWidth && bitmapData.height == lastBitmapHeight) return;
 		lastStageHeight = stageHeight;
 		lastScale = scale;
+		lastBitmapWidth = bitmapData.width;
+		lastBitmapHeight = bitmapData.height;
+		var originalWidth = bitmapData.imageSourceWidth > 0 ? bitmapData.imageSourceWidth : bitmapData.width;
+		var originalHeight = bitmapData.imageSourceHeight > 0 ? bitmapData.imageSourceHeight : bitmapData.height;
+		scaleX = scale * originalWidth / bitmapData.width;
+		scaleY = scale * originalHeight / bitmapData.height;
 		this.x = 5;
-		this.y = stageHeight - 5 - scale * bitmapData.height;
+		this.y = stageHeight - 5 - scale * originalHeight;
+	}
+
+	private override function __enterFrame(deltaTime:Float):Void
+	{
+		if (visible) updateLayout();
 	}
 }
 

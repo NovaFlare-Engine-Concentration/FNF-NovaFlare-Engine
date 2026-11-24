@@ -671,7 +671,7 @@ class PauseSubState extends MusicBeatSubstate
 					FlxG.camera.followLerp = 0;
 				case 'Editor':
 					PlayState.replayMode = false; Replay.restoreSettings();
-					MusicBeatState.switchState(new ChartingState());
+					MusicBeatState.switchState(new developer.editors.psych104.Psych104ChartingState());
 					PlayState.chartingMode = true;
 			}
 		}

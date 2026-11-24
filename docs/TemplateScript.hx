@@ -2,7 +2,7 @@
 
 function onCreate()
 {
-	// triggered when the hscript file is started, some variables weren't created yet
+	// Song metadata, BPM, and the known instrumental length in milliseconds are available here.
 }
 
 function onCreatePost()
@@ -53,12 +53,13 @@ function onStepHit()
 
 function onUpdate(elapsed:Float)
 {
-	// start of "update", some variables weren't updated yet
+	// Follows game updates or drawing. A positive script rate caps callbacks on the selected clock.
+	// elapsed is scaled seconds for this tick. Multiple draw ticks can observe the same input edge.
 }
 
 function onUpdatePost(elapsed:Float)
 {
-	// end of "update"
+	// Runs after the matching update with the same elapsed value.
 }
 
 function onStartCountdown()
@@ -70,6 +71,7 @@ function onStartCountdown()
 
 function onCountdownStarted()
 {
+	// The initial receptor positions are available as defaultPlayerStrumX0, defaultOpponentStrumY0, etc.
 	// called AFTER countdown started, if you want to stop it from starting, refer to the previous function (onStartCountdown)
 }
 

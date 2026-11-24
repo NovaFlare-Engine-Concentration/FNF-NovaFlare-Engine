@@ -1074,6 +1074,10 @@ class CameraEditorState extends UIState implements ConsoleClass
 
   override public function update(elapsed:Float):Void
   {
+    #if android
+    if (subState == null && originfunkin.input.OriginEditorBack.handle(() -> onMenubarExit(null), WelcomeDialog)) return;
+    #end
+
     // Save the stage if exiting through the F4 keybind.
     // Soon the EvacuateDebugPlugin will move us to the new state.
     if (FlxG.keys.justPressed.F4)

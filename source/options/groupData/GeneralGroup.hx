@@ -2,7 +2,7 @@ package options.groupData;
 
 import lime.graphics.opengl.GL;
 import general.shaders.ColorblindFilter;
-import lime.system.Display;
+import general.backend.RenderResolution;
 
 #if mobile
 import general.objects.screen.MouseEffect;
@@ -11,6 +11,11 @@ import general.shaders.MobileShaderConverter;
 
 class GeneralGroup extends OptionCata
 {
+	#if cpp
+	private var vsyncOption:Option;
+	private var previousVSync:Bool;
+	#end
+
 	public function new(X:Float, Y:Float, width:Float, height:Float)
 	{
 		super(X, Y, width, height);
@@ -22,6 +27,13 @@ class GeneralGroup extends OptionCata
 		addOption(option);
 		option.onChange = onChangeFramerate;
 
+		var option:Option = new Option(this, 'scriptUpdateRate', INT, [0, 2000, 'TPS']);
+		addOption(option);
+
+		var option:Option = new Option(this, 'scriptUpdateFrameLimit', BOOL);
+		addOption(option);
+
+		#if !ios
 		var option:Option = new Option(this, 'drawFramerate', INT, [24, 2000, 'FPS']);
 		addOption(option);
 		option.onChange = onChangeDrawFramerate;
@@ -29,10 +41,29 @@ class GeneralGroup extends OptionCata
 		var option:Option = new Option(this, 'lockRender', BOOL);
 		addOption(option);
 		option.onChange = onChangelockRender;
+		#end
 
 		var option:Option = new Option(this, 'renderThread', BOOL);
 		addOption(option);
 		option.onChange = onChangerenderThread;
+
+		#if cpp
+		vsyncOption = new Option(this, 'vsync', BOOL);
+		addOption(vsyncOption);
+		previousVSync = ClientPrefs.data.vsync;
+		vsyncOption.onChange = onChangeVSync;
+		#end
+
+		#if android
+		var option:Option = new Option(this, 'androidPerformanceHints', BOOL);
+		addOption(option);
+		option.onChange = () -> mobile.backend.AndroidPerformanceHints.setEnabled(ClientPrefs.data.androidPerformanceHints);
+		#end
+
+		#if (cpp && NOVAFLARE_GC_GENERATIONAL_PREFERENCE && !hxcpp_zgc)
+		var option:Option = new Option(this, 'generationalGC', BOOL);
+		addOption(option);
+		#end
 
 		var option:Option = new Option(this, 'lowQuality', BOOL);
 		addOption(option);
@@ -41,9 +72,6 @@ class GeneralGroup extends OptionCata
 		var option:Option = new Option(this, 'resolution', STRING, resolutionArray);
 		addOption(option);
 		option.onChange = onChangeResolution;
-
-		var option:Option = new Option(this, 'gameQuality', INT, [0, 3]);
-		addOption(option);
 
 		var option:Option = new Option(this, 'antialiasing', BOOL);
 		addOption(option);
@@ -103,55 +131,47 @@ class GeneralGroup extends OptionCata
 
 	///////////////////////////////////////////////////////////////////////////
 
-	function resoData():Array<Array<String>> {
-		var display:Display = lime.system.System.getDisplay(0);
-		var maxReso:Float = display.bounds.width * display.bounds.height;
-		var displayOutput:Array<String> = [];
-
-		var data:Array<Float> = [640 * 360, 854 * 480, 960 * 540, 1280 * 720, 1366 * 768, 1600 * 900, 1920 * 1080, 2560 * 1440, 2560 * 1600, 3200 * 1800, 3840 * 2160];
-		var displayData:Array<String> = ["360P", "480P", "540P", "720P", "768P", "900P", "1080P", "1440P (2K)", "1600P", "1800P", "2160P (4K)"];
-
-		for (i in 0...data.length)
-		{
-			if (maxReso > Math.floor(data[i]))
-			{
-				displayOutput.push(displayData[i]);
-			} else {
-				displayOutput.push("Native: " + display.bounds.width + "x" + display.bounds.height);
-				break;
-			}
-		}
-
-		return [displayOutput, displayOutput];
+	function resoData():Array<Array<String>>
+	{
+		var labels = RenderResolution.choices();
+		return [labels, labels];
 	}
 
 	///////////////////////////////////////////////////////////////
 
 	function onChangeFramerate()
 	{
-		applyFrameRates();
+		FlxG.updateFramerate = ClientPrefs.data.framerate;
 	}
 
+	#if !ios
 	function onChangeDrawFramerate()
 	{
-		applyFrameRates();
-	}
-
-	function applyFrameRates()
-	{
-		// Keep update and rendering independent. The old callback assigned the
-		// TPS value to FlxG.drawFramerate, silently defeating the FPS cap.
-		FlxG.updateFramerate = ClientPrefs.data.framerate;
 		FlxG.drawFramerate = ClientPrefs.data.drawFramerate;
-		FlxG.stage.application.window.frameRate = ClientPrefs.data.framerate;
-		FlxG.stage.application.window.drawFrameRate = ClientPrefs.data.drawFramerate;
-		FlxG.stage.application.window.lockRender = ClientPrefs.data.lockRender;
 	}
 
 	function onChangelockRender()
 	{
-		applyFrameRates();
+		var window = FlxG.stage.window;
+		window.lockRender = ClientPrefs.data.lockRender;
+		ClientPrefs.data.lockRender = window.lockRender;
 	}
+	#end
+
+	#if cpp
+	function onChangeVSync():Void
+	{
+		if (ClientPrefs.applyVSyncPreference())
+		{
+			previousVSync = ClientPrefs.data.vsync;
+			return;
+		}
+
+		vsyncOption.setValue(previousVSync);
+		@:privateAccess vsyncOption.boolButton.updateDisplay();
+		trace('Could not change VSync mode');
+	}
+	#end
 
 	function onChangerenderThread()
 	{
@@ -160,35 +180,7 @@ class GeneralGroup extends OptionCata
 
 	function onChangeResolution()
 	{
-		var output:Array<Float> = [];
-		switch(ClientPrefs.data.resolution) {
-			case '360P':
-				output = [640, 360];
-			case '480P':
-				output = [854, 480];
-			case '540P':
-				output = [960, 540];
-			case '720P':
-				output = [1280, 720];
-			case '768P':
-				output = [1366, 768];
-			case '900P':
-				output = [1600, 900];
-			case '1080P':
-				output = [1920, 1080];
-			case '1440P (2K)':
-				output = [2560, 1440];
-			case '1600P':
-				output = [2560, 1600];
-			case '1800P':
-				output = [3200, 1800];
-			case '2160P (4K)':
-				output = [3840, 2160];
-			default:
-				var display:Display = lime.system.System.getDisplay(0);
-				output = [display.bounds.width, display.bounds.height];
-		}
-		openfl.Lib.current.stage.setLogicalSize(Std.int(output[0]), Std.int(output[1]));
+		RenderResolution.apply(openfl.Lib.current.stage, ClientPrefs.data.resolution);
 	}
 
 	function onChangeFilter()

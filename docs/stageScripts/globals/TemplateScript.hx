@@ -67,14 +67,16 @@ function onGameStart() {}
 function onGameStartPost() {}
 
 /**
- * 在游戏`（FlxG.game）`进行更新屏幕前的一瞬间
- * The moment before updating the screen in the game `(FlxG.game)`
+ * 脚本可随游戏更新或实际绘制。帧率上限大于零时限制回调频率，elapsed 包含跳过的游戏时间。
+ * Follows updates or drawing. A positive rate caps callbacks, and elapsed includes skipped game time.
+ * @param elapsed 当前更新经过的游戏秒数，已计入时间倍率 - Scaled game seconds for this update
  */
 function onUpdate(elapsed:Float) {}
 
 /**
- * 在游戏`（FlxG.game）`更新屏幕后的一瞬间
- * The moment after updating the screen in the game `(FlxG.game)`
+ * 在同一次脚本更新后调用。
+ * Runs after the matching script update.
+ * @param elapsed 与同一次 onUpdate 相同 - Same elapsed value as onUpdate for this tick
  */
 function onUpdatePost(elapsed:Float) {}
 

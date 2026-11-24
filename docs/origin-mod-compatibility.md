@@ -31,6 +31,12 @@
 <!-- 2026-11-03 CPPIA investigation: the real Mod Engine 1.0.3 script was scanned without executing it: text CPPIA, 4,973 strings, 208 types, scanner walked the body with no unknown tokens or suspect flag; see D:/game/FNF-NovaFlare-Engine/_build/cppia-scan-673/result.log. The existing Windows build has neither POLYMOD_CPPIA nor the hxcpp scriptable host, so loading remains unsupported. Enabling those flags alone does not establish host ABI or manifest-version compatibility; no native script execution or Hex V3 gameplay has been verified. During test runs, force-close this task's test application and its child processes if system available physical memory falls below 200 MB; the prior 4 GB/4.6 GB thresholds are not stop conditions. -->
 # Origin 历史模组兼容
 
+## Origin 调试菜单按平台提供操作。
+
+Android 的 Origin 选项页提供 `DEBUG MENU`。轻触选中条目，再次轻触打开谱面、摄像机、动画或舞台编辑器，也可打开 `MOD MENU` 和 `CHARACTER SELECT`。底部返回按钮可回到原选项列表位置。编辑器需要完整的 Origin 外置资源包。手机可直接触摸控件，用系统返回键关闭对话框或从编辑器退出，使用音量键打开虚拟指针以执行右键、滚动和辅助按键操作。文件选择器默认打开引擎存储目录，可浏览系统已授权的目录，同名文件需要再次点按保存。桌面仍提供结算调试和崩溃日志文件夹入口。
+
+Origin 外部资源未提供 `flixel/sounds/beep.ogg` 时，默认资源库保留引擎随包提供的提示音。
+
 真实 0.9 CPPIA 依赖缺口（671/672）：[Hex V3](https://gamebanana.com/mods/44225) 的 [公开源码 c9c344d](https://github.com/Kade-github/Hex-V3/tree/c9c344d341d03e537f019775978f8ec9f440c733) 元数据为 API 0.9.0 且依赖 mod-engine；其构建脚本把 cppia-src/cppia-charts 编译为 CPPIA，HScript 也导入这些类。完整发行包约 1.41 GB，大于当时 D 盘可用空间，未下载或运行完整 Hex。下载作者的 [Mod Engine 1.0.3](https://gamebanana.com/mods/725611) 原包（file 1845599，MD5 92342eb094bf08b7d6a64994dfede961），包含 gameplay/scripts/ModEngine.cppia；可见隔离窗口正确加载 mod-engine 和 ChartLoader，但 CppiaScripts.list() 返回空、Chart 类不存在（`_build/origin-cppia-modengine-672.out.log`）。当前构建生成的 CppiaScripts.cpp 的 exists() 返回 false、list() 返回空数组，符合未启用 POLYMOD_CPPIA 的源码分支，不能认为 CPPIA 模组受支持；完整兼容需要核实宿主 scriptable 构建、版本戳、注册及依赖加载，而不是只扩大 API 版本范围。首次 671 使用目录名而非 metadata id，模组未被加载，不作为测试结果。两次用户存档及配置哈希不变；672 退出码未可靠采集。
 
 

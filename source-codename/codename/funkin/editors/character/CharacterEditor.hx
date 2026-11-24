@@ -477,6 +477,15 @@ class CharacterEditor extends UIState {
 		else {undos = null; FlxG.switchState(new CharacterSelection());}
 	}
 
+	#if mobile
+	public override function onMobileBack():Bool {
+		FlxG.signals.postUpdate.addOnce(() -> {
+			if (FlxG.state == this && subState == null) _file_exit(null);
+		});
+		return true;
+	}
+	#end
+
 	function buildCharacter():String {
 		if (character.extra.exists(StageEditor.exID("bounds")))
 			character.extra.remove(StageEditor.exID("bounds"));

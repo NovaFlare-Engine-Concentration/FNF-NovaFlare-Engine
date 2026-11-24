@@ -1,6 +1,7 @@
 package;
 
 import general.backend.ClientPrefs;
+import general.backend.ImageCompression;
 import haxe.io.Path;
 import haxe.ui.Toolkit;
 
@@ -13,6 +14,7 @@ import openfl.utils.Assets;
 
 import lime.system.System as LimeSystem;
 import lime.app.Application;
+import lime.graphics.opengl.GL;
 
 
 import flixel.graphics.FlxGraphic;
@@ -32,6 +34,7 @@ import codenamechain.CodeNameMode;
 import developer.display.FPSViewer;
 import developer.display.Graphics;
 import developer.console.TraceInterceptor;
+import developer.console.ConsoleTheme.ConsoleMode;
 import developer.console.Console;
 import developer.console.ConsoleToggleButton;
 
@@ -144,7 +147,7 @@ class Main extends Sprite
 	{
 		super();
 		#if android
-		SUtil.doPermissionsShit();
+		if (Sys.getEnv('NOVAFLARE_ANDROID_DIAGNOSTICS') != '1') SUtil.doPermissionsShit();
 		setupMobileStorage();
 		mobile.backend.CrashHandler.refreshNativeCrashDirectory();
 		#end
@@ -215,6 +218,10 @@ class Main extends Sprite
 		#end
 		#end
 
+		#if (cpp && NOVAFLARE_GC_GENERATIONAL_PREFERENCE && !hxcpp_zgc)
+		ClientPrefs.initializeGenerationalGC();
+		#end
+
 		#if CODENAME_ENGINE_COMPAT
 		if (CodeNameMode.active)
 		{
@@ -253,7 +260,7 @@ class Main extends Sprite
 		ExtraKeysHandler.instance = new ExtraKeysHandler();
 		ClientPrefs.loadDefaultKeys();
 
-		var flxGame:FlxGame = new FlxGame(#if (openfl >= "9.2.0") 1280, 720 #else gameConfig.width, gameConfig.height #end,gameConfig.initialState, #if (flixel < "5.0.0") gameConfig.zoom, #end gameConfig.framerate, gameConfig.framerate, gameConfig.skipSplash, gameConfig.startFullscreen);
+		var flxGame:FlxGame = new general.backend.NovaFlareGame(#if (openfl >= "9.2.0") 1280, 720 #else gameConfig.width, gameConfig.height #end,gameConfig.initialState, #if (flixel < "5.0.0") gameConfig.zoom, #end gameConfig.framerate, gameConfig.framerate, gameConfig.skipSplash, gameConfig.startFullscreen);
 		addChild(flxGame);
 
 		fpsVar = new FPSViewer(0, 0);
@@ -280,8 +287,7 @@ class Main extends Sprite
 		}
 		if (watermark != null)
 		{
-			watermark.scaleX = watermark.scaleY = ClientPrefs.data.watermarkScale;
-			watermark.y = Lib.current.stage.stageHeight - 5 - watermark.scaleY * watermark.bitmapData.height;
+			watermark.updateLayout();
 			watermark.visible = ClientPrefs.data.showWatermark;
 		}
 
@@ -307,10 +313,9 @@ class Main extends Sprite
 		#end
 		Data.setup();
 
+		Console.configure(NovaFlare);
 		TraceInterceptor.init();
-		addChild(ConsoleToggleButton.instance);
-		addChild(Console.consoleInstance);
-		Console.consoleInstance.visible = false;
+		addTraceConsole();
 		setChildIndex(effect, numChildren - 1);
 
 		#if !debug
@@ -322,6 +327,14 @@ class Main extends Sprite
 	private function setupMobileStorage():Void
 	{
 		#if android
+		if (Sys.getEnv('NOVAFLARE_ANDROID_DIAGNOSTICS') == '1')
+		{
+			var diagnosticStorage = haxe.io.Path.join([LimeSystem.applicationStorageDirectory, 'render-capture']);
+			SUtil.mkDirs(diagnosticStorage);
+			Sys.setCwd(diagnosticStorage);
+			originfunkin.OriginFunkinConfig.load(true);
+			return;
+		}
 		var defaultFolder:String = Application.current.meta.get('file');
 		var storageFolder:String = defaultFolder;
 
@@ -358,6 +371,7 @@ class Main extends Sprite
 
 	private function setupOriginFunkinGame():Void
 	{
+		loadSharedNovaFlarePrefs(false);
 		fpsVar = new FPSViewer(0, 0);
 		var effect = new MouseEffect(
 			Assets.getBitmapData('assets/shared/images/menuExtend/Others/click.png').clone(),
@@ -367,6 +381,7 @@ class Main extends Sprite
 		effect.mouseChildren = false;
 		var originWatermarkBitmap = Assets.getBitmapData('assets/shared/images/menuExtend/Others/watermark.png').clone();
 
+		Console.configure(Origin);
 		var prepared:Bool = OriginFunkinMode.prepare();
 		#if mobile
 		if (prepared)
@@ -393,9 +408,8 @@ class Main extends Sprite
 		if (watermark != null && watermark.parent == this) removeChild(watermark);
 		watermark = new Watermark(5, Lib.current.stage.stageHeight - 5, 0.4, originWatermarkBitmap);
 		addChild(watermark);
-		watermark.scaleX = watermark.scaleY = ClientPrefs.data.watermarkScale;
+		watermark.updateLayout();
 		watermark.visible = ClientPrefs.data.showWatermark;
-		watermark.y = Lib.current.stage.stageHeight - 5 - watermark.scaleY * watermark.bitmapData.height;
 
 		addChild(effect);
 
@@ -406,12 +420,15 @@ class Main extends Sprite
 		if (prepared)
 		{
 			FlxG.scaleMode = new funkin.ui.FullScreenScaleMode();
+			addTraceConsole();
+			Console.setAvailability(Origin, funkin.save.Save.instance.novaSettings?.traceConsole == true);
 		}
 	}
 
 	#if CODENAME_ENGINE_COMPAT
 	private function setupCodeNameGame():Void
 	{
+		loadSharedNovaFlarePrefs(true);
 		// Release builds use the CNE/NF crash message boxes instead of a
 		// permanently attached stdout window.
 		#if debug
@@ -427,11 +444,12 @@ class Main extends Sprite
 		effect.mouseChildren = false;
 		var codeNameWatermarkBitmap = Assets.getBitmapData('assets/shared/images/menuExtend/Others/watermark.png').clone();
 
+		Console.configure(CodeName);
+		TraceInterceptor.initLocal(haxe.Log.trace);
 		CodeNameMode.prepare();
 		var codeNameMain = new codename.funkin.backend.system.Main(false);
 		var flxGame:codename.funkin.backend.system.FunkinGame = new codename.funkin.backend.system.FunkinGame(1280, 720, CodeNameIntroState, gameConfig.framerate,
 			gameConfig.framerate, true, false);
-		loadNovaFlareOverlayPrefs();
 		flxGame.deferBitmapCacheClearOnStateSwitch = true;
 		codename.funkin.backend.system.Main.game = flxGame;
 		codenamechain.CodeNameScriptRuntime.init();
@@ -453,42 +471,64 @@ class Main extends Sprite
 		if (watermark != null && watermark.parent == this) removeChild(watermark);
 		watermark = new Watermark(5, Lib.current.stage.stageHeight - 5, 0.4, codeNameWatermarkBitmap);
 		addChild(watermark);
-		watermark.scaleX = watermark.scaleY = ClientPrefs.data.watermarkScale;
+		watermark.updateLayout();
 		watermark.visible = ClientPrefs.data.showWatermark;
-		watermark.y = Lib.current.stage.stageHeight - 5 - watermark.scaleY * watermark.bitmapData.height;
 		addChild(effect);
 
 		Lib.current.stage.align = "tl";
 		Lib.current.stage.scaleMode = StageScaleMode.NO_SCALE;
+		addTraceConsole();
+	}
+	#end
+
+	private function addTraceConsole():Void
+	{
+		addChild(ConsoleToggleButton.instance);
+		addChild(Console.consoleInstance);
 	}
 
-	private static function loadNovaFlareOverlayPrefs():Void
+	private static function loadSharedNovaFlarePrefs(readWatermark:Bool):Void
 	{
 		var overlaySave:FlxSave = new FlxSave();
 		try
 		{
 			if (overlaySave.bind('funkin', CoolUtil.getSavePath()))
 			{
-				var savedVisibility:Dynamic = Reflect.field(overlaySave.data, 'showWatermark');
-				if (Std.isOfType(savedVisibility, Bool))
-					ClientPrefs.data.showWatermark = savedVisibility;
-
-				var savedScale:Dynamic = Reflect.field(overlaySave.data, 'watermarkScale');
-				if (savedScale != null)
+				var maxImageSize = Std.parseInt(Std.string(Reflect.field(overlaySave.data, 'maxImageSize')));
+				if (maxImageSize != null) ClientPrefs.data.maxImageSize = maxImageSize;
+				var compressionStart = Std.parseInt(Std.string(Reflect.field(overlaySave.data, 'minImageCompressionSize')));
+				if (compressionStart != null) ClientPrefs.data.minImageCompressionSize = compressionStart;
+				var imageRatio = Std.parseFloat(Std.string(Reflect.field(overlaySave.data, 'imageCompressionRatio')));
+				if (Math.isFinite(imageRatio)) ClientPrefs.data.imageCompressionRatio = imageRatio;
+				#if android
+				ClientPrefs.data.androidPerformanceHints = Reflect.field(overlaySave.data, 'androidPerformanceHints') == true;
+				mobile.backend.AndroidPerformanceHints.setEnabled(ClientPrefs.data.androidPerformanceHints);
+				#end
+				if (readWatermark)
 				{
-					var parsedScale:Float = Std.parseFloat(Std.string(savedScale));
-					if (!Math.isNaN(parsedScale))
-						ClientPrefs.data.watermarkScale = Math.max(0, Math.min(5, parsedScale));
+					var savedVisibility:Dynamic = Reflect.field(overlaySave.data, 'showWatermark');
+					if (Std.isOfType(savedVisibility, Bool))
+						ClientPrefs.data.showWatermark = savedVisibility;
+
+					var savedScale:Dynamic = Reflect.field(overlaySave.data, 'watermarkScale');
+					if (savedScale != null)
+					{
+						var parsedScale:Float = Std.parseFloat(Std.string(savedScale));
+						if (!Math.isNaN(parsedScale))
+							ClientPrefs.data.watermarkScale = Math.max(0, Math.min(5, parsedScale));
+					}
 				}
 			}
 		}
 		catch (error:Dynamic)
 		{
-			trace('[CodeName] Could not read NovaFlare overlay preferences: $error');
+			trace('[NovaFlare] Could not read shared preferences: $error');
 		}
 		overlaySave.destroy();
+		var deviceLimit:Int = GL.context == null ? 0 : GL.getParameter(GL.MAX_TEXTURE_SIZE);
+		ImageCompression.configure(deviceLimit, ClientPrefs.data.maxImageSize, ClientPrefs.data.imageCompressionRatio,
+			ClientPrefs.data.minImageCompressionSize);
 	}
-	#end
 
 	@:allow(states.backend.initState.InitState)
 	static function resetSpriteCache(sprite:Sprite):Void

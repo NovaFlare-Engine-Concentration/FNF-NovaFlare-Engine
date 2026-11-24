@@ -3,6 +3,7 @@ package originfunkin.input;
 #if FEATURE_TOUCH_CONTROLS
 import flixel.FlxG;
 import flixel.FlxCamera;
+import flixel.input.FlxPointer;
 import flixel.input.touch.FlxTouch;
 import flixel.math.FlxMath;
 import flixel.math.FlxPoint;
@@ -13,6 +14,9 @@ import funkin.ui.options.items.NumberPreferenceItem;
 import funkin.ui.options.items.EnumPreferenceItem;
 import funkin.audio.FunkinSound;
 import funkin.Paths;
+#if (mobile && FLX_MOUSE)
+import mobile.input.VirtualMouse;
+#end
 
 /** A settings page owns one contact until release, independently of global menu swipes. */
 class OptionsTouchController
@@ -24,7 +28,10 @@ class OptionsTouchController
   var viewportBottom:Float;
   var rowSpacing:Float;
   var point:FlxPoint = new FlxPoint();
-  var contact:Null<FlxTouch>;
+  var contact:Null<FlxPointer>;
+  #if (mobile && FLX_MOUSE)
+  var virtualMouse:Null<VirtualMouse>;
+  #end
   var pressTime:Int = -1;
   var startX:Float = 0;
   var startY:Float = 0;
@@ -75,6 +82,15 @@ class OptionsTouchController
       return;
     }
 
+    #if (mobile && FLX_MOUSE)
+    var activeMouse = VirtualMouse.getActive();
+    if (virtualMouse != activeMouse)
+    {
+      reset();
+      virtualMouse = activeMouse;
+    }
+    #end
+
     // Keyboard and gamepad selection remains visible, without snapping a touch scroll back.
     if (lastSelected != items.selectedIndex)
     {
@@ -88,21 +104,19 @@ class OptionsTouchController
 
     if (contact == null)
     {
-      for (touch in FlxG.touches.list)
+      #if (mobile && FLX_MOUSE)
+      if (virtualMouse != null)
       {
-        if (!touch.justPressed) continue;
-        if (funkin.mobile.ui.FunkinButton.buttonsTouchID.exists(touch.touchPointID)) continue;
-        touch.getViewPosition(camera, point);
-        if (point.x < 0 || point.x > camera.width || point.y < 0 || point.y >= viewportBottom) continue;
-        contact = touch;
-        pressTime = touch.justPressedTimeInTicks;
-        startX = stepX = point.x;
-        startY = previousY = point.y;
-        pressedRow = rowAt(point.y);
-        selectedAtPress = pressedRow >= 0 && pressedRow == items.selectedIndex;
-        direction = 0;
-        velocity = 0;
-        break;
+        if (virtualMouse.justPressed) beginContact(virtualMouse, virtualMouse.justPressedTimeInTicks);
+      }
+      else
+      #end
+      {
+        for (touch in FlxG.touches.list)
+        {
+          if (!touch.justPressed || funkin.mobile.ui.FunkinButton.buttonsTouchID.exists(touch.touchPointID)) continue;
+          if (beginContact(touch, touch.justPressedTimeInTicks)) break;
+        }
       }
       if (contact == null)
       {
@@ -113,13 +127,37 @@ class OptionsTouchController
       }
     }
 
-    var touch = contact;
-    if (FlxG.touches.list.indexOf(touch) < 0 || touch.justPressedTimeInTicks != pressTime || (!touch.pressed && !touch.justReleased))
+    var pressed:Bool;
+    var released:Bool;
+    #if (mobile && FLX_MOUSE)
+    if (virtualMouse != null)
+    {
+      if (contact != virtualMouse || virtualMouse.justPressedTimeInTicks != pressTime)
+      {
+        reset();
+        return;
+      }
+      pressed = virtualMouse.pressed;
+      released = virtualMouse.justReleased;
+    }
+    else
+    #end
+    {
+      var touch:FlxTouch = cast contact;
+      if (FlxG.touches.list.indexOf(touch) < 0 || touch.justPressedTimeInTicks != pressTime)
+      {
+        reset();
+        return;
+      }
+      pressed = touch.pressed;
+      released = touch.justReleased;
+    }
+    if (!pressed && !released)
     {
       reset();
       return;
     }
-    touch.getViewPosition(camera, point);
+    contact.getViewPosition(camera, point);
     var dx = point.x - startX;
     var dy = point.y - startY;
     if (direction == 0 && (Math.abs(dx) >= DRAG_THRESHOLD || Math.abs(dy) >= DRAG_THRESHOLD))
@@ -147,7 +185,7 @@ class OptionsTouchController
     previousY = point.y;
     scrollBy(0);
 
-    if (touch.justReleased)
+    if (released)
     {
       contact = null;
       if (direction == 0 && point.x >= 0 && point.x <= camera.width && point.y >= 0 && point.y < viewportBottom
@@ -165,6 +203,21 @@ class OptionsTouchController
       }
       if (direction != 1) velocity = 0;
     }
+  }
+
+  function beginContact(pointer:FlxPointer, tick:Int):Bool
+  {
+    pointer.getViewPosition(camera, point);
+    if (point.x < 0 || point.x > camera.width || point.y < 0 || point.y >= viewportBottom) return false;
+    contact = pointer;
+    pressTime = tick;
+    startX = stepX = point.x;
+    startY = previousY = point.y;
+    pressedRow = rowAt(point.y);
+    selectedAtPress = pressedRow >= 0 && pressedRow == items.selectedIndex;
+    direction = 0;
+    velocity = 0;
+    return true;
   }
 
   function selectRow(index:Int):Void

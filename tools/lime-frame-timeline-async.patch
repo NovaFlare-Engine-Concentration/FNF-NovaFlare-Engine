@@ -1,0 +1,182 @@
+diff --git a/project/src/graphics/FrameTimeline.cpp b/project/src/graphics/FrameTimeline.cpp
+--- a/project/src/graphics/FrameTimeline.cpp
++++ b/project/src/graphics/FrameTimeline.cpp
+@@ -4,36 +4,131 @@
+ #include <SDL.h>
+ #include <windows.h>
+ #include <array>
++#include <atomic>
++#include <condition_variable>
+ #include <cstdio>
++#include <memory>
++#include <mutex>
++#include <string>
++#include <system_error>
++#include <thread>
++#include <utility>
++#include <vector>
+ 
+ namespace lime {
+ namespace FrameTimeline {
+ namespace {
+ 
+-    FILE* OpenTimeline() {
++    using TraceFile = std::unique_ptr<FILE, decltype(&std::fclose)>;
++
++    class TraceWriter {
++    public:
++        explicit TraceWriter(TraceFile file) : file(std::move(file)) {
++            pending.reserve(MaxPending);
++            writing.reserve(MaxPending);
++        }
++
++        void Enqueue(const char* bytes, std::size_t size) {
++            try {
++                std::string chunk(bytes, size);
++                {
++                    std::lock_guard<std::mutex> lock(mutex);
++                    if (stopping) return;
++                    if (pending.size() >= MaxPending) {
++                        ++dropped;
++                        return;
++                    }
++                    pending.push_back(std::move(chunk));
++                }
++                ready.notify_one();
++            } catch (const std::bad_alloc&) {
++                ++dropped;
++            }
++        }
++
++        void Finish() {
++            std::unique_lock<std::mutex> lock(mutex);
++            stopping = true;
++            ready.notify_one();
++            finished.wait(lock, [this] { return closed; });
++        }
++
++        void Run() {
++            std::uint64_t writeFailures = 0;
++            while (TakePending()) {
++                for (const auto& chunk : writing) {
++                    if (std::fwrite(chunk.data(), 1, chunk.size(), file.get()) != chunk.size())
++                        ++writeFailures;
++                }
++                writing.clear();
++            }
++            if (std::fflush(file.get()) != 0) ++writeFailures;
++            const auto tick = SDL_GetPerformanceCounter();
++            std::fprintf(file.get(), "trace_end,0,%llu,%llu,%llu,%llu,async,0,\n",
++                static_cast<unsigned long long>(tick), static_cast<unsigned long long>(tick),
++                static_cast<unsigned long long>(dropped.load()), static_cast<unsigned long long>(writeFailures));
++            file.reset();
++            {
++                std::lock_guard<std::mutex> lock(mutex);
++                closed = true;
++            }
++            finished.notify_all();
++        }
++
++    private:
++        bool TakePending() {
++            std::unique_lock<std::mutex> lock(mutex);
++            ready.wait(lock, [this] { return stopping || !pending.empty(); });
++            if (pending.empty()) return false;
++            pending.swap(writing);
++            return true;
++        }
++
++        static constexpr std::size_t MaxPending = 512;
++        TraceFile file;
++        std::mutex mutex;
++        std::condition_variable ready;
++        std::condition_variable finished;
++        std::vector<std::string> pending;
++        std::vector<std::string> writing;
++        std::atomic<std::uint64_t> dropped{0};
++        bool stopping = false;
++        bool closed = false;
++    };
++
++    std::shared_ptr<TraceWriter> OpenTimeline() {
+         wchar_t path[32768];
+         DWORD length = GetEnvironmentVariableW(L"NOVAFLARE_FRAME_TIMELINE", path, 32768);
+         if (!length || length >= 32768) return nullptr;
+-        FILE* file = _wfopen(path, L"wb");
++        TraceFile file(_wfopen(path, L"wb"), std::fclose);
+         if (!file) return nullptr;
+-        std::fputs("event,frame,begin_qpc,end_qpc,value,auxiliary,detail,batch,phase\n", file);
+-        std::fprintf(file, "clock,0,0,0,%llu,0,qpc_frequency,0,\n",
++        std::fputs("event,frame,begin_qpc,end_qpc,value,auxiliary,detail,batch,phase\n", file.get());
++        std::fprintf(file.get(), "clock,0,0,0,%llu,0,qpc_frequency,0,\n",
+             static_cast<unsigned long long>(SDL_GetPerformanceFrequency()));
+-        std::fflush(file);
+-        return file;
+-    }
+-
+-    FILE* Timeline() {
+-        static FILE* file = OpenTimeline();
+-        return file;
++        std::fputs("trace_writer,0,0,0,1,0,async,0,\n", file.get());
++        try {
++            auto writer = std::make_shared<TraceWriter>(std::move(file));
++            // The writer owns the file until normal application shutdown drains it.
++            std::thread([writer] { writer->Run(); }).detach();
++            return writer;
++        } catch (const std::system_error&) {
++            return nullptr;
++        } catch (const std::bad_alloc&) {
++            return nullptr;
++        }
++    }
++
++    TraceWriter* Timeline() {
++        static const auto writer = OpenTimeline();
++        return writer.get();
+     }
+ 
+     class TraceBuffer {
+     public:
+         ~TraceBuffer() { Flush(); }
+ 
+-        void Append(const Event& event, FILE* file) {
+-            output = file;
++        void Append(const Event& event, TraceWriter* writer) {
++            output = writer;
+             if (bytes.size() - size < 512) Flush();
+             const int count = std::snprintf(bytes.data() + size, bytes.size() - size,
+                 "%s,%llu,%llu,%llu,%llu,%llu,%s,%llu,%s\n", event.name,
+@@ -49,13 +144,12 @@
+ 
+         void Flush() {
+             if (!size) return;
+-            std::fwrite(bytes.data(), 1, size, output);
+-            std::fflush(output);
++            output->Enqueue(bytes.data(), size);
+             size = 0;
+         }
+ 
+     private:
+-        FILE* output = nullptr;
++        TraceWriter* output = nullptr;
+         std::array<char, 16384> bytes{};
+         std::size_t size = 0;
+     };
+@@ -200,10 +294,13 @@
+ }
+ 
+ void Write(const Event& event) {
+-    if (FILE* file = Timeline()) traceBuffer.Append(event, file);
+-}
+-
+-void Flush() { traceBuffer.Flush(); }
++    if (auto* writer = Timeline()) traceBuffer.Append(event, writer);
++}
++
++void Flush() {
++    traceBuffer.Flush();
++    if (auto* writer = Timeline()) writer->Finish();
++}
+ 
+ std::uint64_t CurrentRender() { return dispatch.render; }
+ 

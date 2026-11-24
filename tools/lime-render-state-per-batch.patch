@@ -1,0 +1,150 @@
+diff --git a/project/include/graphics/RenderThread.h b/project/include/graphics/RenderThread.h
+index 50ba3a2..1cdffd0 100644
+--- a/project/include/graphics/RenderThread.h
++++ b/project/include/graphics/RenderThread.h
+@@ -180,6 +180,8 @@ namespace lime {
+         void Resume();
+         void RebindContext();
+         void SetContext(SDL_GLContext context);
++        bool RecordViewport(int x, int y, int width, int height);
++        bool RecordActiveTexture(bool textureZero);
+         
+         template<typename Callable>
+         void PushCommand(Callable&& command) {
+@@ -250,6 +252,14 @@ namespace lime {
+         // Use pointers to vectors to avoid copying and enable lightweight swapping
+         struct Frame {
+             std::vector<RenderCommand> commands;
++            std::array<int, 4> viewport{};
++            bool viewportRecorded = false;
++            bool textureZeroRecorded = false;
++
++            void ResetRecordedGLState() {
++                viewportRecorded = false;
++                textureZeroRecorded = false;
++            }
+ #ifdef HX_WINDOWS
+             std::uint64_t timelineId = 0;
+             std::uint64_t timelineBatch = 0;
+diff --git a/project/src/graphics/RenderThread.cpp b/project/src/graphics/RenderThread.cpp
+index 9cb13d3..aed00b1 100644
+--- a/project/src/graphics/RenderThread.cpp
++++ b/project/src/graphics/RenderThread.cpp
+@@ -68,6 +68,7 @@ namespace lime {
+     void RenderThread::SetContext(SDL_GLContext context) {
+         std::lock_guard<std::mutex> lock(mutex);
+         this->context = context;
++        currentFrame->ResetRecordedGLState();
+     }
+ 
+     void RenderThread::Stop() { 
+@@ -91,6 +92,8 @@ namespace lime {
+ 
+     void RenderThread::Pause() {
+         if (!running || paused) return;
++
++        currentFrame->ResetRecordedGLState();
+         
+         {
+             std::lock_guard<std::mutex> lock(mutex);
+@@ -101,6 +104,8 @@ namespace lime {
+ 
+     void RenderThread::Resume() {
+         if (!running || !paused) return;
++
++        currentFrame->ResetRecordedGLState();
+         
+         {
+             std::lock_guard<std::mutex> lock(mutex);
+@@ -110,6 +115,7 @@ namespace lime {
+     }
+ 
+     void RenderThread::RebindContext() {
++        currentFrame->ResetRecordedGLState();
+         PushCommand([this]() {
+             if (window && context) {
+                 if (SDL_GL_MakeCurrent(window, NULL) < 0) {
+@@ -124,6 +130,24 @@ namespace lime {
+         });
+     }
+ 
++    bool RenderThread::RecordViewport(int x, int y, int width, int height) {
++        if (width < 0 || height < 0) {
++            currentFrame->viewportRecorded = false;
++            return true;
++        }
++        const std::array<int, 4> viewport{{x, y, width, height}};
++        if (currentFrame->viewportRecorded && currentFrame->viewport == viewport) return false;
++        currentFrame->viewport = viewport;
++        currentFrame->viewportRecorded = true;
++        return true;
++    }
++
++    bool RenderThread::RecordActiveTexture(bool textureZero) {
++        if (textureZero && currentFrame->textureZeroRecorded) return false;
++        currentFrame->textureZeroRecorded = textureZero;
++        return true;
++    }
++
+     std::uint64_t RenderThread::Flip(bool forceWait) {
+         (void)forceWait;
+         if (!running) return 0;
+@@ -164,6 +188,7 @@ namespace lime {
+ 
+             currentFrame = nextFrame;
+             currentFrame->commands.clear();
++            currentFrame->ResetRecordedGLState();
+ 
+             // Publish the in-flight count before the queue item so the worker
+             // can never complete a frame before its submission is counted.
+diff --git a/project/src/graphics/opengl/OpenGLBindings.cpp b/project/src/graphics/opengl/OpenGLBindings.cpp
+index 035e6d1..797ebc1 100644
+--- a/project/src/graphics/opengl/OpenGLBindings.cpp
++++ b/project/src/graphics/opengl/OpenGLBindings.cpp
+@@ -255,6 +255,8 @@ namespace lime {
+ 	void lime_gl_active_texture (int texture) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
++			// Unit zero is valid without querying the context's texture-unit limit.
++			if (!OpenGLBindings::renderThread->RecordActiveTexture (texture == GL_TEXTURE0)) return;
+ 			OpenGLBindings::renderThread->PushCommand ([=] () {
+ 				glActiveTexture (texture);
+ 			});
+@@ -267,13 +269,7 @@ namespace lime {
+ 
+ 	HL_PRIM void HL_NAME(hl_gl_active_texture) (int texture) {
+ 
+-		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
+-				glActiveTexture (texture);
+-			});
+-		} else {
+-			glActiveTexture (texture);
+-		}
++		lime_gl_active_texture (texture);
+ 
+ 	}
+ 
+@@ -8492,6 +8488,7 @@ namespace lime {
+ 	void lime_gl_viewport (int x, int y, int width, int height) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
++			if (!OpenGLBindings::renderThread->RecordViewport (x, y, width, height)) return;
+ 			OpenGLBindings::renderThread->PushCommand ([=] () {
+ 				glViewport (x, y, width, height);
+ 			});
+@@ -8504,13 +8501,7 @@ namespace lime {
+ 
+ 	HL_PRIM void HL_NAME(hl_gl_viewport) (int x, int y, int width, int height) {
+ 
+-		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
+-				glViewport (x, y, width, height);
+-			});
+-		} else {
+-			glViewport (x, y, width, height);
+-		}
++		lime_gl_viewport (x, y, width, height);
+ 
+ 	}
+ 

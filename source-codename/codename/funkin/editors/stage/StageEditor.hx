@@ -508,6 +508,15 @@ class StageEditor extends UIState {
 		else FlxG.switchState(new StageSelection());
 	}
 
+	#if mobile
+	public override function onMobileBack():Bool {
+		FlxG.signals.postUpdate.addOnce(() -> {
+			if (FlxG.state == this && subState == null) _file_exit(null);
+		});
+		return true;
+	}
+	#end
+
 	function _file_save(_) {
 		#if sys
 		UIState.playEditorSound(Flags.DEFAULT_EDITOR_SAVE_SOUND);

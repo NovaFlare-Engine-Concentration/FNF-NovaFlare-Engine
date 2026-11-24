@@ -101,12 +101,12 @@ class ModuleHandler {
 					FlxG.signals.postGameStart.add(cast sbCallbacks.get(id));
 				case "onUpdate":
 					sbCallbacks.set(id, function() {
-						ModuleHandler.call(id, [FlxG.elapsed]);
+						callUpdate(id, FlxG.elapsed, general.backend.NovaFlareGame.scriptElapsedForUpdate(FlxG.elapsed));
 					});
 					FlxG.signals.preUpdate.add(cast sbCallbacks.get(id));
 				case "onUpdatePost":
 					sbCallbacks.set(id, function() {
-						ModuleHandler.call(id, [FlxG.elapsed]);
+						callUpdate(id, FlxG.elapsed, general.backend.NovaFlareGame.scriptElapsedForUpdate(FlxG.elapsed));
 					});
 					FlxG.signals.postUpdate.add(cast sbCallbacks.get(id));
 				case "onDraw":
@@ -136,16 +136,35 @@ class ModuleHandler {
 
 	public static function call(name:String, ?args:Array<Dynamic>):Dynamic {
 		for(module in moduleArray) {
-			if(module.active) {
-				var func:Dynamic = Reflect.getProperty(module, name);
-				if(Reflect.isFunction(func)) {
-					ModuleAgency.runThrow(function() {
-						Reflect.callMethod(null, func, args ?? []);
-					}, "hscript");
-				}
-			}
+			if (module.active) callModule(module, name, args);
 		}
 
 		return null;
+	}
+
+	public static function dispatchScriptUpdate(name:String, elapsed:Float):Void {
+		callUpdate(name, null, elapsed);
+	}
+
+	private static function callUpdate(name:String, nativeElapsed:Null<Float>, scriptElapsed:Null<Float>):Void {
+		var nativeArgs:Array<Dynamic> = null;
+		var scriptArgs:Array<Dynamic> = null;
+		for (module in moduleArray) {
+			if (!module.active) continue;
+			if (Std.isOfType(module, ScriptedModule))
+			{
+				if (scriptElapsed != null) callModule(module, name, scriptArgs ??= [scriptElapsed]);
+			}
+			else if (nativeElapsed != null)
+				callModule(module, name, nativeArgs ??= [nativeElapsed]);
+		}
+	}
+
+	private static function callModule(module:Module, name:String, ?args:Array<Dynamic>):Void {
+		final func = Reflect.getProperty(module, name);
+		if (!Reflect.isFunction(func)) return;
+		ModuleAgency.runThrow(function() {
+			Reflect.callMethod(null, func, args ?? []);
+		}, "hscript");
 	}
 }

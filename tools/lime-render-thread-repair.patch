@@ -1,0 +1,3920 @@
+diff --git a/project/include/graphics/RenderThread.h b/project/include/graphics/RenderThread.h
+--- a/project/include/graphics/RenderThread.h
++++ b/project/include/graphics/RenderThread.h
+@@ -10,6 +10,6 @@
+ #include <future>
+ #include <atomic>
++#include <chrono>
+ #include <vector>
+-#include <deque>
+ #include <array>
+ #include <cstddef>
+@@ -172,26 +172,35 @@
+     class RenderThread {
+     public:
++        struct Submission {
++            Submission(bool wasAccepted = false, std::uint64_t batchId = 0)
++                : accepted(wasAccepted), batch(batchId) {}
++            bool accepted;
++            std::uint64_t batch;
++        };
++
+         RenderThread();
+         ~RenderThread();
+ 
+-        void Start(SDL_Window* window, SDL_GLContext context);
++        void Start(SDL_Window* initialWindow, SDL_GLContext initialContext, int initialSwapInterval = 1);
+         void Stop();
+-        void Pause();
+-        void Resume();
+-        void RebindContext();
+-        void SetContext(SDL_GLContext context);
++        bool PauseAndReleaseContext(int timeoutMS);
++        bool RequestContextRelease();
++        bool ResumeAndAcquireContext(int timeoutMS);
++        bool CanAcquireContext();
++        bool SetContext(SDL_GLContext newContext);
++        void SetSubmissionEnabled(bool enabled);
+         bool RecordViewport(int x, int y, int width, int height);
+         bool RecordActiveTexture(bool textureZero);
+         
+         template<typename Callable>
+-        void PushCommand(Callable&& command) {
+-            // Render submission is SPSC: only the stage thread appends to the
+-            // current frame, and only the worker consumes submitted frames.
++        bool PushCommand(Callable&& command) {
++            if (!IsApplicationThread() || !CanSubmit()) return false;
+             currentFrame->commands.emplace_back(std::forward<Callable>(command));
+-        }
+-        std::uint64_t Flip(bool forceWait = false);
++            return true;
++        }
++        Submission Flip();
+         void BeginTimelinePhase() {
+ #ifdef HX_WINDOWS
+-            if (FrameTimeline::CurrentWork() && !currentFrame->commands.empty())
++            if (IsApplicationThread() && FrameTimeline::CurrentWork() && !currentFrame->commands.empty())
+                 currentFrame->mixedTimelinePhase = true;
+ #endif
+@@ -200,48 +209,71 @@
+         template<typename T>
+         T RunCommandAndWait(const char* operation, std::function<T()> command) {
+-            if (IsRenderThread()) {
+-                return command();
+-            }
+-            FrameTimeline::Span wait(FrameTimeline::SyncEvent(), FrameTimeline::CurrentWork(), operation);
+-            std::promise<T> promise;
+-            std::future<T> future = promise.get_future();
+-            PushCommand([&]() {
+-                try {
+-                    promise.set_value(command());
+-                } catch (...) {
+-                    promise.set_exception(std::current_exception());
+-                }
+-            });
+-            wait.SetBatch(Flip(true));
+-            return future.get();
+-        }
+-
+-        bool IsRenderThread();
+-        bool IsRunning() { return running; }
+-        void MakeCurrent();
++            return ExecuteCommandAndWait(operation, std::move(command), [] { return T(); });
++        }
++
++        template<typename T>
++        T RunCommandAndWaitOr(const char* operation, std::function<T()> command, T failureValue) {
++            return ExecuteCommandAndWait(operation, std::move(command), [&failureValue] { return std::move(failureValue); });
++        }
++
++        bool IsRenderThread() const;
++        bool IsRunning() const { return running; }
++        bool MakeCurrent();
+         bool SetSwapInterval(int interval, bool useWorker = false);
+         bool ApplySwapInterval();
+         std::uint64_t SwapIntervalRevision() const { return swapIntervalRevision.load(std::memory_order_relaxed); }
+         bool WaitForContext(bool held, int timeoutMS);
+-        
++
+         static constexpr int MaxPendingFrames = 2;
+         static std::atomic<int> activePendingFrames;
+-        static std::atomic<bool> hasPendingRenderRequest;
+-        std::atomic<bool> contextHeld;
+-        
+-        // Flags for conditional notify to reduce lock contention
+-        std::atomic<bool> workerWaiting;
+-        std::atomic<bool> mainWaiting;
+ 
+     private:
++        template<typename T, typename OnUnavailable>
++        T ExecuteCommandAndWait(const char* operation, std::function<T()> command, OnUnavailable onUnavailable) {
++            if (IsRenderThread()) return command();
++            if (!IsApplicationThread() || !CanSubmit()) return onUnavailable();
++
++            FrameTimeline::Span wait(FrameTimeline::SyncEvent(), FrameTimeline::CurrentWork(), operation);
++            // Dropping an unstarted batch destroys the task and wakes its waiter.
++            std::packaged_task<T()> task(std::move(command));
++            auto future = task.get_future();
++            currentFrame->commands.emplace_back(std::move(task));
++            const Submission submission = SubmitFrame(true);
++            if (!submission.accepted) {
++                currentFrame->commands.pop_back();
++                return onUnavailable();
++            }
++
++            wait.SetBatch(submission.batch);
++            try {
++                return future.get();
++            } catch (const std::future_error& error) {
++                if (error.code() != std::make_error_code(std::future_errc::broken_promise)) throw;
++                return onUnavailable();
++            }
++        }
++
++        enum class ContextState { Released, Acquiring, Held, Releasing };
++        using Deadline = std::chrono::steady_clock::time_point;
++
+         void Run();
++        bool IsApplicationThread() const;
+         bool IsContextCurrent() const;
++        bool CanSubmit(bool draining = false) const;
++        bool WorkerContextIs(bool held) const;
++        bool RequestContextRelease(Deadline deadline);
++        bool WaitForWorkerContext(std::unique_lock<std::mutex>& lock, bool held, Deadline deadline);
++        void ChangeWorkerContext(std::unique_lock<std::mutex>& lock, bool acquire);
++        Submission SubmitFrame(bool synchronous, Deadline deadline = (Deadline::max)(), bool draining = false);
+ 
+         SDL_Window* window;
+         SDL_GLContext context;
+-        std::thread* workerThread;
+-        std::thread::id applicationThread;
+-        std::atomic<bool> running;
+-        std::atomic<bool> paused;
++        std::thread workerThread;
++        const std::thread::id applicationThread;
++        std::atomic<bool> running{false};
++        std::atomic<bool> submissionEnabled{true};
++        std::atomic<bool> contextRequested{false};
++        std::atomic<ContextState> contextState{ContextState::Released};
++        bool contextError = false;
+         std::atomic<int> swapInterval;
+         std::atomic<std::uint64_t> swapIntervalRevision{0};
+@@ -249,4 +281,5 @@
+         std::condition_variable condition;
+         std::mutex mutex;
++        std::mutex workerMutex;
+         
+         // Use pointers to vectors to avoid copying and enable lightweight swapping
+@@ -279,29 +312,9 @@
+         LockFreeQueue<Frame*, 16> pendingFrames;
+         Frame* currentFrame;
+-        
+-        std::thread::id threadId;
++
++        Frame* WaitForFrame();
++        void ReturnFrame(Frame* frame);
+     };
+ 
+-    template<>
+-    inline void RenderThread::RunCommandAndWait<void>(const char* operation, std::function<void()> command) {
+-         if (IsRenderThread()) {
+-            command();
+-            return;
+-        }
+-        FrameTimeline::Span wait(FrameTimeline::SyncEvent(), FrameTimeline::CurrentWork(), operation);
+-        std::promise<void> promise;
+-        std::future<void> future = promise.get_future();
+-        PushCommand([&]() {
+-            try {
+-                command();
+-                promise.set_value();
+-            } catch (...) {
+-                promise.set_exception(std::current_exception());
+-            }
+-        });
+-        wait.SetBatch(Flip(true));
+-        future.get();
+-    }
+-
+ }
+ 
+diff --git a/project/src/graphics/RenderThread.cpp b/project/src/graphics/RenderThread.cpp
+--- a/project/src/graphics/RenderThread.cpp
++++ b/project/src/graphics/RenderThread.cpp
+@@ -1,11 +1,7 @@
+ #include <graphics/AndroidPerformanceHints.h>
+-#include <graphics/RenderThread.h> 
+-#include "opengl/OpenGLBindings.h" 
+-#include <graphics/PerformanceMonitor.h> 
+-#include <SDL.h> 
+-#include <sstream> 
+-#include <stdio.h> 
+-#include <chrono>
++#include <graphics/RenderThread.h>
++#include <cstdio>
+ #include <cstdlib>
++#include <system_error>
+ 
+ #ifdef HXCPP_TRACY
+@@ -15,121 +11,158 @@
+ #endif
+ 
+-namespace lime { 
++namespace lime {
+ 
+     std::atomic<int> RenderThread::activePendingFrames(0);
+-    std::atomic<bool> RenderThread::hasPendingRenderRequest(false);
+-
+-    RenderThread::RenderThread() : window(nullptr), context(nullptr), workerThread(nullptr), running(false), paused(false), contextHeld(false), swapInterval(1), workerWaiting(false), mainWaiting(false) {
++    static thread_local RenderThread* currentRenderThread = nullptr;
++
++    RenderThread::RenderThread()
++        : window(nullptr), context(nullptr), applicationThread(std::this_thread::get_id()), swapInterval(1) {
+         currentFrame = new Frame();
+         currentFrame->commands.reserve(1024);
+-        
++
+         // Keep only enough reusable frames for the bounded in-flight queue.
+-        // Typical NovaFlare frames contain roughly 300 commands; reserving
+-        // 4096 commands across 16 frames retained several MiB permanently.
+         for (int i = 0; i < MaxPendingFrames + 1; ++i) {
+             Frame* frame = new Frame();
+             frame->commands.reserve(1024);
+-            if (!framePool.push(frame)) {
+-                delete frame; 
+-            }
+-        }
+-    } 
+-
+-    RenderThread::~RenderThread() { 
+-        Stop(); 
+-        
+-        Frame* pending = nullptr;
+-        while (pendingFrames.pop(pending)) {
+-            if (activePendingFrames.load(std::memory_order_acquire) > 0) {
+-                activePendingFrames.fetch_sub(1, std::memory_order_acq_rel);
+-            }
+-            delete pending;
+-        }
+-
+-        if (currentFrame) {
+-            delete currentFrame;
+-            currentFrame = nullptr;
+-        }
+-        
++            framePool.push(frame);
++        }
++    }
++
++    RenderThread::~RenderThread() {
++        Stop();
++        delete currentFrame;
++
+         Frame* frame = nullptr;
+-        while (framePool.pop(frame)) {
+-            delete frame;
+-        }
+-    } 
+-
+-    void RenderThread::Start(SDL_Window* window, SDL_GLContext context) { 
+-        this->window = window; 
+-        this->context = context; 
+-        applicationThread = std::this_thread::get_id();
+-        running = true; 
+-        workerThread = new std::thread(&RenderThread::Run, this); 
+-    } 
+-
+-    void RenderThread::SetContext(SDL_GLContext context) {
++        while (framePool.pop(frame)) delete frame;
++    }
++
++    void RenderThread::Start(SDL_Window* initialWindow, SDL_GLContext initialContext, int initialSwapInterval) {
++        std::lock_guard<std::mutex> workerLock(workerMutex);
++        if (!IsApplicationThread() || workerThread.joinable()) return;
++
+         std::lock_guard<std::mutex> lock(mutex);
+-        this->context = context;
++        window = initialWindow;
++        context = initialContext;
++        swapInterval = initialSwapInterval;
++        currentFrame->commands.clear();
+         currentFrame->ResetRecordedGLState();
+-    }
+-
+-    void RenderThread::Stop() { 
+-        if (!running) return; 
+-        
+-        { 
+-            std::lock_guard<std::mutex> lock(mutex); 
+-            running = false; 
+-            paused = false;
+-        } 
+-        condition.notify_all(); 
+-        
+-        if (workerThread) { 
+-            if (workerThread->joinable()) { 
+-                workerThread->join(); 
+-            } 
+-            delete workerThread; 
+-            workerThread = nullptr; 
+-        } 
+-    } 
+-
+-    void RenderThread::Pause() {
+-        if (!running || paused) return;
+-
++        contextError = false;
++        contextRequested = true;
++        submissionEnabled = true;
++        running = true;
++        try {
++            workerThread = std::thread(&RenderThread::Run, this);
++        } catch (const std::system_error& error) {
++            running = false;
++            contextRequested = false;
++            std::fprintf(stderr, "RenderThread::Start: Failed to start render thread: %s\n", error.what());
++        }
++    }
++
++    bool RenderThread::SetContext(SDL_GLContext newContext) {
++        if (!IsApplicationThread()) return false;
++        std::lock_guard<std::mutex> lock(mutex);
++        if (!WorkerContextIs(false)) return false;
++        context = newContext;
+         currentFrame->ResetRecordedGLState();
+-        
++        return true;
++    }
++
++    void RenderThread::Stop() {
++        if (IsRenderThread()) return;
++        std::lock_guard<std::mutex> workerLock(workerMutex);
++        if (!workerThread.joinable()) return;
++
+         {
+             std::lock_guard<std::mutex> lock(mutex);
+-            paused = true;
+-        }
+-        condition.notify_all();
+-    }
+-
+-    void RenderThread::Resume() {
+-        if (!running || !paused) return;
+-
+-        currentFrame->ResetRecordedGLState();
+-        
++            running = false;
++            contextRequested = false;
++            Frame* frame = nullptr;
++            while (pendingFrames.pop(frame)) {
++                frame->commands.clear();
++                framePool.push(frame);
++                activePendingFrames.fetch_sub(1, std::memory_order_acq_rel);
++            }
++        }
++        condition.notify_all();
++        workerThread.join();
++
+         {
+             std::lock_guard<std::mutex> lock(mutex);
+-            paused = false;
+-        }
+-        condition.notify_all();
+-    }
+-
+-    void RenderThread::RebindContext() {
++            contextState = ContextState::Released;
++            contextError = false;
++        }
++        condition.notify_all();
++
++        if (IsApplicationThread()) {
++            currentFrame->commands.clear();
++            currentFrame->ResetRecordedGLState();
++        }
++    }
++
++    bool RenderThread::PauseAndReleaseContext(int timeoutMS) {
++        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMS);
++        if (!RequestContextRelease(deadline)) return false;
++
++        std::unique_lock<std::mutex> lock(mutex);
++        if (WaitForWorkerContext(lock, false, deadline)) return true;
++
++        if (running) contextRequested = true;
++        contextError = false;
++        condition.notify_all();
++        return false;
++    }
++
++    bool RenderThread::RequestContextRelease() {
++        return RequestContextRelease(std::chrono::steady_clock::now());
++    }
++
++    bool RenderThread::RequestContextRelease(Deadline deadline) {
++        if (!IsApplicationThread()) return false;
++        if (CanAcquireContext()) return true;
++        if (!currentFrame->commands.empty() && !SubmitFrame(true, deadline, true).accepted) return false;
++
++        std::lock_guard<std::mutex> lock(mutex);
++        if (!running) return WorkerContextIs(false);
++        if (contextRequested || contextError) {
++            contextError = false;
++            contextRequested = false;
++            condition.notify_all();
++        }
+         currentFrame->ResetRecordedGLState();
+-        PushCommand([this]() {
+-            if (window && context) {
+-                if (SDL_GL_MakeCurrent(window, NULL) < 0) {
+-                    printf("RenderThread::RebindContext: Failed to unbind context: %s\n", SDL_GetError());
+-                }
+-                if (SDL_GL_MakeCurrent(window, context) < 0) {
+-                    printf("RenderThread::RebindContext: Failed to bind context: %s\n", SDL_GetError());
+-                } else {
+-                    ApplySwapInterval();
+-                }
+-            }
+-        });
++        return true;
++    }
++
++    bool RenderThread::ResumeAndAcquireContext(int timeoutMS) {
++        if (!IsApplicationThread()) return false;
++        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMS);
++        std::unique_lock<std::mutex> lock(mutex);
++        if (!running) return false;
++        contextError = false;
++        contextRequested = true;
++        condition.notify_all();
++        if (WaitForWorkerContext(lock, true, deadline)) return true;
++
++        contextRequested = false;
++        contextError = false;
++        condition.notify_all();
++        return false;
++    }
++
++    bool RenderThread::CanAcquireContext() {
++        std::lock_guard<std::mutex> lock(mutex);
++        return WorkerContextIs(false);
++    }
++
++    void RenderThread::SetSubmissionEnabled(bool enabled) {
++        {
++            std::lock_guard<std::mutex> lock(mutex);
++            submissionEnabled = enabled;
++        }
++        condition.notify_all();
+     }
+ 
+     bool RenderThread::RecordViewport(int x, int y, int width, int height) {
++        if (!IsApplicationThread() || !CanSubmit()) return false;
+         if (width < 0 || height < 0) {
+             currentFrame->viewportRecorded = false;
+@@ -144,4 +177,5 @@
+ 
+     bool RenderThread::RecordActiveTexture(bool textureZero) {
++        if (!IsApplicationThread() || !CanSubmit()) return false;
+         if (textureZero && currentFrame->textureZeroRecorded) return false;
+         currentFrame->textureZeroRecorded = textureZero;
+@@ -149,115 +183,91 @@
+     }
+ 
+-    std::uint64_t RenderThread::Flip(bool forceWait) {
+-        (void)forceWait;
+-        if (!running) return 0;
+-
+-        if (paused) return 0;
++    RenderThread::Submission RenderThread::Flip() {
++        if (!IsApplicationThread()) return {};
++        return SubmitFrame(false);
++    }
++
++    RenderThread::Submission RenderThread::SubmitFrame(bool synchronous, Deadline deadline, bool draining) {
++#if !defined(HX_WINDOWS) && !defined(HX_ANDROID)
++        (void)synchronous;
++#endif
++        std::unique_lock<std::mutex> lock(mutex);
++        if (!CanSubmit(draining)) return {};
++        if (currentFrame->commands.empty()) return {true, 0};
+ 
+         std::uint64_t batch = 0;
+-        if (!currentFrame->commands.empty()) {
+ #ifdef HX_WINDOWS
+-            const auto timelineId = FrameTimeline::CurrentWork();
+-            if (timelineId) batch = FrameTimeline::NextBatch();
+-#endif
+-            Frame* nextFrame = nullptr;
+-            
+-            // A submitted frame is never discarded. If the bounded pool is
+-            // temporarily exhausted, apply backpressure until the worker
+-            // returns one.
+-            if (!framePool.pop(nextFrame)) {
+-                FrameTimeline::Span wait("pool_wait", FrameTimeline::CurrentWork());
+-                wait.SetBatch(batch);
+-                std::unique_lock<std::mutex> lock(mutex);
+-                mainWaiting = true;
+-                condition.wait(lock, [this, &nextFrame] {
+-                    return framePool.pop(nextFrame) || !running;
+-                });
+-                mainWaiting = false;
+-                if (!running) {
+-                    if (nextFrame != nullptr) {
+-                        while (!framePool.push(nextFrame)) {
+-                            std::this_thread::yield();
+-                        }
+-                    }
+-                    return 0;
+-                }
+-            }
+-
+-            Frame* submitted = currentFrame;
+-
+-            currentFrame = nextFrame;
+-            currentFrame->commands.clear();
+-            currentFrame->ResetRecordedGLState();
+-
+-            // Publish the in-flight count before the queue item so the worker
+-            // can never complete a frame before its submission is counted.
++        const auto timelineId = FrameTimeline::CurrentWork();
++        if (timelineId) batch = FrameTimeline::NextBatch();
++#endif
++        Frame* nextFrame = nullptr;
++        if (!framePool.pop(nextFrame)) {
++            FrameTimeline::Span wait("pool_wait", FrameTimeline::CurrentWork());
++            wait.SetBatch(batch);
++            auto available = [this, &nextFrame, draining] {
++                return !CanSubmit(draining) || framePool.pop(nextFrame);
++            };
++            if (deadline == (Deadline::max)()) {
++                condition.wait(lock, available);
++            } else if (!condition.wait_until(lock, deadline, available)) {
++                return {};
++            }
++            if (!nextFrame) return {};
++        }
++
++        Frame* submitted = currentFrame;
+ #ifdef HX_WINDOWS
+-            currentFrame->mixedTimelinePhase = false;
+-            submitted->timelineId = timelineId;
+-            submitted->timelineUpdate = FrameTimeline::IsUpdate();
+-            submitted->synchronization = forceWait;
+-            submitted->timelineBatch = batch;
+-            submitted->queueDepth = activePendingFrames.fetch_add(1, std::memory_order_acq_rel) + 1;
+-            submitted->submittedAt = submitted->timelineId ? FrameTimeline::Now() : 0;
++        submitted->timelineId = timelineId;
++        submitted->timelineUpdate = FrameTimeline::IsUpdate();
++        submitted->synchronization = synchronous;
++        submitted->timelineBatch = batch;
++        submitted->queueDepth = activePendingFrames.fetch_add(1, std::memory_order_acq_rel) + 1;
++        submitted->submittedAt = submitted->timelineId ? FrameTimeline::Now() : 0;
+ #else
+-            activePendingFrames.fetch_add(1, std::memory_order_acq_rel);
++        activePendingFrames.fetch_add(1, std::memory_order_acq_rel);
+ #endif
+ #ifdef HX_ANDROID
+-            submitted->androidCycle = AndroidPerformanceHints::CurrentCycle();
+-            submitted->androidFinalSubmission = !forceWait;
+-#endif
+-            bool queued = pendingFrames.push(submitted);
+-            while (!queued) {
+-                FrameTimeline::Span wait("submit_wait", FrameTimeline::CurrentWork());
+-                wait.SetBatch(batch);
+-                std::unique_lock<std::mutex> lock(mutex);
+-                mainWaiting = true;
+-                condition.wait(lock, [this, submitted, &queued] {
++        submitted->androidCycle = AndroidPerformanceHints::CurrentCycle();
++        submitted->androidFinalSubmission = !synchronous;
++#endif
++        if (!pendingFrames.push(submitted)) {
++            activePendingFrames.fetch_sub(1, std::memory_order_acq_rel);
++            framePool.push(nextFrame);
++            return {};
++        }
++
++        currentFrame = nextFrame;
++        currentFrame->ResetRecordedGLState();
+ #ifdef HX_WINDOWS
+-                    if (submitted->timelineId) submitted->submittedAt = FrameTimeline::Now();
+-#endif
+-                    queued = pendingFrames.push(submitted);
+-                    return queued || !running;
+-                });
+-                mainWaiting = false;
+-                if (!queued && !running) {
+-                    activePendingFrames.fetch_sub(
+-                        1, std::memory_order_acq_rel);
+-                    submitted->commands.clear();
+-                    while (!framePool.push(submitted)) {
+-                        std::this_thread::yield();
+-                    }
+-                    return 0;
+-                }
+-            }
+-
+-            {
+-                std::lock_guard<std::mutex> lock(mutex);
+-                condition.notify_all();
+-            }
+-        }
+-        return batch;
+-    }
+-
+-    bool RenderThread::IsRenderThread() { 
+-        return std::this_thread::get_id() == threadId; 
+-    } 
+-
+-    void RenderThread::MakeCurrent() {
+-        if (window && context) {
+-            if (SDL_GL_MakeCurrent(window, context) < 0) {
+-                printf("RenderThread::MakeCurrent: Failed to make context current: %s\n", SDL_GetError());
+-            } else {
+-                ApplySwapInterval();
+-            }
+-        }
++        currentFrame->mixedTimelinePhase = false;
++#endif
++        condition.notify_all();
++        return {true, batch};
++    }
++
++    bool RenderThread::IsRenderThread() const {
++        return currentRenderThread == this;
++    }
++
++    bool RenderThread::IsApplicationThread() const {
++        return std::this_thread::get_id() == applicationThread;
++    }
++
++    bool RenderThread::MakeCurrent() {
++        if (!IsApplicationThread()) return false;
++        if (!CanAcquireContext() || !window || !context) return false;
++        if (SDL_GL_MakeCurrent(window, context) != 0) {
++            std::fprintf(stderr, "RenderThread::MakeCurrent: Failed to make context current: %s\n", SDL_GetError());
++            return false;
++        }
++        ApplySwapInterval();
++        return true;
+     }
+ 
+     bool RenderThread::SetSwapInterval(int interval, bool useWorker) {
+-        if (std::this_thread::get_id() != applicationThread && !IsRenderThread()) return false;
++        if (!IsApplicationThread() && !IsRenderThread()) return false;
+         swapInterval = interval;
+         if (IsContextCurrent()) return ApplySwapInterval();
+-        if (useWorker && running && !paused && contextHeld)
++        if (useWorker && CanSubmit())
+             return RunCommandAndWait<bool>("SDL_GL_SetSwapInterval", [this]() { return ApplySwapInterval(); });
+         return false;
+@@ -275,19 +285,75 @@
+     }
+ 
++    bool RenderThread::CanSubmit(bool draining) const {
++        return running && contextRequested && contextState == ContextState::Held &&
++            (draining || submissionEnabled);
++    }
++
++    bool RenderThread::WorkerContextIs(bool held) const {
++        return held ? running && contextRequested && contextState == ContextState::Held :
++            !contextRequested && contextState == ContextState::Released;
++    }
++
++    bool RenderThread::WaitForWorkerContext(std::unique_lock<std::mutex>& lock, bool held, Deadline deadline) {
++        condition.wait_until(lock, deadline, [this, held] {
++            return WorkerContextIs(held) || contextError || !running;
++        });
++        return WorkerContextIs(held);
++    }
++
+     bool RenderThread::WaitForContext(bool held, int timeoutMS) {
+-        if (!running) return contextHeld.load(std::memory_order_acquire) == held;
+         std::unique_lock<std::mutex> lock(mutex);
+-        return condition.wait_for(lock, std::chrono::milliseconds(timeoutMS), [this, held] {
+-            return !running || contextHeld.load(std::memory_order_acquire) == held;
+-        });
+-    }
+-
+-    void RenderThread::Run() { 
+-        #ifdef HXCPP_TRACY
++        return WaitForWorkerContext(lock, held,
++            std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMS));
++    }
++
++    void RenderThread::ChangeWorkerContext(std::unique_lock<std::mutex>& lock, bool acquire) {
++        const auto targetContext = acquire ? context : nullptr;
++        contextState = acquire ? ContextState::Acquiring : ContextState::Releasing;
++        lock.unlock();
++
++        const bool changed = (!acquire || targetContext) && window && SDL_GL_MakeCurrent(window, targetContext) == 0;
++        if (!changed) {
++            std::fprintf(stderr, "RenderThread::Run: Failed to %s context: %s\n", acquire ? "bind" : "release", SDL_GetError());
++        }
++        const bool contextHeld = IsContextCurrent();
++        if (acquire && contextHeld) ApplySwapInterval();
++
++        lock.lock();
++        contextState = contextHeld ? ContextState::Held : ContextState::Released;
++        contextError = contextHeld != acquire && contextRequested == acquire;
++        condition.notify_all();
++    }
++
++    RenderThread::Frame* RenderThread::WaitForFrame() {
++        std::unique_lock<std::mutex> lock(mutex);
++        while (running) {
++            const bool contextHeld = contextState == ContextState::Held;
++            Frame* frame = nullptr;
++            if (contextHeld && pendingFrames.pop(frame)) return frame;
++            if (!contextError && contextHeld != contextRequested) {
++                ChangeWorkerContext(lock, !contextHeld);
++                continue;
++            }
++            condition.wait(lock);
++        }
++        return nullptr;
++    }
++
++    void RenderThread::ReturnFrame(Frame* frame) {
++        frame->commands.clear();
++        std::lock_guard<std::mutex> lock(mutex);
++        framePool.push(frame);
++        activePendingFrames.fetch_sub(1, std::memory_order_acq_rel);
++        condition.notify_all();
++    }
++
++    void RenderThread::Run() {
++#ifdef HXCPP_TRACY
+         tracy::SetThreadName("Render Thread");
+-        #endif
++#endif
+ 
+         AndroidPerformanceHints::RegisterWorker(true);
+-        threadId = std::this_thread::get_id(); 
++        currentRenderThread = this;
+         const char* perfTraceValue = std::getenv("NOVAGC_PERF_TRACE");
+         const bool perfTrace = perfTraceValue != nullptr &&
+@@ -299,202 +365,94 @@
+         std::uint64_t perfMaximumExecutionMicros = 0;
+ 
+-        // Make context current on this thread 
+-        if (window && context) { 
+-            if (SDL_GL_MakeCurrent(window, context) < 0) {
+-                printf("RenderThread::Run: Initial context bind failed: %s\n", SDL_GetError());
+-            } else {
+-                contextHeld = true;
+-                    std::lock_guard<std::mutex> lock(mutex);
+-                    condition.notify_all();
+-            }
+-        } 
+-
+-        while (running) { 
+-            #ifdef HXCPP_TRACY
++        while (Frame* frame = WaitForFrame()) {
++#ifdef HXCPP_TRACY
+             ZoneScopedN("Render Loop");
+-            #endif
+-
+-            if (paused) {
+-                
+-                if (window && context) {
+-                    if (SDL_GL_MakeCurrent(window, NULL) < 0) {
+-                        printf("RenderThread::Run: Pause context unbind failed: %s\n", SDL_GetError());
+-                    } else {
+-                        contextHeld = false;
+-                        std::lock_guard<std::mutex> lock(mutex);
+-                        condition.notify_all();
+-                    }
++#endif
++            const std::size_t commandCount = frame->commands.size();
++            const auto executionStarted =
++                std::chrono::steady_clock::now();
++#ifdef HX_WINDOWS
++            const auto timelineId = frame->timelineId;
++            const auto dequeuedAt = timelineId ? FrameTimeline::Now() : 0;
++            if (!frame->timelineUpdate) FrameTimeline::BeginGpu(timelineId);
++            const auto driverStarted = timelineId ? FrameTimeline::Now() : 0;
++#endif
++#ifdef HX_ANDROID
++            AndroidPerformanceHints::BeginWorkerBatch(frame->androidCycle);
++#endif
++            for (auto& command : frame->commands) {
++                if (command) command();
++            }
++#ifdef HX_WINDOWS
++            if (timelineId) {
++                const auto driverEnded = FrameTimeline::Now();
++                const char* detail = frame->synchronization ? "sync" : "submission";
++                const char* phase = frame->timelineUpdate ? "update" : "render";
++                if (frame->mixedTimelinePhase)
++                    phase = frame->timelineUpdate ? "update_mixed" : "render_mixed";
++                FrameTimeline::Write({"queue", timelineId, frame->submittedAt, dequeuedAt,
++                    static_cast<std::uint64_t>(frame->queueDepth), commandCount, detail, frame->timelineBatch, phase});
++                FrameTimeline::Write({"driver_batch", timelineId, driverStarted, driverEnded,
++                    commandCount, 0, detail, frame->timelineBatch, phase});
++            }
++#endif
++#ifdef HX_ANDROID
++            AndroidPerformanceHints::EndWorkerBatch(frame->androidFinalSubmission);
++#endif
++            const std::uint64_t executionMicros =
++                static_cast<std::uint64_t>(
++                    std::chrono::duration_cast<
++                        std::chrono::microseconds>(
++                            std::chrono::steady_clock::now() -
++                            executionStarted).count());
++
++            if (perfTrace) {
++                ++perfFrames;
++                perfCommands += commandCount;
++                perfExecutionMicros += executionMicros;
++                if (executionMicros > perfMaximumExecutionMicros)
++                    perfMaximumExecutionMicros = executionMicros;
++                const auto now = std::chrono::steady_clock::now();
++                if (now - perfWindowStarted >=
++                    std::chrono::seconds(1)) {
++                    const double averageCommands = perfFrames == 0
++                        ? 0.0
++                        : static_cast<double>(perfCommands) /
++                            static_cast<double>(perfFrames);
++                    const double averageExecutionMs = perfFrames == 0
++                        ? 0.0
++                        : static_cast<double>(perfExecutionMicros) /
++                            static_cast<double>(perfFrames) / 1000.0;
++                    std::printf(
++                        "perf:RenderThread frames=%llu commands=%llu "
++                        "avg_commands=%.2f exec_avg_ms=%.3f "
++                        "exec_max_ms=%.3f\n",
++                        static_cast<unsigned long long>(perfFrames),
++                        static_cast<unsigned long long>(perfCommands),
++                        averageCommands, averageExecutionMs,
++                        static_cast<double>(
++                            perfMaximumExecutionMicros) / 1000.0);
++                    std::fflush(stdout);
++                    perfWindowStarted = now;
++                    perfFrames = 0;
++                    perfCommands = 0;
++                    perfExecutionMicros = 0;
++                    perfMaximumExecutionMicros = 0;
+                 }
+-
+-                {
+-                    std::unique_lock<std::mutex> lock(mutex);
+-                    condition.wait(lock, [this] { return !paused || !running; });
+-                }
+-
+-                if (!running) break;
+-
+-                // When resumed, re-bind the context to ensure we target the correct surface
+-                // This is crucial for Android where the surface might have been recreated
+-                if (window && context) {
+-                    if (SDL_GL_MakeCurrent(window, context) < 0) {
+-                        printf("RenderThread::Run: Resume context bind failed: %s\n", SDL_GetError());
+-                    } else {
+-                        contextHeld = true;
+-                        ApplySwapInterval();
+-                        std::lock_guard<std::mutex> lock(mutex);
+-                        condition.notify_all();
+-                    }
+-                }
+-            }
+-            
+-            Frame* frame = nullptr;
+-
+-            pendingFrames.pop(frame);
+-
+-            if (frame == nullptr) {
+-                std::unique_lock<std::mutex> lock(mutex);
+-                workerWaiting = true;
+-                if (pendingFrames.empty() && running && !paused && !hasPendingRenderRequest) {
+-                    condition.wait(lock, [this] {
+-                        return !pendingFrames.empty() || !running || paused || hasPendingRenderRequest;
+-                    });
+-                }
+-                workerWaiting = false;
+-
+-                if (!running) break;
+-                if (paused) continue;
+-                
+-                pendingFrames.pop(frame);
+-            }
+-            
+-            if (frame) {
+-                if (!frame->commands.empty()) {
+-                    const std::size_t commandCount = frame->commands.size();
+-                    const auto executionStarted =
+-                        std::chrono::steady_clock::now();
+-#ifdef HX_WINDOWS
+-                    const auto timelineId = frame->timelineId;
+-                    const auto dequeuedAt = timelineId ? FrameTimeline::Now() : 0;
+-                    if (!frame->timelineUpdate) FrameTimeline::BeginGpu(timelineId);
+-                    const auto driverStarted = timelineId ? FrameTimeline::Now() : 0;
+-#endif
+-#ifdef HX_ANDROID
+-                    AndroidPerformanceHints::BeginWorkerBatch(frame->androidCycle);
+-#endif
+-                    for (auto& command : frame->commands) {
+-                        if (command) {
+-                            command();
+-                        }
+-                    }
+-#ifdef HX_WINDOWS
+-                    if (timelineId) {
+-                        const auto driverEnded = FrameTimeline::Now();
+-                        const char* detail = frame->synchronization ? "sync" : "submission";
+-                        const char* phase = frame->timelineUpdate ? "update" : "render";
+-                        if (frame->mixedTimelinePhase)
+-                            phase = frame->timelineUpdate ? "update_mixed" : "render_mixed";
+-                        FrameTimeline::Write({"queue", timelineId, frame->submittedAt, dequeuedAt,
+-                            static_cast<std::uint64_t>(frame->queueDepth), commandCount, detail, frame->timelineBatch, phase});
+-                        FrameTimeline::Write({"driver_batch", timelineId, driverStarted, driverEnded,
+-                            commandCount, 0, detail, frame->timelineBatch, phase});
+-                    }
+-#endif
+-#ifdef HX_ANDROID
+-                    AndroidPerformanceHints::EndWorkerBatch(frame->androidFinalSubmission);
+-#endif
+-                    const std::uint64_t executionMicros =
+-                        static_cast<std::uint64_t>(
+-                            std::chrono::duration_cast<
+-                                std::chrono::microseconds>(
+-                                    std::chrono::steady_clock::now() -
+-                                    executionStarted).count());
+-                    frame->commands.clear();
+-
+-                    if (perfTrace) {
+-                        ++perfFrames;
+-                        perfCommands += commandCount;
+-                        perfExecutionMicros += executionMicros;
+-                        if (executionMicros > perfMaximumExecutionMicros)
+-                            perfMaximumExecutionMicros = executionMicros;
+-                        const auto now = std::chrono::steady_clock::now();
+-                        if (now - perfWindowStarted >=
+-                            std::chrono::seconds(1)) {
+-                            const double averageCommands = perfFrames == 0
+-                                ? 0.0
+-                                : static_cast<double>(perfCommands) /
+-                                    static_cast<double>(perfFrames);
+-                            const double averageExecutionMs = perfFrames == 0
+-                                ? 0.0
+-                                : static_cast<double>(perfExecutionMicros) /
+-                                    static_cast<double>(perfFrames) / 1000.0;
+-                            std::printf(
+-                                "perf:RenderThread frames=%llu commands=%llu "
+-                                "avg_commands=%.2f exec_avg_ms=%.3f "
+-                                "exec_max_ms=%.3f\n",
+-                                static_cast<unsigned long long>(perfFrames),
+-                                static_cast<unsigned long long>(perfCommands),
+-                                averageCommands, averageExecutionMs,
+-                                static_cast<double>(
+-                                    perfMaximumExecutionMicros) / 1000.0);
+-                            std::fflush(stdout);
+-                            perfWindowStarted = now;
+-                            perfFrames = 0;
+-                            perfCommands = 0;
+-                            perfExecutionMicros = 0;
+-                            perfMaximumExecutionMicros = 0;
+-                        }
+-                    }
+-
+-                    #ifdef HXCPP_TRACY
+-                    FrameMarkNamed("RenderLoop");
+-                    #endif
+-                }
+-
+-                activePendingFrames.fetch_sub(1, std::memory_order_acq_rel);
+-                
+-                while (!framePool.push(frame)) {
+-                    std::unique_lock<std::mutex> lock(mutex);
+-                    workerWaiting = true;
+-                    condition.wait(lock, [this, frame] {
+-                        return framePool.push(frame) || !running;
+-                    });
+-                    workerWaiting = false;
+-                }
+-                
+-                {
+-                    std::lock_guard<std::mutex> lock(mutex);
+-                    condition.notify_all();
+-                }
+-            }
+-            
+-            if (hasPendingRenderRequest) {
+-                SDL_Event event;
+-                SDL_UserEvent userevent;
+-                userevent.type = SDL_USEREVENT;
+-                userevent.code = 1; 
+-                userevent.data1 = NULL;
+-                userevent.data2 = NULL;
+-                event.type = SDL_USEREVENT;
+-                event.user = userevent;
+-                
+-                if (SDL_PushEvent(&event) == 1) {
+-                    hasPendingRenderRequest = false;
+-                } else {
+-                    std::this_thread::yield();
+-                }
+-            }
+-        } 
+-
++            }
++
++#ifdef HXCPP_TRACY
++            FrameMarkNamed("RenderLoop");
++#endif
++            ReturnFrame(frame);
++        }
++
++        {
++            std::unique_lock<std::mutex> lock(mutex);
++            if (contextState == ContextState::Held) ChangeWorkerContext(lock, false);
++        }
++        currentRenderThread = nullptr;
+         AndroidPerformanceHints::RegisterWorker(false);
+-        // Cleanup 
+-        if (window && context) { 
+-            if (SDL_GL_MakeCurrent(window, NULL) < 0) {
+-                 printf("RenderThread::Run: Cleanup context unbind failed: %s\n", SDL_GetError());
+-            }
+-            contextHeld = false;
+-            std::lock_guard<std::mutex> lock(mutex);
+-            condition.notify_all();
+-        } 
+-    } 
+-
+-} 
++    }
++
++}
+diff --git a/project/src/graphics/opengl/OpenGLBindings.cpp b/project/src/graphics/opengl/OpenGLBindings.cpp
+--- a/project/src/graphics/opengl/OpenGLBindings.cpp
++++ b/project/src/graphics/opengl/OpenGLBindings.cpp
+@@ -1,5 +1,4 @@
+ #include <system/CFFI.h>
+ #include <system/CFFIPointer.h>
+-#include <system/Mutex.h>
+ #include <utils/Bytes.h>
+ #include "OpenGL.h"
+@@ -8,4 +7,9 @@
+ #include <thread>
+ #include <map>
++#include <mutex>
++#include <memory>
++#include <utility>
++#include <cstdlib>
++#include <cstring>
+ #include <string>
+ #include <vector>
+@@ -56,189 +60,255 @@
+ 	std::map<void*, GLObjectType> glObjectTypes;
+ 
+-	std::vector<GLuint> gc_gl_id;
++	std::vector<std::pair<GLObjectType, GLuint>> gc_gl_ids;
+ 	std::vector<void*> gc_gl_ptr;
+-	std::vector<GLObjectType> gc_gl_type;
+-	Mutex gc_gl_mutex;
+-
++	std::mutex gc_gl_mutex;
++	std::atomic<bool> gc_gl_pending {false};
++
++	namespace {
++		enum class ContextRouting { Direct, Worker, Unavailable };
++
++		ContextRouting contextRouting = ContextRouting::Worker;
++		bool contextTransferring = false;
++		bool multiThreadedRequested = true;
++		constexpr int contextSwitchTimeoutMS = 2000;
++
++		void ApplyContextRouting (ContextRouting routing) {
++			contextRouting = routing;
++			OpenGLBindings::isMultiThreaded = routing != ContextRouting::Direct;
++			if (auto* thread = OpenGLBindings::renderThread) {
++				thread->SetSubmissionEnabled (routing == ContextRouting::Worker);
++			}
++		}
++
++		template<typename Storage, typename Execute>
++		class GLCommandWithStorage {
++		public:
++			GLCommandWithStorage (Storage&& storage, Execute&& execute)
++				: storage (std::move (storage)), execute (std::move (execute)) {}
++
++			void operator() () { execute (storage); }
++
++		private:
++			Storage storage;
++			Execute execute;
++		};
++
++		template<typename Storage, typename Execute>
++		bool QueueGLCommand (Storage&& storage, Execute&& execute) {
++			return OpenGLBindings::renderThread->PushCommand (
++				GLCommandWithStorage<Storage, Execute> (std::move (storage), std::move (execute)));
++		}
++
++		template<typename Array, typename Deleter, typename Execute>
++		bool QueueGLBuffer (std::unique_ptr<Array, Deleter>&& buffer, Execute execute) {
++			return QueueGLCommand (std::move (buffer), [execute] (const std::unique_ptr<Array, Deleter>& storage) {
++				execute (storage.get ());
++			});
++		}
++
++		using GLBytes = std::unique_ptr<void, decltype (&std::free)>;
++
++		GLBytes CopyGLBytes (double address, int length) {
++			GLBytes copy (nullptr, std::free);
++			if (address == 0 || length <= 0) return copy;
++
++			copy.reset (std::malloc (length));
++			if (copy) memcpy (copy.get (), reinterpret_cast<const void*> (static_cast<uintptr_t> (address)), length);
++			else SDL_LogError (SDL_LOG_CATEGORY_RENDER, "Could not allocate %d bytes for a GL command", length);
++			return copy;
++		}
++
++		bool RemoveGLObjectID (void* object, GLObjectType type, GLuint id) {
++			glObjectIDs.erase (object);
++			auto& objects = glObjects[type];
++			auto entry = objects.find (id);
++			if (entry == objects.end () || entry->second != object) return false;
++			objects.erase (entry);
++			return true;
++		}
++
++		void* DeregisterGLObject (void* object) {
++			std::lock_guard<std::mutex> lock (gc_gl_mutex);
++			auto type = glObjectTypes.find (object);
++			auto id = glObjectIDs.find (object);
++			if (type != glObjectTypes.end () && id != glObjectIDs.end ()) {
++				RemoveGLObjectID (object, type->second, id->second);
++			}
++			glObjectTypes.erase (object);
++
++			auto pointer = glObjectPtrs.find (object);
++			if (pointer == glObjectPtrs.end ()) return nullptr;
++			void* handle = pointer->second;
++			glObjectPtrs.erase (pointer);
++			return handle;
++		}
++
++		void* FindGLObject (GLObjectType type, GLuint id) {
++			std::lock_guard<std::mutex> lock (gc_gl_mutex);
++			auto& objects = glObjects[type];
++			auto entry = objects.find (id);
++			return entry == objects.end () ? nullptr : entry->second;
++		}
++
++		void RegisterGLObject (void* object, GLObjectType type, GLuint id, void* handle) {
++			std::lock_guard<std::mutex> lock (gc_gl_mutex);
++			glObjects[type][id] = object;
++			glObjectIDs[object] = id;
++			glObjectPtrs[object] = handle;
++			glObjectTypes[object] = type;
++		}
++	}
+ 
+ 	void OpenGLBindings::BindRenderThread (RenderThread* thread) {
+-        // Force recompile
+ 		renderThread = thread;
+-
++	}
++
++	void OpenGLBindings::UnbindRenderThread (RenderThread* thread) {
++		if (!thread || renderThread != thread) return;
++		ApplyContextRouting (ContextRouting::Unavailable);
++		contextTransferring = false;
++		renderThread = nullptr;
++	}
++
++	bool OpenGLBindings::WantsMultiThreaded () {
++		return multiThreadedRequested;
++	}
++
++	bool OpenGLBindings::CanRender () {
++		return !renderThread || contextRouting != ContextRouting::Unavailable;
++	}
++
++	void OpenGLBindings::SetContextRouting (bool directContextUsable, bool transferring) {
++		contextTransferring = transferring;
++		if (directContextUsable) ApplyContextRouting (ContextRouting::Direct);
++		else ApplyContextRouting (transferring ? ContextRouting::Unavailable : ContextRouting::Worker);
+ 	}
+ 
+ 	void OpenGLBindings::SetMultiThreaded (bool enabled) {
+-
+-		if (isMultiThreaded == enabled) return;
+-
+-		if (renderThread) {
+-
+-			if (!enabled) {
+-
+-				renderThread->Pause();
+-				
+-				if (renderThread->WaitForContext(false, 2000) && !renderThread->contextHeld.load(std::memory_order_acquire)) {
+-					renderThread->MakeCurrent();
+-					isMultiThreaded = false;
+-				} else {
+-					renderThread->Resume();
++		multiThreadedRequested = enabled;
++		if (contextTransferring) return;
++
++		const auto requested = enabled ? ContextRouting::Worker : ContextRouting::Direct;
++		if (!renderThread) {
++			ApplyContextRouting (requested);
++			return;
++		}
++		if (!renderThread->IsRunning () || contextRouting == requested) return;
++
++		if (!enabled) {
++			if (!renderThread->PauseAndReleaseContext (contextSwitchTimeoutMS)) {
++				SDL_LogError (SDL_LOG_CATEGORY_RENDER, "Timed out waiting for the GL render thread to release its context");
++				return;
++			}
++			if (renderThread->MakeCurrent ()) {
++				ApplyContextRouting (ContextRouting::Direct);
++				return;
++			}
++			const bool workerRecovered = renderThread->ResumeAndAcquireContext (contextSwitchTimeoutMS);
++			ApplyContextRouting (workerRecovered ? ContextRouting::Worker : ContextRouting::Unavailable);
++			SDL_LogError (SDL_LOG_CATEGORY_RENDER, "Could not move the GL context to the application thread");
++			return;
++		}
++
++		auto* window = SDL_GL_GetCurrentWindow ();
++		if (window && SDL_GL_MakeCurrent (window, nullptr) < 0) {
++			SDL_LogError (SDL_LOG_CATEGORY_RENDER, "Could not release the application GL context: %s", SDL_GetError ());
++			return;
++		}
++		if (renderThread->ResumeAndAcquireContext (contextSwitchTimeoutMS)) {
++			ApplyContextRouting (ContextRouting::Worker);
++			return;
++		}
++		const bool directRecovered = renderThread->MakeCurrent ();
++		ApplyContextRouting (directRecovered ? ContextRouting::Direct : ContextRouting::Unavailable);
++		SDL_LogError (SDL_LOG_CATEGORY_RENDER, "Could not move the GL context to the render thread");
++	}
++
++
++	void gc_gl_object (value object) {
++		std::lock_guard<std::mutex> lock (gc_gl_mutex);
++		auto type = glObjectTypes.find (object);
++		if (type == glObjectTypes.end ()) return;
++
++		if (type->second == TYPE_SYNC) {
++			auto pointer = glObjectPtrs.find (object);
++			if (pointer != glObjectPtrs.end ()) {
++				gc_gl_ptr.push_back (pointer->second);
++				gc_gl_pending.store (true, std::memory_order_release);
++			}
++		} else {
++			auto id = glObjectIDs.find (object);
++			if (id != glObjectIDs.end ()) {
++				const GLuint resourceID = id->second;
++				if (RemoveGLObjectID (object, type->second, resourceID)) {
++					gc_gl_ids.emplace_back (type->second, resourceID);
++					gc_gl_pending.store (true, std::memory_order_release);
+ 				}
+-
+-			} else {
+-
+-				SDL_Window* window = SDL_GL_GetCurrentWindow();
+-
+-				if (window) {
+-					SDL_GL_MakeCurrent(window, NULL);
+-				}
+-
+-				isMultiThreaded = true;
+-				renderThread->Resume();
+-
+ 			}
+-
+-		} else {
+-			
+-			isMultiThreaded = enabled;
+-
+-		}
+-
+-	}
+-
+-
+-	void gc_gl_object (value object) {
+-
+-		gc_gl_mutex.Lock ();
+-
+-		if (glObjectTypes.find (object) != glObjectTypes.end ()) {
+-
+-			GLObjectType type = glObjectTypes[object];
+-
+-			if (type != TYPE_SYNC) {
+-
+-				GLuint id = glObjectIDs[object];
+-
+-				gc_gl_id.push_back (id);
+-				gc_gl_type.push_back (type);
+-
+-				glObjects[type].erase (id);
+-				glObjectIDs.erase (object);
+-				glObjectTypes.erase (object);
+-
+-			} else {
+-
+-				void* ptr = glObjectPtrs[object];
+-
+-				gc_gl_ptr.push_back (ptr);
+-
+-				glObjectPtrs.erase (object);
+-				glObjectTypes.erase (object);
+-
+-			}
+-
+-		}
+-
+-		gc_gl_mutex.Unlock ();
+-
+-	}
+-
++		}
++		glObjectPtrs.erase (object);
++		glObjectTypes.erase (type);
++	}
++
++
++	static void DeleteGLObject (GLObjectType type, GLuint id) {
++		switch (type) {
++			case TYPE_BUFFER:
++				if (glIsBuffer (id)) glDeleteBuffers (1, &id);
++				break;
++			case TYPE_FRAMEBUFFER:
++				if (glIsFramebuffer (id)) glDeleteFramebuffers (1, &id);
++				break;
++			case TYPE_PROGRAM:
++				if (glIsProgram (id)) glDeleteProgram (id);
++				break;
++			#ifdef LIME_GLES3_API
++			case TYPE_QUERY:
++				if (glIsQuery (id)) glDeleteQueries (1, &id);
++				break;
++			#endif
++			case TYPE_RENDERBUFFER:
++				if (glIsRenderbuffer (id)) glDeleteRenderbuffers (1, &id);
++				break;
++			#ifdef LIME_GLES3_API
++			case TYPE_SAMPLER:
++				if (glIsSampler (id)) glDeleteSamplers (1, &id);
++				break;
++			#endif
++			case TYPE_SHADER:
++				if (glIsShader (id)) glDeleteShader (id);
++				break;
++			case TYPE_TEXTURE:
++				if (glIsTexture (id)) glDeleteTextures (1, &id);
++				break;
++			#ifdef LIME_GLES3_API
++			case TYPE_VERTEX_ARRAY_OBJECT:
++				if (glIsVertexArray (id)) glDeleteVertexArrays (1, &id);
++				break;
++			#endif
++			default:
++				break;
++		}
++	}
+ 
+ 	void gc_gl_run () {
+-
+-		if (gc_gl_id.size () > 0) {
+-
+-			gc_gl_mutex.Lock ();
+-
+-			int size = gc_gl_id.size ();
+-
+-			GLuint id;
+-			GLObjectType type;
+-
+-			for (int i = 0; i < size; i++) {
+-
+-				id = gc_gl_id[i];
+-				type = gc_gl_type[i];
+-
+-				switch (type) {
+-
+-					case TYPE_BUFFER:
+-
+-						if (glIsBuffer (id)) glDeleteBuffers (1, &id);
+-						break;
+-
+-					case TYPE_FRAMEBUFFER:
+-
+-						if (glIsFramebuffer (id)) glDeleteFramebuffers (1, &id);
+-						break;
+-
+-					case TYPE_PROGRAM:
+-
+-						if (glIsProgram (id)) glDeleteProgram (id);
+-						break;
+-
+-					#ifdef LIME_GLES3_API
+-					case TYPE_QUERY:
+-
+-						if (glIsQuery (id)) glDeleteQueries (1, &id);
+-						break;
+-					#endif
+-
+-					case TYPE_RENDERBUFFER:
+-
+-						if (glIsRenderbuffer (id)) glDeleteRenderbuffers (1, &id);
+-						break;
+-
+-					#ifdef LIME_GLES3_API
+-					case TYPE_SAMPLER:
+-
+-						if (glIsSampler (id)) glDeleteSamplers (1, &id);
+-						break;
+-					#endif
+-
+-					case TYPE_SHADER:
+-
+-						if (glIsShader (id)) glDeleteShader (id);
+-						break;
+-
+-					case TYPE_TEXTURE:
+-
+-						if (glIsTexture (id)) glDeleteTextures (1, &id);
+-						break;
+-
+-					#ifdef LIME_GLES3_API
+-					case TYPE_VERTEX_ARRAY_OBJECT:
+-
+-						if (glIsVertexArray (id)) glDeleteVertexArrays (1, &id);
+-						break;
+-					#endif
+-
+-					default: break;
+-
+-				}
+-
+-			}
+-
+-			size = gc_gl_ptr.size ();
+-			void* ptr;
+-
+-			for (int i = 0; i < size; i++) {
+-
+-				ptr = gc_gl_ptr[i];
+-				//type = gc_gl_type[i];
+-
+-				#ifdef LIME_GLES3_API
+-				if (glIsSync ((GLsync)ptr)) glDeleteSync ((GLsync)ptr);
+-				#endif
+-
+-			}
+-
+-			gc_gl_id.clear ();
+-			gc_gl_ptr.clear ();
+-			gc_gl_type.clear ();
+-
+-			gc_gl_mutex.Unlock ();
+-
+-		}
+-
++		if (!gc_gl_pending.load (std::memory_order_acquire)) return;
++
++		std::vector<std::pair<GLObjectType, GLuint>> pendingIDs;
++		std::vector<void*> pendingPointers;
++		{
++			std::lock_guard<std::mutex> lock (gc_gl_mutex);
++			pendingIDs.swap (gc_gl_ids);
++			pendingPointers.swap (gc_gl_ptr);
++			gc_gl_pending.store (false, std::memory_order_release);
++		}
++
++		for (const auto& resource : pendingIDs) DeleteGLObject (resource.first, resource.second);
++		#ifdef LIME_GLES3_API
++		for (auto* pointer : pendingPointers) {
++			auto sync = static_cast<GLsync> (pointer);
++			if (glIsSync (sync)) glDeleteSync (sync);
++		}
++		#endif
+ 	}
+ 
+@@ -766,13 +836,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* dataCopy = nullptr;
+-			if (data != 0) {
+-				dataCopy = malloc(size);
+-				memcpy(dataCopy, (void*)(uintptr_t)data, size);
+-			}
+-
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			auto dataCopy = CopyGLBytes (data, size);
++			if (data != 0 && size > 0 && !dataCopy) return;
++
++			QueueGLBuffer (std::move (dataCopy), [=] (const void* dataCopy) {
+ 				glBufferData (target, size, dataCopy, usage);
+-				if (dataCopy) free(dataCopy);
+ 			});
+ 		} else {
+@@ -786,13 +852,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* dataCopy = nullptr;
+-			if (data != 0) {
+-				dataCopy = malloc(size);
+-				memcpy(dataCopy, (void*)(uintptr_t)data, size);
+-			}
+-
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			auto dataCopy = CopyGLBytes (data, size);
++			if (data != 0 && size > 0 && !dataCopy) return;
++
++			QueueGLBuffer (std::move (dataCopy), [=] (const void* dataCopy) {
+ 				glBufferData (target, size, dataCopy, usage);
+-				if (dataCopy) free(dataCopy);
+ 			});
+ 		} else {
+@@ -806,13 +868,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* dataCopy = nullptr;
+-			if (data != 0) {
+-				dataCopy = malloc(size);
+-				memcpy(dataCopy, (void*)(uintptr_t)data, size);
+-			}
+-
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			auto dataCopy = CopyGLBytes (data, size);
++			if (data != 0 && size > 0 && !dataCopy) return;
++
++			QueueGLBuffer (std::move (dataCopy), [=] (const void* dataCopy) {
+ 				glBufferSubData (target, offset, size, dataCopy);
+-				if (dataCopy) free(dataCopy);
+ 			});
+ 		} else {
+@@ -826,13 +884,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* dataCopy = nullptr;
+-			if (data != 0) {
+-				dataCopy = malloc(size);
+-				memcpy(dataCopy, (void*)(uintptr_t)data, size);
+-			}
+-
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			auto dataCopy = CopyGLBytes (data, size);
++			if (data != 0 && size > 0 && !dataCopy) return;
++
++			QueueGLBuffer (std::move (dataCopy), [=] (const void* dataCopy) {
+ 				glBufferSubData (target, offset, size, dataCopy);
+-				if (dataCopy) free(dataCopy);
+ 			});
+ 		} else {
+@@ -927,10 +981,9 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			GLfloat* dataCopy = new GLfloat[4];
+-			memcpy(dataCopy, (void*)(uintptr_t)data, 4 * sizeof(GLfloat));
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)data, 4 * sizeof(GLfloat));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glClearBufferfv (buffer, drawBuffer, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -955,10 +1008,9 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			GLint* dataCopy = new GLint[4];
+-			memcpy(dataCopy, (void*)(uintptr_t)data, 4 * sizeof(GLint));
++			std::unique_ptr<GLint[]> dataCopy (new GLint[4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)data, 4 * sizeof(GLint));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLint* dataCopy) {
+ 				glClearBufferiv (buffer, drawBuffer, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -983,10 +1035,9 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			GLuint* dataCopy = new GLuint[4];
+-			memcpy(dataCopy, (void*)(uintptr_t)data, 4 * sizeof(GLuint));
++			std::unique_ptr<GLuint[]> dataCopy (new GLuint[4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)data, 4 * sizeof(GLuint));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLuint* dataCopy) {
+ 				glClearBufferuiv (buffer, drawBuffer, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -1212,10 +1263,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* dataCopy = malloc(imageSize);
+-			memcpy(dataCopy, (void*)(uintptr_t)data, imageSize);
++			auto dataCopy = CopyGLBytes (data, imageSize);
++			if (data != 0 && imageSize > 0 && !dataCopy) return;
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const void* dataCopy) {
+ 				glCompressedTexImage2D (target, level, internalformat, width, height, border, imageSize, dataCopy);
+-				free(dataCopy);
+ 			});
+ 		} else {
+@@ -1229,10 +1279,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* dataCopy = malloc(imageSize);
+-			memcpy(dataCopy, (void*)(uintptr_t)data, imageSize);
++			auto dataCopy = CopyGLBytes (data, imageSize);
++			if (data != 0 && imageSize > 0 && !dataCopy) return;
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const void* dataCopy) {
+ 				glCompressedTexImage2D (target, level, internalformat, width, height, border, imageSize, dataCopy);
+-				free(dataCopy);
+ 			});
+ 		} else {
+@@ -1247,10 +1296,9 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* dataCopy = malloc(imageSize);
+-			memcpy(dataCopy, (void*)(uintptr_t)data, imageSize);
++			auto dataCopy = CopyGLBytes (data, imageSize);
++			if (data != 0 && imageSize > 0 && !dataCopy) return;
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const void* dataCopy) {
+ 				glCompressedTexImage3D (target, level, internalformat, width, height, depth, border, imageSize, dataCopy);
+-				free(dataCopy);
+ 			});
+ 		} else {
+@@ -1266,10 +1314,9 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* dataCopy = malloc(imageSize);
+-			memcpy(dataCopy, (void*)(uintptr_t)data, imageSize);
++			auto dataCopy = CopyGLBytes (data, imageSize);
++			if (data != 0 && imageSize > 0 && !dataCopy) return;
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const void* dataCopy) {
+ 				glCompressedTexImage3D (target, level, internalformat, width, height, depth, border, imageSize, dataCopy);
+-				free(dataCopy);
+ 			});
+ 		} else {
+@@ -1284,10 +1331,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* dataCopy = malloc(imageSize);
+-			memcpy(dataCopy, (void*)(uintptr_t)data, imageSize);
++			auto dataCopy = CopyGLBytes (data, imageSize);
++			if (data != 0 && imageSize > 0 && !dataCopy) return;
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const void* dataCopy) {
+ 				glCompressedTexSubImage2D (target, level, xoffset, yoffset, width, height, format, imageSize, dataCopy);
+-				free(dataCopy);
+ 			});
+ 		} else {
+@@ -1301,10 +1347,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* dataCopy = malloc(imageSize);
+-			memcpy(dataCopy, (void*)(uintptr_t)data, imageSize);
++			auto dataCopy = CopyGLBytes (data, imageSize);
++			if (data != 0 && imageSize > 0 && !dataCopy) return;
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const void* dataCopy) {
+ 				glCompressedTexSubImage2D (target, level, xoffset, yoffset, width, height, format, imageSize, dataCopy);
+-				free(dataCopy);
+ 			});
+ 		} else {
+@@ -1319,10 +1364,9 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* dataCopy = malloc(imageSize);
+-			memcpy(dataCopy, (void*)(uintptr_t)data, imageSize);
++			auto dataCopy = CopyGLBytes (data, imageSize);
++			if (data != 0 && imageSize > 0 && !dataCopy) return;
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const void* dataCopy) {
+ 				glCompressedTexSubImage3D (target, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, dataCopy);
+-				free(dataCopy);
+ 			});
+ 		} else {
+@@ -1338,10 +1382,9 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* dataCopy = malloc(imageSize);
+-			memcpy(dataCopy, (void*)(uintptr_t)data, imageSize);
++			auto dataCopy = CopyGLBytes (data, imageSize);
++			if (data != 0 && imageSize > 0 && !dataCopy) return;
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const void* dataCopy) {
+ 				glCompressedTexSubImage3D (target, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, dataCopy);
+-				free(dataCopy);
+ 			});
+ 		} else {
+@@ -2043,4 +2086,5 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (val_is_null (sync)) return;
++		if (!DeregisterGLObject (sync)) return;
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			GLsync s = (GLsync)val_data (sync);
+@@ -2060,4 +2104,5 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (!sync) return;
++		if (!DeregisterGLObject (sync)) return;
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			GLsync s = (GLsync)sync->ptr;
+@@ -2391,5 +2436,5 @@
+ 		#ifdef LIME_GLES3_API
+ 		GLsizei size = val_array_size (buffers);
+-		GLenum *dataCopy = new GLenum[size];
++		std::unique_ptr<GLenum[]> dataCopy (new GLenum[size]);
+ 
+ 		for (int i = 0; i < size; i++) {
+@@ -2400,11 +2445,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLenum* dataCopy) {
+ 				glDrawBuffers (size, dataCopy);
+-				delete[] dataCopy;
+-			});
+-		} else {
+-			glDrawBuffers (size, dataCopy);
+-			delete[] dataCopy;
++			});
++		} else {
++			glDrawBuffers (size, dataCopy.get ());
+ 		}
+ 		#endif
+@@ -2418,10 +2461,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			GLsizei size = buffers->size;
+-			GLenum* dataCopy = new GLenum[size];
+-			memcpy(dataCopy, (GLenum*)hl_aptr (buffers, int), size * sizeof(GLenum));
++			std::unique_ptr<GLenum[]> dataCopy (new GLenum[size]);
++			memcpy(dataCopy.get (), (GLenum*)hl_aptr (buffers, int), size * sizeof(GLenum));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLenum* dataCopy) {
+ 				glDrawBuffers (size, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -2632,47 +2674,44 @@
+ 
+ 
++	#ifdef LIME_GLES3_API
++	static void RegisterSync (void* handle, GLsync sync) {
++		std::lock_guard<std::mutex> lock (gc_gl_mutex);
++		glObjectPtrs[handle] = sync;
++		glObjectTypes[handle] = TYPE_SYNC;
++	}
++
++	static GLsync CreateSync (const char* operation, int condition, int flags) {
++		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
++			return OpenGLBindings::renderThread->RunCommandAndWait<GLsync> (operation, [=] () {
++				return glFenceSync (condition, flags);
++			});
++		}
++		return glFenceSync (condition, flags);
++	}
++	#endif
++
+ 	value lime_gl_fence_sync (int condition, int flags) {
+-
+-		#ifdef LIME_GLES3_API
+-		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<value>(__func__, [=] () {
+-				GLsync result = glFenceSync (condition, flags);
+-				value handle = CFFIPointer (result, gc_gl_object);
+-				glObjectPtrs[handle] = result;
+-				return handle;
+-			});
+-		} else {
+-			GLsync result = glFenceSync (condition, flags);
++		#ifdef LIME_GLES3_API
++		GLsync result = CreateSync (__func__, condition, flags);
++		if (result) {
+ 			value handle = CFFIPointer (result, gc_gl_object);
+-			glObjectPtrs[handle] = result;
++			RegisterSync (handle, result);
+ 			return handle;
+ 		}
+-		#else
++		#endif
+ 		return alloc_null ();
+-		#endif
+-
+ 	}
+ 
+ 
+ 	HL_PRIM HL_CFFIPointer* HL_NAME(hl_gl_fence_sync) (int condition, int flags) {
+-
+-		#ifdef LIME_GLES3_API
+-		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<HL_CFFIPointer*>(__func__, [=] () {
+-				GLsync result = glFenceSync (condition, flags);
+-				HL_CFFIPointer* handle = HLCFFIPointer (result, (hl_finalizer)gc_gl_object);
+-				glObjectPtrs[handle] = result;
+-				return handle;
+-			});
+-		} else {
+-			GLsync result = glFenceSync (condition, flags);
+-			HL_CFFIPointer* handle = HLCFFIPointer (result, (hl_finalizer)gc_gl_object);
+-			glObjectPtrs[handle] = result;
++		#ifdef LIME_GLES3_API
++		GLsync result = CreateSync (__func__, condition, flags);
++		if (result) {
++			auto* handle = HLCFFIPointer (result, (hl_finalizer)gc_gl_object);
++			RegisterSync (handle, result);
+ 			return handle;
+ 		}
+-		#else
+-		return NULL;
+-		#endif
+-
++		#endif
++		return nullptr;
+ 	}
+ 
+@@ -3156,31 +3195,21 @@
+ 
+ 	value lime_gl_get_active_uniform_block_name (int program, int uniformBlockIndex) {
+-
+-		#ifdef LIME_GLES3_API
+-		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<value>(__func__, [=] () {
+-				GLint length;
+-				glGetActiveUniformBlockiv (program, uniformBlockIndex, GL_UNIFORM_BLOCK_NAME_LENGTH, &length);
+-
+-				std::string buffer (length, 0);
+-
+-				glGetActiveUniformBlockName (program, uniformBlockIndex, length, 0, &buffer[0]);
+-
+-				return alloc_string (buffer.c_str ());
+-			});
+-		} else {
+-			GLint length;
++		#ifdef LIME_GLES3_API
++		auto readName = [=] () {
++			GLint length = 0;
+ 			glGetActiveUniformBlockiv (program, uniformBlockIndex, GL_UNIFORM_BLOCK_NAME_LENGTH, &length);
+-
+-			std::string buffer (length, 0);
+-
+-			glGetActiveUniformBlockName (program, uniformBlockIndex, length, 0, &buffer[0]);
+-
+-			return alloc_string (buffer.c_str ());
+-		}
++			if (length <= 0) return std::string ();
++
++			std::string name (length, '\0');
++			glGetActiveUniformBlockName (program, uniformBlockIndex, length, nullptr, &name[0]);
++			return name;
++		};
++		auto name = OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded
++			? OpenGLBindings::renderThread->RunCommandAndWait<std::string> (__func__, readName)
++			: readName ();
++		return alloc_string (name.c_str ());
+ 		#else
+ 		return alloc_null ();
+ 		#endif
+-
+ 	}
+ 
+@@ -3228,11 +3257,10 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			GLsizei size = uniformIndices->size;
+-			GLenum *indicesCopy = new GLenum[size];
++			std::unique_ptr<GLenum[]> indicesCopy (new GLenum[size]);
+ 			GLenum *src = (GLenum*)hl_aptr (uniformIndices, int);
+ 			for(int i=0; i<size; i++) indicesCopy[i] = src[i];
+ 
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+-				glGetActiveUniformsiv (program, size, indicesCopy, pname, (GLint*)(uintptr_t)params);
+-				delete[] indicesCopy;
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [&] () {
++				glGetActiveUniformsiv (program, size, indicesCopy.get (), pname, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3300,7 +3328,7 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			std::string nameStr(name.__s);
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWaitOr<int>(__func__, [=] () {
+ 				return glGetAttribLocation (program, nameStr.c_str());
+-			});
++			}, -1);
+ 		} else {
+ 			return glGetAttribLocation (program, name.__s);
+@@ -3314,7 +3342,7 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			std::string nameStr = name ? (char*)hl_to_utf8(name->bytes) : "";
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWaitOr<int>(__func__, [=] () {
+ 				return glGetAttribLocation (program, nameStr.c_str());
+-			});
++			}, -1);
+ 		} else {
+ 			return glGetAttribLocation (program, name ? (char*)hl_to_utf8 (name->bytes) : NULL);
+@@ -5121,7 +5149,7 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			std::string nameStr(name.__s);
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWaitOr<int>(__func__, [=] () {
+ 				return glGetUniformLocation (program, nameStr.c_str());
+-			});
++			}, -1);
+ 		} else {
+ 			return glGetUniformLocation (program, name.__s);
+@@ -5135,7 +5163,7 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			std::string nameStr = name ? (char*)hl_to_utf8(name->bytes) : "";
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWaitOr<int>(__func__, [=] () {
+ 				return glGetUniformLocation (program, nameStr.c_str());
+-			});
++			}, -1);
+ 		} else {
+ 			return glGetUniformLocation (program, name ? (char*)hl_to_utf8 (name->bytes) : NULL);
+@@ -5693,137 +5721,37 @@
+ 
+ 	void lime_gl_object_deregister (value object) {
+-
+-		if (glObjectIDs.find (object) != glObjectIDs.end ()) {
+-
+-			GLuint id = glObjectIDs[object];
+-			GLObjectType type = glObjectTypes[object];
+-
+-			glObjects[type].erase (id);
+-			glObjectTypes.erase (object);
+-			glObjectIDs.erase (object);
+-
+-		}
+-
+-		if (glObjectPtrs.find (object) != glObjectPtrs.end ()) {
+-
+-			value handle = (value)glObjectPtrs[object];
+-			val_gc (handle, 0);
+-			glObjectPtrs.erase (object);
+-
+-		}
+-
++		auto handle = static_cast<value> (DeregisterGLObject (object));
++		if (handle) val_gc (handle, 0);
+ 	}
+ 
+ 
+ 	HL_PRIM void HL_NAME(hl_gl_object_deregister) (void* object) {
+-
+-		if (glObjectIDs.find (object) != glObjectIDs.end ()) {
+-
+-			GLuint id = glObjectIDs[object];
+-			GLObjectType type = glObjectTypes[object];
+-
+-			glObjects[type].erase (id);
+-			glObjectTypes.erase (object);
+-			glObjectIDs.erase (object);
+-
+-		}
+-
+-		if (glObjectPtrs.find (object) != glObjectPtrs.end ()) {
+-
+-			HL_CFFIPointer* handle = (HL_CFFIPointer*)glObjectPtrs[object];
+-			handle->finalizer = NULL;
+-			//delete handle;
+-			glObjectPtrs.erase (object);
+-
+-		}
+-
++		auto* handle = static_cast<HL_CFFIPointer*> (DeregisterGLObject (object));
++		if (handle) handle->finalizer = nullptr;
+ 	}
+ 
+ 
+ 	value lime_gl_object_from_id (int id, int type) {
+-
+-		GLObjectType _type = (GLObjectType)type;
+-
+-		if (glObjects[_type].find (id) != glObjects[_type].end ()) {
+-
+-			return (value)glObjects[_type][id];
+-
+-		} else {
+-
+-			return alloc_null ();
+-
+-		}
+-
++		auto object = static_cast<value> (FindGLObject (static_cast<GLObjectType> (type), id));
++		return object ? object : alloc_null ();
+ 	}
+ 
+ 
+ 	HL_PRIM void* HL_NAME(hl_gl_object_from_id) (int id, int type) {
+-
+-		GLObjectType _type = (GLObjectType)type;
+-
+-		if (glObjects[_type].find (id) != glObjects[_type].end ()) {
+-
+-			return glObjects[_type][id];
+-
+-		} else {
+-
+-			return NULL;
+-
+-		}
+-
++		return FindGLObject (static_cast<GLObjectType> (type), id);
+ 	}
+ 
+ 
+ 	value lime_gl_object_register (int id, int type, value object) {
+-
+-		GLObjectType _type = (GLObjectType)type;
+ 		value handle = CFFIPointer (object, gc_gl_object);
+-
+-		//if (glObjects[_type].find (id) != glObjects[_type].end ()) {
+-			//
+-			//value otherObject = glObjects[_type][id];
+-			//if (otherObject == object) return;
+-			//
+-			//glObjectTypes.erase (otherObject);
+-			//glObjectIDs.erase (object);
+-			//
+-			//val_gc (otherObject, 0);
+-			//
+-		//}
+-
+-		glObjectTypes[object] = (GLObjectType)type;
+-		glObjectIDs[object] = id;
+-		glObjects[_type][id] = object;
+-		glObjectPtrs[object] = handle;
+-
++		RegisterGLObject (object, static_cast<GLObjectType> (type), id, handle);
+ 		return handle;
+-
+ 	}
+ 
+ 
+ 	HL_PRIM HL_CFFIPointer* HL_NAME(hl_gl_object_register) (int id, int type, void* object) {
+-
+-		GLObjectType _type = (GLObjectType)type;
+-		HL_CFFIPointer* handle = HLCFFIPointer ((vobj*)object, (hl_finalizer)gc_gl_object);
+-
+-		//if (glObjects[_type].find (id) != glObjects[_type].end ()) {
+-			//
+-			//value otherObject = glObjects[_type][id];
+-			//if (otherObject == object) return;
+-			//
+-			//glObjectTypes.erase (otherObject);
+-			//glObjectIDs.erase (object);
+-			//
+-			//val_gc (otherObject, 0);
+-			//
+-		//}
+-
+-		glObjectTypes[object] = (GLObjectType)type;
+-		glObjectIDs[object] = id;
+-		glObjects[_type][id] = object;
+-		glObjectPtrs[object] = handle;
+-
++		auto* handle = HLCFFIPointer (static_cast<vobj*> (object), (hl_finalizer)gc_gl_object);
++		RegisterGLObject (object, static_cast<GLObjectType> (type), id, handle);
+ 		return handle;
+-
+ 	}
+ 
+@@ -5915,10 +5843,9 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* binaryCopy = malloc(length);
+-			memcpy(binaryCopy, (void*)(uintptr_t)binary, length);
++			auto binaryCopy = CopyGLBytes (binary, length);
++			if (binary != 0 && length > 0 && !binaryCopy) return;
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (binaryCopy), [=] (const void* binaryCopy) {
+ 				glProgramBinary (program, binaryFormat, binaryCopy, length);
+-				free(binaryCopy);
+ 			});
+ 		} else {
+@@ -5934,10 +5861,9 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* binaryCopy = malloc(length);
+-			memcpy(binaryCopy, (void*)(uintptr_t)binary, length);
++			auto binaryCopy = CopyGLBytes (binary, length);
++			if (binary != 0 && length > 0 && !binaryCopy) return;
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (binaryCopy), [=] (const void* binaryCopy) {
+ 				glProgramBinary (program, binaryFormat, binaryCopy, length);
+-				free(binaryCopy);
+ 			});
+ 		} else {
+@@ -6266,5 +6192,5 @@
+ 		#ifdef LIME_GLES3_API
+ 		GLsizei size = val_array_size (shaders);
+-		GLenum *shadersCopy = new GLenum[size];
++		std::unique_ptr<GLenum[]> shadersCopy (new GLenum[size]);
+ 
+ 		for (int i = 0; i < size; i++) {
+@@ -6275,15 +6201,14 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* binaryCopy = malloc(length);
+-			memcpy(binaryCopy, (void*)(uintptr_t)binary, length);
+-			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
+-				glShaderBinary (size, shadersCopy, binaryformat, binaryCopy, length);
+-				delete[] shadersCopy;
+-				free(binaryCopy);
+-			});
+-		} else {
+-			glShaderBinary (size, shadersCopy, binaryformat, (void*)(uintptr_t)binary, length);
+-			delete[] shadersCopy;
++			auto binaryCopy = CopyGLBytes (binary, length);
++			if (binary != 0 && length > 0 && !binaryCopy) return;
++
++			using BinaryData = std::pair<std::unique_ptr<GLenum[]>, GLBytes>;
++			QueueGLCommand (BinaryData (std::move (shadersCopy), std::move (binaryCopy)),
++				[=] (const BinaryData& data) {
++					glShaderBinary (size, data.first.get (), binaryformat, data.second.get (), length);
++				});
++		} else {
++			glShaderBinary (size, shadersCopy.get (), binaryformat, (void*)(uintptr_t)binary, length);
+ 		}
+ 		#endif
+@@ -6296,5 +6221,5 @@
+ 		#ifdef LIME_GLES3_API
+ 		GLsizei size = shaders->size;
+-		GLenum *shadersCopy = new GLenum[size];
++		std::unique_ptr<GLenum[]> shadersCopy (new GLenum[size]);
+ 		
+ 		GLenum* src = (GLenum*)hl_aptr (shaders, int);
+@@ -6302,15 +6227,14 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			void* binaryCopy = malloc(length);
+-			memcpy(binaryCopy, (void*)(uintptr_t)binary, length);
+-			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
+-				glShaderBinary (size, shadersCopy, binaryformat, binaryCopy, length);
+-				delete[] shadersCopy;
+-				free(binaryCopy);
+-			});
+-		} else {
+-			glShaderBinary (size, shadersCopy, binaryformat, (void*)(uintptr_t)binary, length);
+-			delete[] shadersCopy;
++			auto binaryCopy = CopyGLBytes (binary, length);
++			if (binary != 0 && length > 0 && !binaryCopy) return;
++
++			using BinaryData = std::pair<std::unique_ptr<GLenum[]>, GLBytes>;
++			QueueGLCommand (BinaryData (std::move (shadersCopy), std::move (binaryCopy)),
++				[=] (const BinaryData& data) {
++					glShaderBinary (size, data.first.get (), binaryformat, data.second.get (), length);
++				});
++		} else {
++			glShaderBinary (size, shadersCopy.get (), binaryformat, (void*)(uintptr_t)binary, length);
+ 		}
+ 		#endif
+@@ -6503,4 +6427,83 @@
+ 		}
+ 
++	}
++
++
++	namespace {
++		constexpr GLenum pixelUnpackBuffer = 0x88EC;
++		constexpr GLenum pixelUnpackBufferBinding = 0x88EF;
++		constexpr GLenum unpackRowLength = 0x0CF2;
++		constexpr GLenum unpackSkipRows = 0x0CF3;
++		constexpr GLenum unpackSkipPixels = 0x0CF4;
++		constexpr GLenum bgraFormat = 0x80E1;
++
++		class PackedTextureUpload {
++		public:
++			PackedTextureUpload (int internalFormat, int width, int height, int format)
++				: internalFormat (internalFormat), width (width), height (height), format (format) {}
++
++			std::uint64_t byteLength () const {
++				if (width <= 0 || height <= 0 || (format != GL_RGBA && format != bgraFormat)) return 0;
++				return static_cast<std::uint64_t> (width) * height * 4;
++			}
++
++			void operator() (const void* pixels) const {
++				const char* version = reinterpret_cast<const char*> (glGetString (GL_VERSION));
++				if (!version) return;
++				const char* digits = std::strpbrk (version, "0123456789");
++				int major = 0;
++				int minor = 0;
++				if (digits) std::sscanf (digits, "%d.%d", &major, &minor);
++
++				const bool embedded = std::strncmp (version, "OpenGL ES", 9) == 0;
++				const bool unpackRows = !embedded || major >= 3 || SDL_GL_ExtensionSupported ("GL_EXT_unpack_subimage");
++				const bool unpackBuffer = major >= 3 || (embedded
++					? SDL_GL_ExtensionSupported ("GL_NV_pixel_buffer_object")
++					: (major == 2 && minor >= 1) || SDL_GL_ExtensionSupported ("GL_ARB_pixel_buffer_object")
++						|| SDL_GL_ExtensionSupported ("GL_EXT_pixel_buffer_object"));
++
++				// The caller supplies packed CPU pixels, independently of the context's unpack state.
++				GLint buffer = 0;
++				if (unpackBuffer) {
++					glGetIntegerv (pixelUnpackBufferBinding, &buffer);
++					if (buffer) glBindBuffer (pixelUnpackBuffer, 0);
++				}
++				const GLenum unpackModes[] = {GL_UNPACK_ALIGNMENT, unpackRowLength, unpackSkipRows, unpackSkipPixels};
++				const GLint packedValues[] = {4, 0, 0, 0};
++				GLint savedValues[4] = {};
++				const int modeCount = unpackRows ? 4 : 1;
++				for (int index = 0; index < modeCount; ++index) {
++					glGetIntegerv (unpackModes[index], &savedValues[index]);
++					if (savedValues[index] != packedValues[index]) glPixelStorei (unpackModes[index], packedValues[index]);
++				}
++				glTexImage2D (GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, GL_UNSIGNED_BYTE, pixels);
++				for (int index = 0; index < modeCount; ++index) {
++					if (savedValues[index] != packedValues[index]) glPixelStorei (unpackModes[index], savedValues[index]);
++				}
++				if (buffer) glBindBuffer (pixelUnpackBuffer, buffer);
++			}
++
++		private:
++			const int internalFormat;
++			const int width;
++			const int height;
++			const int format;
++		};
++	}
++
++	bool lime_gl_queue_packed_texture_image_2d (int internalFormat, int width, int height, int format, value buffer, int offset, int length) {
++		if (!OpenGLBindings::renderThread || !OpenGLBindings::isMultiThreaded || !OpenGLBindings::CanRender ()) return false;
++
++		const PackedTextureUpload upload (internalFormat, width, height, format);
++		const auto byteLength = upload.byteLength ();
++		if (offset < 0 || length <= 0 || byteLength == 0 || byteLength > static_cast<std::uint64_t> (length)) return false;
++
++		Bytes bytes (buffer);
++		if (!bytes.b || offset > bytes.length || length > bytes.length - offset) return false;
++
++		GLBytes pixels (std::malloc (static_cast<std::size_t> (byteLength)), std::free);
++		if (!pixels) return false;
++		memcpy (pixels.get (), bytes.b + offset, static_cast<std::size_t> (byteLength));
++		return QueueGLBuffer (std::move (pixels), upload);
+ 	}
+ 
+@@ -6732,64 +6735,18 @@
+ 		
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			// Deep copy the strings
+-			char** _varyings = new char*[size];
+-			std::vector<std::string> stringStorage;
+-			stringStorage.reserve(size);
+-			
+-			for (int i = 0; i < size; i++) {
+-				stringStorage.push_back(val_string (val_array_i (varyings, i)));
+-				_varyings[i] = (char*)stringStorage.back().c_str();
++			std::vector<std::string> names;
++			names.reserve (size);
++			for (int index = 0; index < size; ++index) {
++				names.emplace_back (val_string (val_array_i (varyings, index)));
+ 			}
+ 
+-			// We need to capture the data. But wait, capturing char** pointing to stack/local memory is dangerous in async.
+-			// The PushCommand lambda will execute later.
+-			// So we need a way to pass this data safely.
+-			// Actually, stringStorage will be destroyed at end of function.
+-			// So we must allocate persistent memory and free it in the lambda.
+-			
+-			// Let's allocate a single block or use a structure.
+-			// Simplified approach: Vector of strings is hard to capture by value in lambda if we want C-array of pointers.
+-			
+-			// Let's create a struct to hold the data
+-			struct VaryingsData {
+-				int size;
+-				char** names;
+-				char* buffer; // flat buffer for all strings
+-			};
+-			
+-			// Calculate total size
+-			int totalLen = 0;
+-			for (int i=0; i<size; i++) {
+-				totalLen += strlen(val_string (val_array_i (varyings, i))) + 1;
+-			}
+-			
+-			char* buffer = new char[totalLen];
+-			char** names = new char*[size];
+-			
+-			char* ptr = buffer;
+-			for (int i=0; i<size; i++) {
+-				const char* src = val_string (val_array_i (varyings, i));
+-				int len = strlen(src) + 1;
+-				memcpy(ptr, src, len);
+-				names[i] = ptr;
+-				ptr += len;
+-			}
+-			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
+-				// Re-patch pointers if necessary? No, 'buffer' is a pointer, 'names' is a pointer.
+-				// But wait, 'names' contains pointers into 'buffer'.
+-				// If we capture 'buffer' (the pointer) and 'names' (the pointer), it's fine.
+-				// But we need to update 'names' entries to point to 'buffer' if we copied them?
+-				// Actually, we allocated 'buffer' on heap, so its address is stable.
+-				// 'names' is allocated on heap, its content (pointers to buffer) is stable.
+-				
+-				glTransformFeedbackVaryings (program, size, (const char**)names, bufferMode);
+-				
+-				delete[] buffer;
+-				delete[] names;
+-			});
+-			
+-		} else {
+-			const char **_varyings = (const char**)alloca (size * sizeof(GLenum));
++			QueueGLCommand (std::move (names), [=] (const std::vector<std::string>& ownedNames) {
++				std::vector<const GLchar*> pointers;
++				pointers.reserve (ownedNames.size ());
++				for (const auto& name : ownedNames) pointers.push_back (name.c_str ());
++				glTransformFeedbackVaryings (program, size, pointers.data (), bufferMode);
++			});
++		} else {
++			const char **_varyings = (const char**)alloca (size * sizeof(const char*));
+ 
+ 			for (int i = 0; i < size; i++) {
+@@ -6844,10 +6801,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniform1fv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -6862,10 +6818,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniform1fv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -6906,10 +6861,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * sizeof(GLint);
+-			GLint* dataCopy = new GLint[count];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLint[]> dataCopy (new GLint[count]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLint* dataCopy) {
+ 				glUniform1iv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -6924,10 +6878,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * sizeof(GLint);
+-			GLint* dataCopy = new GLint[count];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLint[]> dataCopy (new GLint[count]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLint* dataCopy) {
+ 				glUniform1iv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -6973,10 +6926,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * sizeof(GLuint);
+-			GLuint* dataCopy = new GLuint[count];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLuint[]> dataCopy (new GLuint[count]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLuint* dataCopy) {
+ 				glUniform1uiv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -6993,10 +6945,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * sizeof(GLuint);
+-			GLuint* dataCopy = new GLuint[count];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLuint[]> dataCopy (new GLuint[count]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLuint* dataCopy) {
+ 				glUniform1uiv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7038,10 +6989,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 2 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 2];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 2]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniform2fv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7056,10 +7006,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 2 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 2];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 2]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniform2fv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7100,10 +7049,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 2 * sizeof(GLint);
+-			GLint* dataCopy = new GLint[count * 2];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLint[]> dataCopy (new GLint[count * 2]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLint* dataCopy) {
+ 				glUniform2iv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7118,10 +7066,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 2 * sizeof(GLint);
+-			GLint* dataCopy = new GLint[count * 2];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLint[]> dataCopy (new GLint[count * 2]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLint* dataCopy) {
+ 				glUniform2iv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7164,10 +7111,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 2 * sizeof(GLuint);
+-			GLuint* dataCopy = new GLuint[count * 2];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLuint[]> dataCopy (new GLuint[count * 2]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLuint* dataCopy) {
+ 				glUniform2uiv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7209,10 +7155,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 3 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 3];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 3]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniform3fv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7227,10 +7172,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 3 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 3];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 3]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniform3fv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7271,10 +7215,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 3 * sizeof(GLint);
+-			GLint* dataCopy = new GLint[count * 3];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLint[]> dataCopy (new GLint[count * 3]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLint* dataCopy) {
+ 				glUniform3iv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7289,10 +7232,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 3 * sizeof(GLint);
+-			GLint* dataCopy = new GLint[count * 3];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLint[]> dataCopy (new GLint[count * 3]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLint* dataCopy) {
+ 				glUniform3iv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7332,10 +7274,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 3 * sizeof(GLuint);
+-			GLuint* dataCopy = new GLuint[count * 3];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLuint[]> dataCopy (new GLuint[count * 3]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLuint* dataCopy) {
+ 				glUniform3uiv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7352,10 +7293,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 3 * sizeof(GLuint);
+-			GLuint* dataCopy = new GLuint[count * 3];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLuint[]> dataCopy (new GLuint[count * 3]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLuint* dataCopy) {
+ 				glUniform3uiv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7397,10 +7337,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 4 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 4];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniform4fv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7415,10 +7354,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 4 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 4];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniform4fv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7459,10 +7397,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 4 * sizeof(GLint);
+-			GLint* dataCopy = new GLint[count * 4];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLint[]> dataCopy (new GLint[count * 4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLint* dataCopy) {
+ 				glUniform4iv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7477,10 +7414,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 4 * sizeof(GLint);
+-			GLint* dataCopy = new GLint[count * 4];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLint[]> dataCopy (new GLint[count * 4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLint* dataCopy) {
+ 				glUniform4iv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7526,10 +7462,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 4 * sizeof(GLuint);
+-			GLuint* dataCopy = new GLuint[count * 4];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLuint[]> dataCopy (new GLuint[count * 4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLuint* dataCopy) {
+ 				glUniform4uiv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7546,10 +7481,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 4 * sizeof(GLuint);
+-			GLuint* dataCopy = new GLuint[count * 4];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLuint[]> dataCopy (new GLuint[count * 4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLuint* dataCopy) {
+ 				glUniform4uiv (location, count, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7595,10 +7529,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 2 * 2 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 2 * 2];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 2 * 2]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix2fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7613,10 +7546,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 2 * 2 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 2 * 2];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 2 * 2]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix2fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7632,10 +7564,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 2 * 3 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 2 * 3];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 2 * 3]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix2x3fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7652,10 +7583,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 2 * 3 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 2 * 3];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 2 * 3]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix2x3fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7672,10 +7602,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 2 * 4 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 2 * 4];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 2 * 4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix2x4fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7692,10 +7621,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 2 * 4 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 2 * 4];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 2 * 4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix2x4fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7711,10 +7639,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 3 * 3 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 3 * 3];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 3 * 3]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix3fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7729,10 +7656,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 3 * 3 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 3 * 3];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 3 * 3]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix3fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7748,10 +7674,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 3 * 2 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 3 * 2];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 3 * 2]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix3x2fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7768,10 +7693,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 3 * 2 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 3 * 2];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 3 * 2]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix3x2fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7788,10 +7712,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 3 * 4 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 3 * 4];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 3 * 4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix3x4fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7808,10 +7731,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 3 * 4 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 3 * 4];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 3 * 4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix3x4fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7827,11 +7749,10 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 16;
+-			GLfloat* dataCopy = new GLfloat[dataSize];
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[dataSize]);
+ 			// Ensure we copy the full data. _value is a pointer to the start of the array.
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize * sizeof(GLfloat));
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize * sizeof(GLfloat));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix4fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7846,10 +7767,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 4 * 4 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 4 * 4];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 4 * 4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix4fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7865,10 +7785,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 4 * 2 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 4 * 2];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 4 * 2]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix4x2fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7885,10 +7804,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 4 * 2 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 4 * 2];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 4 * 2]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix4x2fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7905,10 +7823,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 4 * 3 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 4 * 3];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 4 * 3]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix4x3fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -7925,10 +7842,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = count * 4 * 3 * sizeof(GLfloat);
+-			GLfloat* dataCopy = new GLfloat[count * 4 * 3];
+-			memcpy(dataCopy, (void*)(uintptr_t)_value, dataSize);
++			std::unique_ptr<GLfloat[]> dataCopy (new GLfloat[count * 4 * 3]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)_value, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLfloat* dataCopy) {
+ 				glUniformMatrix4x3fv (location, count, transpose, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -8141,10 +8057,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = 4 * sizeof(GLint);
+-			GLint* dataCopy = new GLint[4];
+-			memcpy(dataCopy, (void*)(uintptr_t)v, dataSize);
++			std::unique_ptr<GLint[]> dataCopy (new GLint[4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)v, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLint* dataCopy) {
+ 				glVertexAttribI4iv (index, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -8161,10 +8076,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = 4 * sizeof(GLint);
+-			GLint* dataCopy = new GLint[4];
+-			memcpy(dataCopy, (void*)(uintptr_t)v, dataSize);
++			std::unique_ptr<GLint[]> dataCopy (new GLint[4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)v, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLint* dataCopy) {
+ 				glVertexAttribI4iv (index, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -8211,10 +8125,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = 4 * sizeof(GLuint);
+-			GLuint* dataCopy = new GLuint[4];
+-			memcpy(dataCopy, (void*)(uintptr_t)v, dataSize);
++			std::unique_ptr<GLuint[]> dataCopy (new GLuint[4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)v, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLuint* dataCopy) {
+ 				glVertexAttribI4uiv (index, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -8231,10 +8144,9 @@
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			int dataSize = 4 * sizeof(GLuint);
+-			GLuint* dataCopy = new GLuint[4];
+-			memcpy(dataCopy, (void*)(uintptr_t)v, dataSize);
++			std::unique_ptr<GLuint[]> dataCopy (new GLuint[4]);
++			memcpy(dataCopy.get (), (void*)(uintptr_t)v, dataSize);
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (dataCopy), [=] (const GLuint* dataCopy) {
+ 				glVertexAttribI4uiv (index, dataCopy);
+-				delete[] dataCopy;
+ 			});
+ 		} else {
+@@ -8275,10 +8187,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			GLfloat* vCopy = new GLfloat[1];
+-			memcpy(vCopy, (void*)(uintptr_t)v, 1 * sizeof(GLfloat));
++			std::unique_ptr<GLfloat[]> vCopy (new GLfloat[1]);
++			memcpy(vCopy.get (), (void*)(uintptr_t)v, 1 * sizeof(GLfloat));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (vCopy), [=] (const GLfloat* vCopy) {
+ 				glVertexAttrib1fv (index, vCopy);
+-				delete[] vCopy;
+ 			});
+ 		} else {
+@@ -8292,10 +8203,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			GLfloat* vCopy = new GLfloat[1];
+-			memcpy(vCopy, (void*)(uintptr_t)v, 1 * sizeof(GLfloat));
++			std::unique_ptr<GLfloat[]> vCopy (new GLfloat[1]);
++			memcpy(vCopy.get (), (void*)(uintptr_t)v, 1 * sizeof(GLfloat));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (vCopy), [=] (const GLfloat* vCopy) {
+ 				glVertexAttrib1fv (index, vCopy);
+-				delete[] vCopy;
+ 			});
+ 		} else {
+@@ -8335,10 +8245,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			GLfloat* vCopy = new GLfloat[2];
+-			memcpy(vCopy, (void*)(uintptr_t)v, 2 * sizeof(GLfloat));
++			std::unique_ptr<GLfloat[]> vCopy (new GLfloat[2]);
++			memcpy(vCopy.get (), (void*)(uintptr_t)v, 2 * sizeof(GLfloat));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (vCopy), [=] (const GLfloat* vCopy) {
+ 				glVertexAttrib2fv (index, vCopy);
+-				delete[] vCopy;
+ 			});
+ 		} else {
+@@ -8352,10 +8261,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			GLfloat* vCopy = new GLfloat[2];
+-			memcpy(vCopy, (void*)(uintptr_t)v, 2 * sizeof(GLfloat));
++			std::unique_ptr<GLfloat[]> vCopy (new GLfloat[2]);
++			memcpy(vCopy.get (), (void*)(uintptr_t)v, 2 * sizeof(GLfloat));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (vCopy), [=] (const GLfloat* vCopy) {
+ 				glVertexAttrib2fv (index, vCopy);
+-				delete[] vCopy;
+ 			});
+ 		} else {
+@@ -8395,10 +8303,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			GLfloat* vCopy = new GLfloat[3];
+-			memcpy(vCopy, (void*)(uintptr_t)v, 3 * sizeof(GLfloat));
++			std::unique_ptr<GLfloat[]> vCopy (new GLfloat[3]);
++			memcpy(vCopy.get (), (void*)(uintptr_t)v, 3 * sizeof(GLfloat));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (vCopy), [=] (const GLfloat* vCopy) {
+ 				glVertexAttrib3fv (index, vCopy);
+-				delete[] vCopy;
+ 			});
+ 		} else {
+@@ -8412,10 +8319,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			GLfloat* vCopy = new GLfloat[3];
+-			memcpy(vCopy, (void*)(uintptr_t)v, 3 * sizeof(GLfloat));
++			std::unique_ptr<GLfloat[]> vCopy (new GLfloat[3]);
++			memcpy(vCopy.get (), (void*)(uintptr_t)v, 3 * sizeof(GLfloat));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (vCopy), [=] (const GLfloat* vCopy) {
+ 				glVertexAttrib3fv (index, vCopy);
+-				delete[] vCopy;
+ 			});
+ 		} else {
+@@ -8455,10 +8361,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			GLfloat* vCopy = new GLfloat[4];
+-			memcpy(vCopy, (void*)(uintptr_t)v, 4 * sizeof(GLfloat));
++			std::unique_ptr<GLfloat[]> vCopy (new GLfloat[4]);
++			memcpy(vCopy.get (), (void*)(uintptr_t)v, 4 * sizeof(GLfloat));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (vCopy), [=] (const GLfloat* vCopy) {
+ 				glVertexAttrib4fv (index, vCopy);
+-				delete[] vCopy;
+ 			});
+ 		} else {
+@@ -8472,10 +8377,9 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			GLfloat* vCopy = new GLfloat[4];
+-			memcpy(vCopy, (void*)(uintptr_t)v, 4 * sizeof(GLfloat));
++			std::unique_ptr<GLfloat[]> vCopy (new GLfloat[4]);
++			memcpy(vCopy.get (), (void*)(uintptr_t)v, 4 * sizeof(GLfloat));
+ 			
+-			OpenGLBindings::renderThread->PushCommand ([=] () {
++			QueueGLBuffer (std::move (vCopy), [=] (const GLfloat* vCopy) {
+ 				glVertexAttrib4fv (index, vCopy);
+-				delete[] vCopy;
+ 			});
+ 		} else {
+@@ -8791,4 +8695,5 @@
+ 	DEFINE_PRIME3v (lime_gl_stencil_op);
+ 	DEFINE_PRIME4v (lime_gl_stencil_op_separate);
++	DEFINE_PRIME7 (lime_gl_queue_packed_texture_image_2d);
+ 	DEFINE_PRIME9v (lime_gl_tex_image_2d);
+ 	DEFINE_PRIME10v (lime_gl_tex_image_3d);
+diff --git a/project/src/graphics/opengl/OpenGLBindings.h b/project/src/graphics/opengl/OpenGLBindings.h
+--- a/project/src/graphics/opengl/OpenGLBindings.h
++++ b/project/src/graphics/opengl/OpenGLBindings.h
+@@ -13,5 +13,9 @@
+ 			static bool Init ();
+ 			static void BindRenderThread (RenderThread* thread);
++			static void UnbindRenderThread (RenderThread* thread);
+ 			static void SetMultiThreaded (bool enabled);
++			static bool WantsMultiThreaded ();
++			static bool CanRender ();
++			static void SetContextRouting (bool directContextUsable, bool transferring);
+ 
+ 			static int defaultFramebuffer;
+diff --git a/project/src/backend/sdl/SDLWindow.cpp b/project/src/backend/sdl/SDLWindow.cpp
+--- a/project/src/backend/sdl/SDLWindow.cpp
++++ b/project/src/backend/sdl/SDLWindow.cpp
+@@ -7,5 +7,6 @@
+ #include <graphics/FrameTimeline.h>
+ #include <graphics/AndroidPerformanceHints.h>
+-#include <future>
++#include <cstdio>
++#include <cstring>
+ 
+ #ifdef HX_WINDOWS
+@@ -19,110 +20,184 @@
+ 
+ 
+-    std::vector<SDLWindow*> SDLWindow::windows;
+-
+-	void SDLWindow::SetGLContext (SDL_GLContext context) {
+-		this->context = context;
+-		renderThread.SetContext (context);
+-	}
+-
+-    void SDLWindow::PauseRendering() {
+-        for (auto window : windows) {
+-            if (window->renderThread.IsRunning()) {
+-                window->renderThread.Pause();
+-            }
+-        }
+-
+-        // Android destroys the EGLSurface on its Java UI thread and waits for
+-        // SDL's event thread to release the GL context first.  With Lime's GL
+-        // worker enabled, SDL does not own that context until we explicitly
+-        // hand it back here.
+-        for (auto window : windows) {
+-            if (!window->renderThread.IsRunning()) continue;
+-
+-            if (!window->renderThread.WaitForContext(false, 450)) {
+-                printf("SDLWindow::PauseRendering: Timed out waiting for the render thread to release its GL context\n");
+-                continue;
+-            }
+-
+-            if (window->sdlWindow && window->context
+-                && SDL_GL_MakeCurrent(window->sdlWindow, window->context) < 0) {
+-                printf("SDLWindow::PauseRendering: Failed to return GL context to SDL: %s\n", SDL_GetError());
+-            }
+-        }
+-    }
+-
+-    void SDLWindow::ResumeRendering() {
+-        // SDL may have recreated both the EGLSurface and EGLContext while the
+-        // app was in the background.  Capture the context it restored on this
+-        // thread before transferring ownership back to Lime's GL worker.
+-        SDL_Window* currentWindow = SDL_GL_GetCurrentWindow();
+-        SDL_GLContext currentContext = SDL_GL_GetCurrentContext();
+-        bool contextTransferred = false;
+-
+-        for (auto window : windows) {
+-            if (!window->renderThread.IsRunning()) continue;
+-
+-            if (currentContext && (!currentWindow || window->sdlWindow == currentWindow)) {
+-                window->SetGLContext(currentContext);
+-                if (!OpenGLBindings::isMultiThreaded) window->renderThread.ApplySwapInterval();
+-                contextTransferred = true;
+-            }
+-        }
+-
+-		// SetMultiThreaded(false) pauses the worker but deliberately leaves it
+-		// running. In direct mode SDL restored the context on this (application)
+-		// thread, so keep it here instead of handing it back to the paused worker.
+-		if (!OpenGLBindings::isMultiThreaded) {
++	static constexpr int ContextHandoffTimeoutMS = 450;
++	static constexpr int ContextStartupTimeoutMS = 5000;
++	static constexpr Uint64 ContextRecoveryIntervalMS = 100;
++
++	std::vector<SDLWindow*> SDLWindow::windows;
++
++	bool SDLWindow::SetGLContext(SDL_GLContext restoredContext) {
++		if (renderThread.IsRunning() && !renderThread.SetContext(restoredContext)) return false;
++		context = restoredContext;
++		return true;
++	}
++
++	bool SDLWindow::MakeGLContextCurrent() {
++		if (!context || !sdlWindow) return false;
++		if (SDL_GL_GetCurrentWindow() == sdlWindow && SDL_GL_GetCurrentContext() == context) return true;
++		if (renderThread.IsRunning()) return renderThread.MakeCurrent();
++		return SDL_GL_MakeCurrent(sdlWindow, context) == 0;
++	}
++
++	bool SDLWindow::ReleaseWorkerContext() {
++		return !renderThread.IsRunning() || renderThread.CanAcquireContext()
++			|| renderThread.PauseAndReleaseContext(ContextHandoffTimeoutMS);
++	}
++
++	void SDLWindow::SetContextRouting(bool directContextUsable, bool transferring) {
++		if (OpenGLBindings::renderThread == &renderThread) {
++			OpenGLBindings::SetContextRouting(directContextUsable, transferring);
++		}
++	}
++
++	void SDLWindow::PauseRendering() {
++		// SDL saves the context on its event thread before Java destroys the surface.
++		for (auto window : windows) {
++			if (!window->sdlWindow || !window->context) continue;
++			const bool taken = window->ReleaseWorkerContext() && window->MakeGLContextCurrent();
++			window->SetContextRouting(taken, true);
++			if (!taken) {
++				printf("SDLWindow::PauseRendering: Failed to return the GL context to SDL\n");
++			}
++		}
++	}
++
++	void SDLWindow::ResumeRendering() {
++		SDL_Window* currentWindow = SDL_GL_GetCurrentWindow();
++		SDL_GLContext currentContext = SDL_GL_GetCurrentContext();
++		for (auto window : windows) {
++			if (!window->sdlWindow || !window->context) continue;
++			const bool isRestoredWindow = !currentWindow || currentWindow == window->sdlWindow;
++			window->ResumeGLContext(isRestoredWindow ? currentContext : nullptr);
++		}
++	}
++
++	void SDLWindow::ResumeGLContext(SDL_GLContext restoredContext) {
++		if (!ReleaseWorkerContext() || (restoredContext && restoredContext != context && !SetGLContext(restoredContext))) {
++			SetContextRouting(false, true);
++			printf("SDLWindow::ResumeRendering: Failed to adopt the restored GL context\n");
+ 			return;
+ 		}
+ 
+-        if (contextTransferred) {
+-            SDL_Window* releaseWindow = currentWindow;
+-            if (!releaseWindow) {
+-                for (auto window : windows) {
+-                    if (window->renderThread.IsRunning()) {
+-                        releaseWindow = window->sdlWindow;
+-                        break;
+-                    }
+-                }
+-            }
+-
+-            if (releaseWindow && SDL_GL_MakeCurrent(releaseWindow, NULL) < 0) {
+-                printf("SDLWindow::ResumeRendering: Failed to release SDL's restored GL context: %s\n", SDL_GetError());
+-            }
+-        }
+-
+-        for (auto window : windows) {
+-            if (window->renderThread.IsRunning()) {
+-                window->renderThread.Resume();
+-            }
+-        }
+-
+-        for (auto window : windows) {
+-            if (window->renderThread.IsRunning()
+-                && !window->renderThread.WaitForContext(true, 450)) {
+-                printf("SDLWindow::ResumeRendering: Timed out waiting for the render thread to acquire its GL context\n");
+-            }
+-        }
+-    }
++		if (!OpenGLBindings::WantsMultiThreaded() || !renderThread.IsRunning()) {
++			const bool direct = MakeGLContextCurrent();
++			if (direct && renderThread.IsRunning()) renderThread.ApplySwapInterval();
++			SetContextRouting(direct, !direct);
++			return;
++		}
++
++		if (SDL_GL_GetCurrentWindow() == sdlWindow && SDL_GL_MakeCurrent(sdlWindow, nullptr) < 0) {
++			const bool direct = MakeGLContextCurrent();
++			SetContextRouting(direct, !direct);
++			printf("SDLWindow::ResumeRendering: Failed to release SDL's GL context: %s\n", SDL_GetError());
++			return;
++		}
++
++		if (renderThread.ResumeAndAcquireContext(ContextHandoffTimeoutMS)) {
++			SetContextRouting(false, false);
++			return;
++		}
++
++		const bool direct = MakeGLContextCurrent();
++		SetContextRouting(direct, !direct);
++		printf("SDLWindow::ResumeRendering: Failed to give the GL context to the render thread\n");
++	}
++
++	void SDLWindow::RetryContextRecovery() {
++		if (OpenGLBindings::CanRender()) return;
++
++		for (auto window : windows) {
++			if (&window->renderThread == OpenGLBindings::renderThread && window->sdlWindow && window->context) {
++				window->TryRecoverGLContext();
++				return;
++			}
++		}
++	}
++
++	void SDLWindow::TryRecoverGLContext() {
++		const Uint64 now = SDL_GetTicks64();
++		if (now < nextContextRecoveryMS) return;
++		nextContextRecoveryMS = now + ContextRecoveryIntervalMS;
++
++		if (renderThread.IsRunning() && !renderThread.CanAcquireContext()) {
++			renderThread.RequestContextRelease();
++			return;
++		}
++
++		if (SDL_GL_GetCurrentWindow() == sdlWindow) {
++			const auto restoredContext = SDL_GL_GetCurrentContext();
++			if (restoredContext && restoredContext != context && !SetGLContext(restoredContext)) return;
++		}
++
++		if (!MakeGLContextCurrent()) return;
++		if (renderThread.IsRunning()) renderThread.ApplySwapInterval();
++		SetContextRouting(true, false);
++	}
+ 
+ 	void SDLWindow::OnRenderDeviceReset() {
+-		SDL_Window* currentWindow = SDL_GL_GetCurrentWindow ();
+-		SDL_GLContext currentContext = SDL_GL_GetCurrentContext ();
+-
+-		if (!currentContext) return;
++		SDL_Window* currentWindow = SDL_GL_GetCurrentWindow();
++		SDL_GLContext currentContext = SDL_GL_GetCurrentContext();
++		if (!currentWindow || !currentContext) return;
+ 
+ 		for (auto window : windows) {
+-			if (!currentWindow || window->sdlWindow == currentWindow) {
+-				window->SetGLContext (currentContext);
+-				if (OpenGLBindings::isMultiThreaded) {
+-					window->renderThread.RebindContext ();
+-				} else {
+-					window->renderThread.ApplySwapInterval ();
+-				}
+-			}
+-		}
+-	}
+-
++			if (window->sdlWindow == currentWindow && window->context != currentContext) {
++				window->ResumeGLContext(currentContext);
++				return;
++			}
++		}
++	}
++
++	void SDLWindow::StopRendering() {
++		for (auto window : windows) {
++			window->Close();
++		}
++	}
++
++	bool SDLWindow::InitializeOpenGL() {
++		if (!OpenGLBindings::Init()) return false;
++
++		#ifndef LIME_GLES
++		GLint majorVersion = 0;
++		glGetIntegerv(GL_MAJOR_VERSION, &majorVersion);
++		if (majorVersion < 2) {
++			const char* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
++			float versionNumber = 0.0f;
++			if (!version || (!std::strstr(version, "OpenGL ES")
++				&& (std::sscanf(version, "%f", &versionNumber) != 1 || versionNumber < 2.0f))) {
++				return false;
++			}
++		}
++		#elif defined(IPHONE) || defined(APPLETV)
++		glGetIntegerv(GL_FRAMEBUFFER_BINDING, &OpenGLBindings::defaultFramebuffer);
++		glGetIntegerv(GL_RENDERBUFFER_BINDING, &OpenGLBindings::defaultRenderbuffer);
++		#endif
++
++		const int interval = (flags & WINDOW_FLAG_VSYNC) ? 1 : 0;
++		SDL_GL_SetSwapInterval(interval);
++		OpenGLBindings::BindRenderThread(&renderThread);
++
++		if (SDL_GL_MakeCurrent(sdlWindow, nullptr) < 0) {
++			const bool direct = MakeGLContextCurrent();
++			SetContextRouting(direct, !direct);
++			return direct;
++		}
++
++		renderThread.Start(sdlWindow, context, interval);
++		if (renderThread.WaitForContext(true, ContextStartupTimeoutMS)) {
++			if (OpenGLBindings::WantsMultiThreaded()) {
++				SetContextRouting(false, false);
++				return true;
++			}
++			if (ReleaseWorkerContext() && MakeGLContextCurrent()) {
++				SetContextRouting(true, false);
++				return true;
++			}
++		}
++
++		printf("SDLWindow::InitializeOpenGL: Failed to initialize render thread ownership\n");
++		renderThread.Stop();
++		const bool direct = MakeGLContextCurrent();
++		SetContextRouting(direct, !direct);
++		return direct;
++	}
+ 
+ 	static Cursor currentCursor = DEFAULT;
+@@ -330,80 +405,9 @@
+ 			// }
+ 
+-			context = SDL_GL_CreateContext (sdlWindow);
+-
+-			if (context) {
+-
+-				// IMPORTANT: Bind RenderThread immediately before any GL logic starts
+-				OpenGLBindings::BindRenderThread(&renderThread);
+-				
+-				SDL_GL_MakeCurrent (sdlWindow, NULL);
+-				renderThread.Start (sdlWindow, context);
+-				
+-				std::promise<bool> initPromise;
+-				auto initFuture = initPromise.get_future ();
+-
+-				renderThread.PushCommand ([&] () {
+-					bool success = true;
+-
+-					if (flags & WINDOW_FLAG_VSYNC) {
+-
+-						renderThread.SetSwapInterval (1);
+-
+-					} else {
+-
+-						renderThread.SetSwapInterval (0);
+-
+-					}
+-
+-					OpenGLBindings::Init ();
+-
+-					#ifndef LIME_GLES
+-
+-					int version = 0;
+-					glGetIntegerv (GL_MAJOR_VERSION, &version);
+-
+-					if (version == 0) {
+-
+-						float versionScan = 0;
+-						sscanf ((const char*)glGetString (GL_VERSION), "%f", &versionScan);
+-						version = versionScan;
+-
+-					}
+-
+-					if (version < 2 && !strstr ((const char*)glGetString (GL_VERSION), "OpenGL ES")) {
+-
+-						success = false;
+-
+-					}
+-
+-					#elif defined(IPHONE) || defined(APPLETV)
+-
+-					glGetIntegerv (GL_FRAMEBUFFER_BINDING, &OpenGLBindings::defaultFramebuffer);
+-					glGetIntegerv (GL_RENDERBUFFER_BINDING, &OpenGLBindings::defaultRenderbuffer);
+-
+-					#endif
+-
+-					initPromise.set_value (success);
+-
+-				});
+-				
+-				renderThread.Flip();
+-
+-				// Use wait_for to check status without blocking indefinitely
+-				if (initFuture.wait_for(std::chrono::seconds(5)) == std::future_status::timeout) {
+-					// Fallback or exit?
+-				} else {
+-					if (!initFuture.get ()) {
+-						renderThread.Stop ();
+-						SDL_GL_DeleteContext (context);
+-						context = NULL;
+-					}
+-				}
+-
+-			} else {
+-
+-				SDL_GL_DeleteContext (context);
+-				context = NULL;
+-
++			context = SDL_GL_CreateContext(sdlWindow);
++			if (context && !InitializeOpenGL()) {
++				OpenGLBindings::UnbindRenderThread(&renderThread);
++				SDL_GL_DeleteContext(context);
++				context = nullptr;
+ 			}
+ 
+@@ -447,23 +451,5 @@
+ 		}
+ 
+-		renderThread.Stop ();
+-
+-		if (sdlWindow) {
+-
+-			SDL_DestroyWindow (sdlWindow);
+-			sdlWindow = 0;
+-
+-		}
+-
+-		if (sdlRenderer) {
+-
+-			SDL_DestroyRenderer (sdlRenderer);
+-
+-		} else if (context) {
+-
+-			SDL_GL_DeleteContext (context);
+-
+-		}
+-
++		Close();
+ 	}
+ 
+@@ -510,10 +496,9 @@
+ 	bool SDLWindow::SetVSyncMode (int mode) {
+ 
+-		#if defined (SDL_VIDEO_DRIVER_OPENGL) || defined (SDL_H)
+-		if (!sdlWindow || sdlRenderer) return false;
+-		return renderThread.SetSwapInterval (mode, OpenGLBindings::isMultiThreaded);
+-		#else
+-		return false;
+-		#endif
++		if (!sdlWindow || sdlRenderer || !context) return false;
++		if (renderThread.IsRunning()) {
++			return renderThread.SetSwapInterval(mode, OpenGLBindings::isMultiThreaded);
++		}
++		return SDL_GL_GetCurrentContext() == context && SDL_GL_SetSwapInterval(mode) == 0;
+ 
+ 	}
+@@ -528,15 +513,24 @@
+ 
+ 
+-void SDLWindow::Close () {
+-
+-		renderThread.Stop ();
+-
++	void SDLWindow::Close () {
++		OpenGLBindings::UnbindRenderThread(&renderThread);
++		renderThread.Stop();
++
++		if (sdlTexture) {
++			SDL_DestroyTexture(sdlTexture);
++			sdlTexture = nullptr;
++		}
++		if (sdlRenderer) {
++			SDL_DestroyRenderer(sdlRenderer);
++			sdlRenderer = nullptr;
++		}
++		if (context) {
++			SDL_GL_DeleteContext(context);
++			context = nullptr;
++		}
+ 		if (sdlWindow) {
+-
+-			SDL_DestroyWindow (sdlWindow);
+-			sdlWindow = 0;
+-
+-		}
+-
++			SDL_DestroyWindow(sdlWindow);
++			sdlWindow = nullptr;
++		}
+ 	}
+ 
+@@ -594,10 +588,11 @@
+ 			FrameTimeline::EndCommands(threaded);
+ 			if (threaded) {
+-				renderThread.PushCommand([this, frame]() {
++				if (renderThread.PushCommand([this, frame]() {
+ 					SwapGLWindow(sdlWindow, renderThread, frame);
+ 					PerformanceMonitor::Instance().EndFrame();
+-				});
+-				renderThread.Flip();
+-			} else {
++				})) {
++					renderThread.Flip();
++				}
++			} else if (SDL_GL_GetCurrentWindow() == sdlWindow) {
+ 				SwapGLWindow(sdlWindow, renderThread, frame);
+ 				PerformanceMonitor::Instance().EndFrame();
+diff --git a/project/src/backend/sdl/SDLWindow.h b/project/src/backend/sdl/SDLWindow.h
+--- a/project/src/backend/sdl/SDLWindow.h
++++ b/project/src/backend/sdl/SDLWindow.h
+@@ -75,10 +75,19 @@
+ 			static void PauseRendering();
+ 			static void ResumeRendering();
++			static void RetryContextRecovery();
++			static void StopRendering();
+ 			static void OnRenderDeviceReset();
+ 
+ 		private:
+ 
+-			void SetGLContext (SDL_GLContext context);
++			bool InitializeOpenGL();
++			bool SetGLContext(SDL_GLContext context);
++			bool MakeGLContextCurrent();
++			bool ReleaseWorkerContext();
++			void SetContextRouting(bool directContextUsable, bool transferring);
++			void ResumeGLContext(SDL_GLContext restoredContext);
++			void TryRecoverGLContext();
+ 			SDL_GLContext context;
++			Uint64 nextContextRecoveryMS = 0;
+ 			int contextHeight;
+ 			int contextWidth;
+diff --git a/project/src/backend/sdl/SDLApplication.cpp b/project/src/backend/sdl/SDLApplication.cpp
+--- a/project/src/backend/sdl/SDLApplication.cpp
++++ b/project/src/backend/sdl/SDLApplication.cpp
+@@ -76,5 +76,4 @@
+ 	static std::map<int, std::map<int, int>> gamepadsAxisMap;
+ 	static double accumulator = 0.0;
+-	static double accumulatorRender = 0.0;
+ 	bool inBackground = false;
+ 	static uint64_t perfFreq = 0;
+@@ -82,5 +81,4 @@
+ 	static uint64_t nextPerfCounter = 0;
+ 	static uint64_t periodPerfTicks = 0;
+-	static uint64_t lastRenderPerfCounter = 0;
+ 	static uint64_t nextRenderPerfCounter = 0;
+ 	static uint64_t periodRenderPerfTicks = 0;
+@@ -251,4 +249,38 @@
+ 
+ 
++	bool SDLApplication::TryDispatchRender (double periodMs) {
++
++		if (!active || inBackground || !OpenGLBindings::CanRender()) return false;
++
++		auto* thread = OpenGLBindings::renderThread;
++		if (OpenGLBindings::isMultiThreaded && thread && thread->IsRunning()) {
++			const int pending = RenderThread::activePendingFrames.load (std::memory_order_acquire);
++			if (pending >= RenderThread::MaxPendingFrames) {
++				FrameTimeline::RenderBlocked (pending);
++				return false;
++			}
++		}
++
++		windowRedrawRequested = false;
++		renderEvent.type = RENDER;
++		PerformanceMonitor::Instance().StartFrame();
++		DispatchScheduledRender (&renderEvent, periodMs);
++		return true;
++
++	}
++
++
++	void SDLApplication::DispatchPendingRenderDeviceReset () {
++
++		if (!renderDeviceResetPending || inBackground || !OpenGLBindings::CanRender()) return;
++
++		renderDeviceResetPending = false;
++		renderEvent.type = RENDER_CONTEXT_RESTORED;
++		RenderEvent::Dispatch (&renderEvent);
++		renderEvent.type = RENDER;
++
++	}
++
++
+ 	void SDLApplication::HandleEvent (SDL_Event* event) {
+ 
+@@ -270,7 +302,6 @@
+ 						periodPerfTicks = (uint64_t)(framePeriod * (double)perfFreq / 1000.0);
+ 						nextPerfCounter = lastPerfCounter + periodPerfTicks;
+-						lastRenderPerfCounter = lastPerfCounter;
+ 						periodRenderPerfTicks = (uint64_t)(renderFramePeriod * (double)perfFreq / 1000.0);
+-						nextRenderPerfCounter = lastRenderPerfCounter + periodRenderPerfTicks;
++						nextRenderPerfCounter = lastPerfCounter + periodRenderPerfTicks;
+ 						hrInit = true;
+ 					}
+@@ -309,13 +340,5 @@
+ 							AndroidPerformanceHints::EndUpdate();
+ 
+-							if (!lockRender) {
+-								if (!OpenGLBindings::isMultiThreaded || !OpenGLBindings::renderThread || !OpenGLBindings::renderThread->IsRunning() || RenderThread::activePendingFrames < RenderThread::MaxPendingFrames) {
+-									renderEvent.type = RENDER;
+-									PerformanceMonitor::Instance().StartFrame();
+-									DispatchScheduledRender (&renderEvent, framePeriod);
+-								} else {
+-									FrameTimeline::RenderBlocked(RenderThread::activePendingFrames.load(std::memory_order_relaxed));
+-								}
+-							}
++							if (!lockRender) TryDispatchRender (framePeriod);
+ 
+ 							accumulator -= framePeriod;
+@@ -323,31 +346,4 @@
+ 						}
+ 
+-					} else if (event->user.code == 1) { // Render
+-						if (!lockRender) break;
+-
+-						if (OpenGLBindings::isMultiThreaded && OpenGLBindings::renderThread && OpenGLBindings::renderThread->IsRunning() && RenderThread::activePendingFrames >= RenderThread::MaxPendingFrames) {
+-							FrameTimeline::RenderBlocked(RenderThread::activePendingFrames.load(std::memory_order_relaxed));
+-							RenderThread::hasPendingRenderRequest.exchange (true);
+-							break;
+-						}
+-
+-						if (lockRender) {
+-							double realDeltaTime = (double)(nowPerf - lastRenderPerfCounter) * 1000.0 / (double)perfFreq;
+-							const double MAX_DELTA_TIME = 10 * renderFramePeriod;
+-							if (realDeltaTime < 0) realDeltaTime = 0;
+-							if (realDeltaTime > MAX_DELTA_TIME) realDeltaTime = MAX_DELTA_TIME;
+-							accumulatorRender += realDeltaTime;
+-
+-							if (accumulatorRender >= renderFramePeriod) {
+-								lastRenderPerfCounter = nowPerf;
+-
+-								renderEvent.type = RENDER;
+-								PerformanceMonitor::Instance().StartFrame();
+-								DispatchScheduledRender (&renderEvent, renderFramePeriod);
+-
+-								accumulatorRender -= renderFramePeriod;
+-								if (accumulatorRender > renderFramePeriod * 2) accumulatorRender = 0;
+-							}
+-						}
+ 					}
+ 				}
+@@ -470,12 +466,8 @@
+ 
+ 				SDLWindow::OnRenderDeviceReset();
+-
+ 				renderEvent.type = RENDER_CONTEXT_LOST;
+ 				RenderEvent::Dispatch (&renderEvent);
+-
+-				renderEvent.type = RENDER_CONTEXT_RESTORED;
+-				RenderEvent::Dispatch (&renderEvent);
+-
+-				renderEvent.type = RENDER;
++				renderDeviceResetPending = true;
++				DispatchPendingRenderDeviceReset ();
+ 				break;
+ 			#endif
+@@ -507,21 +499,8 @@
+ 
+ 					case SDL_WINDOWEVENT_EXPOSED:
++					case SDL_WINDOWEVENT_SIZE_CHANGED:
+ 
+ 						ProcessWindowEvent (event);
+-
+-						if (!inBackground) {
+-							RenderEvent::Dispatch (&renderEvent);
+-						}
+-
+-						break;
+-
+-					case SDL_WINDOWEVENT_SIZE_CHANGED:
+-
+-						ProcessWindowEvent (event);
+-
+-						if (!inBackground) {
+-							RenderEvent::Dispatch (&renderEvent);
+-						}
+-
++						if (!inBackground) windowRedrawRequested = true;
+ 						break;
+ 
+@@ -569,8 +548,9 @@
+ 			hrInit = true;
+ 		}
+-		uint64_t now = SDL_GetPerformanceCounter ();
++		const uint64_t now = SDL_GetPerformanceCounter ();
+ 		lastPerfCounter = now;
++		periodPerfTicks = static_cast<uint64_t>(framePeriod * perfFreq / 1000.0);
+ 		nextPerfCounter = now + periodPerfTicks;
+-		lastRenderPerfCounter = now;
++		periodRenderPerfTicks = static_cast<uint64_t>(renderFramePeriod * perfFreq / 1000.0);
+ 		nextRenderPerfCounter = now + periodRenderPerfTicks;
+ 		
+@@ -1111,4 +1091,5 @@
+ 
+ 		AndroidPerformanceHints::SetForeground(false);
++		SDLWindow::StopRendering();
+ 		FrameTimeline::Flush();
+ 		SDL_QuitSubSystem (initFlags);
+@@ -1158,5 +1139,4 @@
+ 	void SDLApplication::SetRenderFrameRate (double frameRate) {
+ 
+-		accumulatorRender = 0.0;
+ 		#ifdef _WIN32
+ 		frameRate = FrameRateOverride ("NOVAFLARE_DRAW_RATE", frameRate);
+@@ -1174,9 +1154,5 @@
+ 
+ 		}
+-		if (perfFreq) {
+-			lastRenderPerfCounter = SDL_GetPerformanceCounter ();
+-			nextRenderPerfCounter = lastRenderPerfCounter +
+-				periodRenderPerfTicks;
+-		}
++		if (perfFreq) nextRenderPerfCounter = SDL_GetPerformanceCounter () + periodRenderPerfTicks;
+ 
+ 		TraceFrameSetting("render_period_ns", static_cast<std::uint64_t>(renderFramePeriod * 1000000.0 + .5));
+@@ -1195,12 +1171,5 @@
+ 		lockRender = split;
+ 		TraceFrameSetting("split_render", split ? 1 : 0);
+-		if (split) {
+-			accumulatorRender = 0;
+-			if (perfFreq) {
+-				lastRenderPerfCounter = SDL_GetPerformanceCounter ();
+-				nextRenderPerfCounter = lastRenderPerfCounter +
+-					periodRenderPerfTicks;
+-			}
+-		}
++		if (split && perfFreq) nextRenderPerfCounter = SDL_GetPerformanceCounter () + periodRenderPerfTicks;
+ 
+ 	}
+@@ -1267,6 +1236,13 @@
+ 			periodPerfTicks = (uint64_t)(framePeriod * (double)perfFreq / 1000.0);
+ 			nextPerfCounter = lastPerfCounter + periodPerfTicks;
++			periodRenderPerfTicks = (uint64_t)(renderFramePeriod * (double)perfFreq / 1000.0);
++			nextRenderPerfCounter = lastPerfCounter + periodRenderPerfTicks;
+ 			hrInit = true;
+ 		}
++
++		if (active && !inBackground && !OpenGLBindings::CanRender()) {
++			SDLWindow::RetryContextRecovery();
++		}
++		DispatchPendingRenderDeviceReset ();
+ 
+ 		uint64_t nowPerf = SDL_GetPerformanceCounter ();
+@@ -1287,8 +1263,8 @@
+ 			}
+ 
++			if (windowRedrawRequested) TryDispatchRender (framePeriod);
++
+ 		#else
+-			bool updatePending = (nowPerf >= nextPerfCounter);
+-			bool renderPending = lockRender &&
+-				(nowPerf >= nextRenderPerfCounter);
++			const bool updatePending = nowPerf >= nextPerfCounter;
+ 
+ 			if (updatePending) {
+@@ -1307,20 +1283,19 @@
+ 			}
+ 
++			const bool renderPending = lockRender && nowPerf >= nextRenderPerfCounter;
+ 			if (renderPending) {
+-				SDL_Event ev;
+-				ev.type = SDL_USEREVENT;
+-				ev.user.code = 1;
+-				ev.user.data1 = NULL;
+-				ev.user.data2 = NULL;
+-				
+-				HandleEvent (&ev);
+-				
+-				nextRenderPerfCounter += periodRenderPerfTicks;
+-				if (nextRenderPerfCounter + periodRenderPerfTicks < nowPerf) {
+-					nextRenderPerfCounter = nowPerf + periodRenderPerfTicks;
++				const uint64_t renderDeadline = nextRenderPerfCounter;
++				TryDispatchRender (renderFramePeriod);
++				if (nextRenderPerfCounter == renderDeadline) {
++					nextRenderPerfCounter += periodRenderPerfTicks;
++					if (nextRenderPerfCounter <= nowPerf) {
++						nextRenderPerfCounter = nowPerf + periodRenderPerfTicks;
++					}
+ 				}
+ 			}
+ 
+-			if (!updatePending && !renderPending) {
++			const bool redrewWindow = windowRedrawRequested
++				&& TryDispatchRender (lockRender ? renderFramePeriod : framePeriod);
++			if (!updatePending && !renderPending && !redrewWindow) {
+ 				uint64_t nextEventCounter = lockRender &&
+ 					nextRenderPerfCounter < nextPerfCounter
+diff --git a/project/src/backend/sdl/SDLApplication.h b/project/src/backend/sdl/SDLApplication.h
+--- a/project/src/backend/sdl/SDLApplication.h
++++ b/project/src/backend/sdl/SDLApplication.h
+@@ -43,4 +43,6 @@
+ 		private:
+ 
++			bool TryDispatchRender (double periodMs);
++			void DispatchPendingRenderDeviceReset ();
+ 			void HandleEvent (SDL_Event* event);
+ 			void ProcessClipboardEvent (SDL_Event* event);
+@@ -70,4 +72,6 @@
+ 			bool active;
+ 			bool lockRender;
++			bool windowRedrawRequested = false;
++			bool renderDeviceResetPending = false;
+ 			ApplicationEvent applicationEvent;
+ 			ClipboardEvent clipboardEvent;
+diff --git a/src/lime/_internal/backend/native/NativeCFFI.hx b/src/lime/_internal/backend/native/NativeCFFI.hx
+--- a/src/lime/_internal/backend/native/NativeCFFI.hx
++++ b/src/lime/_internal/backend/native/NativeCFFI.hx
+@@ -53,4 +53,32 @@
+ class NativeCFFI
+ {
++	#if (cpp && lime_cffi && !disable_cffi && !macro)
++	private static var queuePackedTextureImage2D:Dynamic;
++	private static var packedTextureUploadResolved = false;
++
++	@:noCompletion public static function tryQueuePackedTextureImage2D(image:Image, internalFormat:Int, format:Int):Bool
++	{
++		var data = image.data;
++		if (data == null || image.buffer.bitsPerPixel != 32 || image.buffer.stride != image.buffer.width * 4)
++			return false;
++
++		if (!packedTextureUploadResolved)
++		{
++			packedTextureUploadResolved = true;
++			try
++			{
++				queuePackedTextureImage2D = CFFI.load("lime", "lime_gl_queue_packed_texture_image_2d", -1);
++			}
++			catch (_:Dynamic)
++			{
++				queuePackedTextureImage2D = null;
++			}
++		}
++
++		return queuePackedTextureImage2D != null && queuePackedTextureImage2D(internalFormat, image.buffer.width, image.buffer.height,
++			format, data.buffer, data.byteOffset, data.byteLength) == true;
++	}
++	#end
++
+ 	#if (lime_cffi && !macro)
+ 	#if (cpp && !cppia)

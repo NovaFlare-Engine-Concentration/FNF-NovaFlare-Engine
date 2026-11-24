@@ -505,8 +505,7 @@ class OptionsState extends MusicBeatState
 			//Main.fpsVar.change();
 			if (Main.watermark != null)
 			{
-				Main.watermark.scaleX = Main.watermark.scaleY = ClientPrefs.data.watermarkScale;
-				Main.watermark.y = Lib.current.stage.stageHeight - 5 - Main.watermark.scaleY * Main.watermark.bitmapData.height;
+				Main.watermark.updateLayout();
 				Main.watermark.visible = ClientPrefs.data.showWatermark;
 			}
 			switch (stateType)

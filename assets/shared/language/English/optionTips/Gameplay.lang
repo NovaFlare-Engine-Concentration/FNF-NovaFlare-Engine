@@ -33,7 +33,6 @@ NoteOffsetState => Changes music offset and judgement position
 
 Gameplaybackend => Gameplay Backend
 
-gameplayGC => Let GameplayGC manage memory collection during songs to reduce GC pauses. This may increase memory usage.
 fixLNL => Reduce Long Note length
 saveScoreBase => playback record storage basis, Score: the highest score, Accuracy: with the highest accuracy, Misses: with the least number of misses, highestCombo: combo most
 showReplayWatermark => Shows the replay watermark in the bottom-right corner during playback

@@ -1,0 +1,15 @@
+diff --git a/src/openfl/display3D/textures/TextureBase.hx b/src/openfl/display3D/textures/TextureBase.hx
+--- a/src/openfl/display3D/textures/TextureBase.hx
++++ b/src/openfl/display3D/textures/TextureBase.hx
+@@ -445,5 +445,10 @@
+ 		}
+ 		#else
+-		gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, image.buffer.width, image.buffer.height, 0, format, gl.UNSIGNED_BYTE, image.data);
++		#if (cpp && lime_cffi && !disable_cffi)
++		if (!lime._internal.backend.native.NativeCFFI.tryQueuePackedTextureImage2D(image, internalFormat, format))
++		#end
++		{
++			gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, image.buffer.width, image.buffer.height, 0, format, gl.UNSIGNED_BYTE, image.data);
++		}
+ 		#end
+ 

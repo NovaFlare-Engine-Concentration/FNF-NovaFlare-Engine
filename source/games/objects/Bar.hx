@@ -174,6 +174,8 @@ class Bar extends FlxSpriteGroup
 		}
 
 		var work:BitmapData = new BitmapData(w, h, true, 0x00000000);
+		work.imageSourceWidth = bitmap.imageSourceWidth;
+		work.imageSourceHeight = bitmap.imageSourceHeight;
 		var idx:Int;
 		var curX:Int, curY:Int;
 		var pixelAlpha:Int;

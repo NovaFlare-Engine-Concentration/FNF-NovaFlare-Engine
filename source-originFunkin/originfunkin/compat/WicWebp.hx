@@ -27,7 +27,9 @@ class WicWebp
       input, bytes.length, dims, output, pixels.length);
     if (ok != 1 || dimensions.getInt32(0) != width || dimensions.getInt32(4) != height) return null;
     var buffer = new ImageBuffer(UInt8Array.fromBytes(pixels), width, height, 32);
-    return BitmapData.fromImage(new Image(buffer));
+    var image = new Image(buffer);
+    image.isDecodedImage = true;
+    return BitmapData.fromImage(image);
   }
 }
 #end

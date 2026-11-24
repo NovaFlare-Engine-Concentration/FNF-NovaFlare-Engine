@@ -304,6 +304,10 @@ class FlxAnimateFilterRenderer
       bitmap3 = (target2 == null) ? bitmap2.clone() : target2;
     renderer.__setRenderTarget(bitmap);
 
+    #if !flash
+    if (bmp.imageSourceWidth > 0 && bmp.imageSourceHeight > 0)
+      bmp.__renderTransform.scale(bmp.imageSourceWidth / bmp.width, bmp.imageSourceHeight / bmp.height);
+    #end
     bmp.__renderTransform.translate(Math.abs(rect.x) - bmpRect.x, Math.abs(rect.y) - bmpRect.y);
     bmpRect.x = Math.abs(rect.x);
     bmpRect.y = Math.abs(rect.y);

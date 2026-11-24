@@ -1,0 +1,370 @@
+diff --git a/src/hx/gc/Immix.cpp b/src/hx/gc/Immix.cpp
+index 0190586..3efc9e7 100644
+--- a/src/hx/gc/Immix.cpp
++++ b/src/hx/gc/Immix.cpp
+@@ -94,19 +94,35 @@ enum { gAlwaysMove = false };
+ #define __has_builtin(x) 0
+ #endif
+ namespace {
++struct GcPauseSample;
+ #ifdef HX_WINDOWS
+-FILE* OpenGcPauseTimeline()
++struct GcPauseOutput
++{
++   FILE* file;
++   bool breakdown;
++};
++
++GcPauseOutput OpenGcPauseTimeline()
+ {
+    wchar_t path[32768];
+    DWORD length = GetEnvironmentVariableW(L"NOVAFLARE_GC_PAUSE_TIMELINE", path, 32768);
+-   if (!length || length >= 32768) return nullptr;
++   if (!length || length >= 32768) return {};
+    FILE* file = _wfopen(path, L"wb");
+-   if (file)
+-   {
++   if (!file) return {};
++   wchar_t mode[2]{};
++   const bool breakdown = GetEnvironmentVariableW(L"NOVAFLARE_GC_BREAKDOWN", mode, 2) == 1 && mode[0] == L'1';
++   if (breakdown)
++      fputs(
++         "begin_qpc,end_qpc,qpc_frequency,thread_id,major,force_compact,"
++         "major_requested,generational,full_reclaim,gameplay,gameplay_preparing,mark_passes,defragged,"
++         "rendezvous_ticks,setup_ticks,mark_setup_ticks,roots_ticks,thread_stacks_ticks,mark_traversal_ticks,"
++         "zombies_ticks,finalizers_ticks,mark_tail_ticks,reclaim_ticks,large_sweep_ticks,defrag_ticks,"
++         "heap_prepare_ticks,free_list_ticks,collector_tail_ticks,release_ticks,"
++         "blocks_before,blocks_after,large_bytes_before,large_bytes_after,retained_row_bytes_after,working_budget_bytes_after\n", file);
++   else
+       fputs("begin_qpc,end_qpc,qpc_frequency,thread_id,major,force_compact\n", file);
+-      fflush(file);
+-   }
+-   return file;
++   fflush(file);
++   return {file, breakdown};
+ }
+ 
+ std::uint64_t GcPauseCounter()
+@@ -116,6 +132,45 @@ std::uint64_t GcPauseCounter()
+    return static_cast<std::uint64_t>(counter.QuadPart);
+ }
+ 
++struct GcPauseSample
++{
++   std::uint64_t begin, cursor;
++   std::uint64_t rendezvous, setup, markSetup, roots, stacks, traversal, zombies, finalizers, markTail;
++   std::uint64_t reclaim, largeSweep, defrag, heapPrepare, freeList, collectorTail, release;
++   std::uint64_t blocksBefore, blocksAfter, largeBefore, largeAfter, retainedRowBytes, workingBudgetBytes;
++   unsigned markPasses;
++   bool majorRequested, generational, fullReclaim, gameplay, preparing, defragged;
++
++   void Advance(std::uint64_t &phase)
++   {
++      const auto now = GcPauseCounter();
++      phase += now - cursor;
++      cursor = now;
++   }
++};
++
++void WriteDetailedGcPause(FILE* file, const GcPauseSample &sample, bool major, bool forceCompact)
++{
++   LARGE_INTEGER frequency;
++   QueryPerformanceFrequency(&frequency);
++   fprintf(file, "%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%lu,%d,%d,"
++      "%d,%d,%d,%d,%d,%u,%d,"
++      "%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ","
++      "%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ","
++      "%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ","
++      "%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
++      sample.begin, sample.cursor, static_cast<std::uint64_t>(frequency.QuadPart), GetCurrentThreadId(),
++      major ? 1 : 0, forceCompact ? 1 : 0, sample.majorRequested ? 1 : 0, sample.generational ? 1 : 0,
++      sample.fullReclaim ? 1 : 0, sample.gameplay ? 1 : 0, sample.preparing ? 1 : 0,
++      sample.markPasses, sample.defragged ? 1 : 0,
++      sample.rendezvous, sample.setup, sample.markSetup, sample.roots, sample.stacks, sample.traversal,
++      sample.zombies, sample.finalizers, sample.markTail, sample.reclaim, sample.largeSweep, sample.defrag,
++      sample.heapPrepare, sample.freeList, sample.collectorTail, sample.release,
++      sample.blocksBefore, sample.blocksAfter, sample.largeBefore, sample.largeAfter,
++      sample.retainedRowBytes, sample.workingBudgetBytes);
++   fflush(file);
++}
++
+ void WriteGcPause(FILE* file, std::uint64_t begin, bool major, bool forceCompact)
+ {
+    const auto end = GcPauseCounter();
+@@ -4903,7 +4958,7 @@ public:
+    double tMarkLocal;
+    double tMarkLocalEnd;
+    double tMarked;
+-   void MarkAll(bool inGenerational)
++   void MarkAll(bool inGenerational, GcPauseSample *pause)
+    {
+       if (!inGenerational)
+       {
+@@ -4945,6 +5000,13 @@ public:
+          ClearBlockMarks();
+       }
+ 
++      #ifdef HX_WINDOWS
++      if (pause)
++      {
++         pause->markPasses++;
++         pause->Advance(pause->markSetup);
++      }
++      #endif
+       MEM_STAMP(tMarkInit);
+ 
+       #ifdef PROFILE_THREAD_USAGE
+@@ -4993,6 +5055,9 @@ public:
+          hx::MarkObjectAlloc(hx::sZombieList[i] , &mMarker );
+       } // automark
+ 
++      #ifdef HX_WINDOWS
++      if (pause) pause->Advance(pause->roots);
++      #endif
+       MEM_STAMP(tMarkLocal);
+       hx::localCount = 0;
+ 
+@@ -5007,6 +5072,9 @@ public:
+       hx::localAllocs = sAllocMarks;
+       #endif
+ 
++      #ifdef HX_WINDOWS
++      if (pause) pause->Advance(pause->stacks);
++      #endif
+       MEM_STAMP(tMarkLocalEnd);
+ 
+       #ifdef HX_MULTI_THREAD_MARKING
+@@ -5024,12 +5092,20 @@ public:
+ 
+ 
+ 
++      #ifdef HX_WINDOWS
++      if (pause) pause->Advance(pause->traversal);
++      #endif
+       MEM_STAMP(tMarked);
+ 
+       hx::FindZombies(mMarker);
+ 
++      #ifdef HX_WINDOWS
++      if (pause) pause->Advance(pause->zombies);
++      #endif
+       hx::RunFinalizers();
+-
++      #ifdef HX_WINDOWS
++      if (pause) pause->Advance(pause->finalizers);
++      #endif
+       #ifdef HXCPP_GC_VERIFY
+       for(int i=0;i<mAllBlocks.size();i++)
+          mAllBlocks[i]->verify("After mark");
+@@ -5042,6 +5118,9 @@ public:
+          GCLOG(" ******** is marked  : %d\n", (((unsigned char *)(*watch))[HX_ENDIAN_MARK_ID_BYTE]== gByteMarkID));
+       }
+       #endif
++      #ifdef HX_WINDOWS
++      if (pause) pause->Advance(pause->markTail);
++      #endif
+    }
+ 
+ 
+@@ -5072,7 +5151,8 @@ public:
+    void Collect(bool inMajor, bool inForceCompact, bool inLocked,bool inFreeIsFragged)
+    {
+       #ifdef HX_WINDOWS
+-      static FILE* pauseTimeline = OpenGcPauseTimeline();
++      static const auto pauseTimeline = OpenGcPauseTimeline();
++      const bool majorRequested = inMajor;
+       #endif
+       double gameplayPauseStart = __hxcpp_time_stamp();
+       bool protectGameplayPause = sgGameplayGcMode && !sgGameplayGcPreparing;
+@@ -5107,8 +5187,19 @@ public:
+       }
+       #endif
+ 
++      GcPauseSample *pause = nullptr;
+       #ifdef HX_WINDOWS
+-      const auto pauseStarted = pauseTimeline ? GcPauseCounter() : 0;
++      GcPauseSample sample;
++      const auto pauseStarted = pauseTimeline.file ? GcPauseCounter() : 0;
++      if (pauseTimeline.breakdown)
++      {
++         sample = {};
++         pause = &sample;
++         pause->begin = pause->cursor = pauseStarted;
++         pause->majorRequested = majorRequested;
++         pause->gameplay = sgGameplayGcMode != 0;
++         pause->preparing = sgGameplayGcPreparing != 0;
++      }
+       #endif
+       STAMP(t0)
+ 
+@@ -5125,6 +5216,14 @@ public:
+             WaitForSafe(mLocalAllocs[i]);
+       #endif
+ 
++      #ifdef HX_WINDOWS
++      if (pause)
++      {
++         pause->Advance(pause->rendezvous);
++         pause->blocksBefore = mAllBlocks.size();
++         pause->largeBefore = mLargeAllocated;
++      }
++      #endif
+       sgIsCollecting = true;
+ 
+       StopThreadJobs(true);
+@@ -5192,9 +5291,12 @@ public:
+       }
+       #endif
+ 
++      #ifdef HX_WINDOWS
++      if (pause) pause->Advance(pause->setup);
++      #endif
+       STAMP(t1)
+ 
+-      MarkAll(generational);
++      MarkAll(generational, pause);
+ 
+       #ifdef HX_GC_VERIFY_GENERATIONAL
+       {
+@@ -5203,7 +5305,10 @@ public:
+          #endif
+          sGcVerifyGenerational = true;
+          sgTimeToNextTableUpdate--;
+-         MarkAll(false);
++         #ifdef HX_WINDOWS
++         if (pause) pause->Advance(pause->markTail);
++         #endif
++         MarkAll(false, pause);
+          sGcVerifyGenerational = false;
+          #ifdef SHOW_MEM_EVENTS
+          GCLOG("] verify generational\n");
+@@ -5211,6 +5316,9 @@ public:
+       }
+       #endif
+ 
++      #ifdef HX_WINDOWS
++      if (pause) pause->Advance(pause->markTail);
++      #endif
+       STAMP(t2)
+ 
+ 
+@@ -5265,7 +5373,10 @@ public:
+             #endif
+ 
+             generational = false;
+-            MarkAll(generational);
++            #ifdef HX_WINDOWS
++            if (pause) pause->Advance(pause->reclaim);
++            #endif
++            MarkAll(generational, pause);
+ 
+             sgTimeToNextTableUpdate--;
+             full = sgTimeToNextTableUpdate<=0;
+@@ -5339,6 +5450,14 @@ public:
+ 
+       size_t bytesInUse = mRowsInUse<<IMMIX_LINE_BITS;
+ 
++      #ifdef HX_WINDOWS
++      if (pause)
++      {
++         pause->Advance(pause->reclaim);
++         pause->generational = generational;
++         pause->fullReclaim = full;
++      }
++      #endif
+       STAMP(t3)
+ 
+ 
+@@ -5391,6 +5510,9 @@ public:
+       int l1 = mLargeList.size();
+ 
+ 
++      #ifdef HX_WINDOWS
++      if (pause) pause->Advance(pause->largeSweep);
++      #endif
+       STAMP(t4)
+ 
+       bool defragged = false;
+@@ -5451,7 +5573,8 @@ public:
+ 
+             MoveBlockJob job(mAllBlocks);
+ 
+-            if (MoveBlocks(job,stats) || doRelease)
++            defragged = MoveBlocks(job,stats);
++            if (defragged || doRelease)
+             {
+                if (doRelease)
+                {
+@@ -5500,6 +5623,13 @@ public:
+       #endif
+ 
+ 
++      #ifdef HX_WINDOWS
++      if (pause)
++      {
++         pause->Advance(pause->defrag);
++         pause->defragged = defragged;
++      }
++      #endif
+       STAMP(t5)
+ 
+       size_t mem = mRowsInUse<<IMMIX_LINE_BITS;
+@@ -5568,9 +5698,15 @@ public:
+ 
+       #endif
+ 
++      #ifdef HX_WINDOWS
++      if (pause) pause->Advance(pause->collectorTail);
++      #endif
+       if (sgGameplayGcPreparing)
+          reserveGameplayHeap();
+ 
++      #ifdef HX_WINDOWS
++      if (pause) pause->Advance(pause->heapPrepare);
++      #endif
+       createFreeList();
+ 
+       // This saves some running/stall time, but increases the total CPU usage
+@@ -5580,6 +5716,9 @@ public:
+       mAllBlocksCount   = mAllBlocks.size();
+       mCurrentRowsInUse = mRowsInUse;
+ 
++      #ifdef HX_WINDOWS
++      if (pause) pause->Advance(pause->freeList);
++      #endif
+       #ifdef SHOW_MEM_EVENTS
+       GCLOG("Collect Done\n");
+       #endif
+@@ -5647,6 +5786,16 @@ public:
+          sgGameplayGcMaxPauseMs = sgLastGcPauseMs;
+ 
+ 
++      #ifdef HX_WINDOWS
++      if (pause)
++      {
++         pause->blocksAfter = mAllBlocksCount;
++         pause->largeAfter = mLargeAllocated;
++         pause->retainedRowBytes = mRowsInUse << IMMIX_LINE_BITS;
++         pause->workingBudgetBytes = sWorkingMemorySize;
++         pause->Advance(pause->collectorTail);
++      }
++      #endif
+       hx::gPauseForCollect = 0x00000000;
+       #ifndef HXCPP_SINGLE_THREADED_APP
+          for(int i=0;i<mLocalAllocs.size();i++)
+@@ -5668,8 +5817,13 @@ public:
+ 
+ 
+       #ifdef HX_WINDOWS
+-      if (pauseTimeline)
+-         WriteGcPause(pauseTimeline, pauseStarted, inMajor, inForceCompact);
++      if (pause)
++      {
++         pause->Advance(pause->release);
++         WriteDetailedGcPause(pauseTimeline.file, *pause, inMajor, inForceCompact);
++      }
++      else if (pauseTimeline.file)
++         WriteGcPause(pauseTimeline.file, pauseStarted, inMajor, inForceCompact);
+       #endif
+       PROFILE_COLLECT_SUMMARY_END;
+    }

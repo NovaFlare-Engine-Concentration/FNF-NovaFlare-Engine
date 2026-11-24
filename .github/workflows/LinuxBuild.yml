@@ -28,9 +28,12 @@ jobs:
         shell: pwsh
         run: ./tools/check-gameanalytics-env.ps1 -Required
 
-      - name: Installing LibVLC
+      - name: Install LibVLC and Lime native build dependencies
         run: |
-          sudo apt-get install libvlc-dev libvlccore-dev
+          sudo apt-get update
+          sudo apt-get install -y libvlc-dev libvlccore-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libx11-dev libxext-dev libxi-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libpulse-dev libudev-dev libxkbcommon-dev
           
       - name: Install Libraries
         run: |
@@ -38,6 +41,13 @@ jobs:
           haxelib git hmm https://github.com/NovaFlare-Engine-haxelib/hmm-3.1.0 70aca779a9d374a6e6b83c18715a3991a147ca37 --skip-dependencies
           haxelib run hmm install
           
+      - name: Prepare render thread and Immix runtime
+        shell: pwsh
+        run: |
+          ./tools/setup-novaflare-render-dependencies.ps1 -Component ImmixReclaim,RenderThreadRepair,ImageCoordinates
+          haxelib run lime rebuild linux -64 -release
+          if ($LASTEXITCODE -ne 0) { throw 'Lime native rebuild failed' }
+
       - name: Extract current version
         id: get_version
         run: |

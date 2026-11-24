@@ -381,7 +381,8 @@ class LoadingState extends MusicBeatState
 		loaded = 0;
 
 		//trace('LoadingState: startThreads, loadMax: $loadMax');
-		loadThread = new ThreadPool(ClientPrefs.data.loadThreads, ClientPrefs.data.loadThreads, MULTI_THREADED);
+		final threads = CoolUtil.loadingThreadCount(ClientPrefs.data.loadThreads);
+		loadThread = new ThreadPool(threads, threads, MULTI_THREADED);
 		threadInit();
 
 		for (sound in soundsToPrepare)

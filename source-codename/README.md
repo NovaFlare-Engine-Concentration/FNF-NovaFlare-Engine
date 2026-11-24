@@ -6,3 +6,5 @@ Runs on desktop and mobile. Mobile input is bridged to NovaFlare's current touch
 Merged through the supplied upstream commit [2289c833aa4d9a6a7f9f98a49fe994101ab75c16](https://github.com/CodenameCrew/CodenameEngine/tree/2289c833aa4d9a6a7f9f98a49fe994101ab75c16).
 
 The upstream license is preserved verbatim in [LICENSE](LICENSE). NovaFlare adaptations include the `codename` namespace, shared library interfaces, external asset priority and cache invalidation, the existing application entry, and current mobile controls. Importing this snapshot does not by itself establish that every upstream feature or platform has been accepted.
+
+CNE HScript imports resolve compiled, non-generic enum abstracts in the script-facing Flixel, OpenFL, Lime, `haxe.xml`, and CNE packages through generated runtime wrappers. Both module-qualified and shortened type imports are supported, including `as` aliases and static constant imports. Types must be included in the build; the existing abstract exclusion list remains in effect.

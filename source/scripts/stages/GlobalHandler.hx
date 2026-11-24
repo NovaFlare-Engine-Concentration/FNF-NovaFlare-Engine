@@ -31,6 +31,10 @@ class GlobalHandler {
 	}
 
 	static var sbCallbacks:Map<String, haxe.Constraints.Function>;
+	public static function dispatchScriptUpdate(name:String, elapsed:Float):Void {
+		if (grp != null) grp.call(name, [elapsed]);
+	}
+
 	private static function globalHandler() {
 		if(sbCallbacks != null) {
 			for(k=>v in sbCallbacks) {
@@ -111,16 +115,13 @@ class GlobalHandler {
 						GlobalHandler.grp.call(id);
 					});
 					FlxG.signals.postGameStart.add(cast sbCallbacks.get(id));
-				case "onUpdate":
+				case "onUpdate", "onUpdatePost":
 					sbCallbacks.set(id, function() {
-						GlobalHandler.grp.call(id, [FlxG.elapsed]);
+						final elapsed = general.backend.NovaFlareGame.scriptElapsedForUpdate(FlxG.elapsed);
+						if (elapsed != null) dispatchScriptUpdate(id, elapsed);
 					});
-					FlxG.signals.preUpdate.add(cast sbCallbacks.get(id));
-				case "onUpdatePost":
-					sbCallbacks.set(id, function() {
-						GlobalHandler.grp.call(id, [FlxG.elapsed]);
-					});
-					FlxG.signals.postUpdate.add(cast sbCallbacks.get(id));
+					final signal = id == "onUpdate" ? FlxG.signals.preUpdate : FlxG.signals.postUpdate;
+					signal.add(cast sbCallbacks.get(id));
 				case "onDraw":
 					sbCallbacks.set(id, function() {
 						GlobalHandler.grp.call(id);

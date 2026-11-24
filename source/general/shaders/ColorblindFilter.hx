@@ -15,9 +15,13 @@ class ColorblindFilter
 	public static var colorM:Array<Float>;
 	// Keep only our own filter replaceable; scripts may have installed others.
 	private static var appliedFilter:ColorMatrixFilter;
+	#if (windows && cpp && novaflare_filter_ablation)
+	private static final keepDisabledFilter = Sys.getEnv("NOVAFLARE_KEEP_DISABLED_COLOR_FILTER") == "1";
+	#end
 
 	public static function UpdateColors(?input:Array<BitmapFilter> = null):Void
 	{
+		var mode = ClientPrefs.data.colorblindMode;
 		var a1:Float = 1;
 		var a2:Float = 0;
 		var a3:Float = 0;
@@ -30,7 +34,7 @@ class ColorblindFilter
 		var c2:Float = 0;
 		var c3:Float = 1;
 
-		switch (ClientPrefs.data.colorblindMode)
+		switch (mode)
 		{
 			case 'None':
 				a1 = 1;
@@ -139,22 +143,43 @@ class ColorblindFilter
 			     0,      0,      0, 1, 0,
 		];
 
+		var applyFilter = mode != 'None';
+		#if (windows && cpp && novaflare_filter_ablation)
+		applyFilter = applyFilter || keepDisabledFilter;
+		#end
 		if (input != null)
 		{
-			input.push(new ColorMatrixFilter(matrix));
+			if (applyFilter) input.push(new ColorMatrixFilter(matrix));
+			return;
 		}
-		else
+
+		updateGameFilter(applyFilter);
+	}
+
+	private static function updateGameFilter(applyFilter:Bool):Void
+	{
+		if (!applyFilter && appliedFilter == null) return;
+
+		// State/substate creation can run after mod onCreate/onCreatePost.
+		// Only the filter installed by this class may be replaced or removed.
+		var game = FlxG.game;
+		@:privateAccess
+		var current:Array<BitmapFilter> = game._filters;
+		if (!applyFilter && (current == null || current.indexOf(appliedFilter) == -1))
 		{
-			// State/substate creation can run after mod onCreate/onCreatePost.
-			// Preserve their game filters while replacing our previous color filter.
-			@:privateAccess
-			var current:Array<BitmapFilter> = FlxG.game._filters;
-			var filters:Array<BitmapFilter> = current == null ? [] : current.copy();
-			if (appliedFilter != null) filters.remove(appliedFilter);
+			appliedFilter = null;
+			return;
+		}
+
+		var filters = current == null ? [] : current.copy();
+		if (appliedFilter != null) filters.remove(appliedFilter);
+		appliedFilter = null;
+		if (applyFilter)
+		{
 			appliedFilter = new ColorMatrixFilter(matrix);
 			filters.push(appliedFilter);
-			FlxG.game.filtersEnabled = true;
-			FlxG.game.setFilters(filters);
+			game.filtersEnabled = true;
 		}
+		game.setFilters(filters);
 	}
 }

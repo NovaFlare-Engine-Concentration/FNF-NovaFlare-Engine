@@ -24,6 +24,8 @@ import openfl.ui.Keyboard;
 /** Stage-level mobile controls shared by all three engine entry points. */
 class VirtualPointerOverlay extends Sprite
 {
+    static inline final VIRTUAL_POINTER_HINT = "SDL_NOVAFLARE_VIRTUAL_POINTER";
+    static inline final CONTROL_ALPHA = 0.5;
     static var instance:VirtualPointerOverlay;
     var rootStage:Stage;
     var pointer:Sprite;
@@ -32,6 +34,7 @@ class VirtualPointerOverlay extends Sprite
     var mouse:VirtualMouse;
     var active:Bool = false;
     var synthesized:Bool = false;
+    var suppressCleanupClick:Bool = false;
     var moveTouch:Int = -1;
     var lastX:Float = 0;
     var lastY:Float = 0;
@@ -90,6 +93,7 @@ class VirtualPointerOverlay extends Sprite
         stage.addEventListener(Event.RESIZE, onResize);
         stage.addEventListener(Event.DEACTIVATE, onDeactivate);
         stage.addEventListener(Event.ACTIVATE, onActivate);
+        FlxG.signals.preUpdate.add(processKeyQueue);
         // This OpenFL version does not broadcast Lime window deactivation.
         if (stage.window != null)
         {
@@ -103,6 +107,7 @@ class VirtualPointerOverlay extends Sprite
         }
         for (type in [MouseEvent.MOUSE_DOWN, MouseEvent.MOUSE_UP, MouseEvent.MOUSE_MOVE,
             MouseEvent.MOUSE_WHEEL, MouseEvent.CLICK, MouseEvent.DOUBLE_CLICK,
+            MouseEvent.RIGHT_CLICK, MouseEvent.MIDDLE_CLICK,
             MouseEvent.RIGHT_MOUSE_DOWN, MouseEvent.RIGHT_MOUSE_UP, MouseEvent.MIDDLE_MOUSE_DOWN, MouseEvent.MIDDLE_MOUSE_UP])
         {
             stage.addEventListener(type, onPhysicalMouse, true, 1000000);
@@ -159,7 +164,6 @@ class VirtualPointerOverlay extends Sprite
         {
             mouse = VirtualMouse.install();
             if (mouse == null) return;
-            mouse.onInputStep = processKeyQueue;
             mouse.setVirtualActive(true);
         }
         pointer.visible = !mouse.visible;
@@ -182,9 +186,10 @@ class VirtualPointerOverlay extends Sprite
             #if FLX_TOUCH
             if (FlxG.touches != null) FlxG.touches.reset();
             #end
-            mouse.onInputStep = processKeyQueue;
             mouse.setVirtualActive(true);
             active = true;
+            lime.system.System.setHint(VIRTUAL_POINTER_HINT, "1");
+            cancelNativeMousePress();
             visible = true;
             layout();
         }
@@ -192,6 +197,7 @@ class VirtualPointerOverlay extends Sprite
         {
             releaseAll();
             active = false;
+            lime.system.System.setHint(VIRTUAL_POINTER_HINT, "0");
             visible = false;
             if (mouse != null) mouse.setVirtualActive(false);
             #if FLX_TOUCH
@@ -203,7 +209,7 @@ class VirtualPointerOverlay extends Sprite
 
     function releaseAll():Void
     {
-        for (id in touches.keys()) release(touches.get(id));
+        for (id in touches.keys()) release(touches.get(id), true);
         touches = new IntMap();
         held = new StringMap();
         ctrlHolds = 0;
@@ -218,12 +224,34 @@ class VirtualPointerOverlay extends Sprite
         sendKey(cast flixel.input.android.FlxAndroidKey.BACK, 0, false, false);
         #end
         keyQueue = [];
-        if (mouse != null) mouse.reset();
+        if (mouse != null) mouse.cancelPendingButtons();
+    }
+
+    function cancelNativeMousePress():Void
+    {
+        @:privateAccess rootStage.__pendingMouseEvent = false;
+        if (@:privateAccess rootStage.__mouseDownLeft == null) return;
+        var position = @:privateAccess new Point(rootStage.__untransformedMouseX, rootStage.__untransformedMouseY);
+        dispatchStageMouse(MouseEvent.MOUSE_UP, position, 0, true);
     }
 
     function onPhysicalMouse(event:MouseEvent):Void
     {
-        if (active && !synthesized) event.stopImmediatePropagation();
+        if (!active) return;
+        if (!synthesized)
+        {
+            event.stopImmediatePropagation();
+            return;
+        }
+        if (suppressCleanupClick)
+        {
+            switch (event.type)
+            {
+                case MouseEvent.CLICK, MouseEvent.DOUBLE_CLICK, MouseEvent.RIGHT_CLICK, MouseEvent.MIDDLE_CLICK:
+                    event.stopImmediatePropagation();
+                default:
+            }
+        }
     }
 
     function onTouch(event:TouchEvent):Void
@@ -265,7 +293,7 @@ class VirtualPointerOverlay extends Sprite
                 mouse.virtualY = Math.max(Math.min(topLeft.y, bottomRight.y), Math.min(Math.max(topLeft.y, bottomRight.y), mouse.virtualY + next.y - old.y));
                 lastX = event.stageX;
                 lastY = event.stageY;
-                dispatchMouse(MouseEvent.MOUSE_MOVE, held.exists('left'));
+                dispatchMouse(MouseEvent.MOUSE_MOVE);
             }
             else if (action == 'wheel' && wheelTouch == id)
             {
@@ -273,7 +301,7 @@ class VirtualPointerOverlay extends Sprite
                 wheelLastY = event.stageY;
                 var step = Math.max(8.0, unit * 0.25);
                 var ticks = Std.int(scrollRemainder / step);
-                if (ticks != 0) { mouse.scroll(ticks); dispatchMouse(MouseEvent.MOUSE_WHEEL, false, ticks); scrollRemainder -= ticks * step; }
+                if (ticks != 0) { mouse.scroll(ticks); dispatchMouse(MouseEvent.MOUSE_WHEEL, ticks); scrollRemainder -= ticks * step; }
             }
         }
         else if (event.type == TouchEvent.TOUCH_END)
@@ -303,7 +331,7 @@ class VirtualPointerOverlay extends Sprite
             case 'left', 'right':
                 var right = action == 'right';
                 mouse.queueButton(right, true);
-                dispatchMouse(right ? MouseEvent.RIGHT_MOUSE_DOWN : MouseEvent.MOUSE_DOWN, true);
+                dispatchMouse(right ? MouseEvent.RIGHT_MOUSE_DOWN : MouseEvent.MOUSE_DOWN);
             case 'keyboard': showKeyboard();
             case 'copy', 'paste':
                 applyClipboardToOpenFLInput(action);
@@ -315,7 +343,7 @@ class VirtualPointerOverlay extends Sprite
         }
     }
 
-    function release(action:String):Void
+    function release(action:String, cancelClick:Bool = false):Void
     {
         var count = held.exists(action) ? held.get(action) : 0;
         if (count <= 1) held.remove(action); else { held.set(action, count - 1); return; }
@@ -325,7 +353,7 @@ class VirtualPointerOverlay extends Sprite
             case 'left', 'right':
                 var right = action == 'right';
                 mouse.queueButton(right, false);
-                dispatchMouse(right ? MouseEvent.RIGHT_MOUSE_UP : MouseEvent.MOUSE_UP, false);
+                dispatchMouse(right ? MouseEvent.RIGHT_MOUSE_UP : MouseEvent.MOUSE_UP, 0, cancelClick);
             case 'copy', 'paste':
                 enqueue(action == 'copy' ? Keyboard.C : Keyboard.V, false, true);
                 ctrlHolds = Std.int(Math.max(0, ctrlHolds - 1));
@@ -422,14 +450,23 @@ class VirtualPointerOverlay extends Sprite
         }
     }
 
-    function dispatchMouse(type:String, down:Bool, delta:Int = 0):Void
+    function dispatchMouse(type:String, delta:Int = 0, cancelClick:Bool = false):Void
     {
         mouse.syncPosition();
         var position = FlxG.game.localToGlobal(new Point(mouse.virtualX, mouse.virtualY));
         // OpenFL uses this path for hit testing, focus, hover, click and drag state.
         var nativePosition = @:privateAccess rootStage.__displayMatrix.transformPoint(position);
+        dispatchStageMouse(type, nativePosition, delta, cancelClick);
+    }
+
+    function dispatchStageMouse(type:String, nativePosition:Point, delta:Int, cancelClick:Bool):Void
+    {
         var button = (type == MouseEvent.RIGHT_MOUSE_DOWN || type == MouseEvent.RIGHT_MOUSE_UP) ? 2 : 0;
+        var wasSynthesized = synthesized;
+        var wasSuppressingClick = suppressCleanupClick;
+        var clickHistory = cancelClick ? @:privateAccess {target: rootStage.__lastClickTarget, time: rootStage.__lastClickTime} : null;
         synthesized = true;
+        suppressCleanupClick = wasSuppressingClick || cancelClick;
         try
         {
             if (type == MouseEvent.MOUSE_WHEEL)
@@ -440,8 +477,23 @@ class VirtualPointerOverlay extends Sprite
             else
                 @:privateAccess rootStage.__onMouse(type, nativePosition.x, nativePosition.y, button);
         }
-        catch (error:Dynamic) { synthesized = false; throw error; }
-        synthesized = false;
+        catch (error:Dynamic)
+        {
+            restoreMouseDispatch(wasSynthesized, wasSuppressingClick, clickHistory);
+            throw error;
+        }
+        restoreMouseDispatch(wasSynthesized, wasSuppressingClick, clickHistory);
+    }
+
+    function restoreMouseDispatch(wasSynthesized:Bool, wasSuppressingClick:Bool, history:Null<{target:InteractiveObject, time:Int}>):Void
+    {
+        synthesized = wasSynthesized;
+        suppressCleanupClick = wasSuppressingClick;
+        if (history != null)
+        {
+            @:privateAccess rootStage.__lastClickTarget = history.target;
+            @:privateAccess rootStage.__lastClickTime = history.time;
+        }
     }
 
     function layout():Void
@@ -458,9 +510,10 @@ class VirtualPointerOverlay extends Sprite
         addButton('keyboard', '⌨', surfaceWidth - u, 0, u, u * 0.82);
         mouseShell = new Sprite();
         mouseShell.mouseEnabled = false;
-        mouseShell.graphics.lineStyle(2, 0xEAEAEA, 0.9);
-        mouseShell.graphics.beginFill(0x172235, 0.72);
-        mouseShell.graphics.drawRoundRect(1, 1, u * 2 - 2, u * 1.10 - 2, u * 0.52);
+        mouseShell.alpha = CONTROL_ALPHA;
+        mouseShell.graphics.lineStyle(1, 0x000000, 1);
+        mouseShell.graphics.beginFill(0xFFFFFF, 1);
+        mouseShell.graphics.drawRect(1, 1, u * 2 - 2, u * 1.10 - 2);
         mouseShell.graphics.endFill();
         mouseShell.x = 0;
         mouseShell.y = surfaceHeight - u * 1.10;
@@ -484,14 +537,16 @@ class VirtualPointerOverlay extends Sprite
         var view = new Sprite();
         view.mouseEnabled = false;
         view.mouseChildren = false;
-        view.graphics.lineStyle(2, 0xEAEAEA, 0.9);
-        view.graphics.beginFill(0x172235, 0.72);
-        view.graphics.drawRoundRect(1, 1, w - 2, h - 2, Math.min(12, unit * 0.2));
-        view.graphics.endFill();
+        view.alpha = CONTROL_ALPHA;
+        final hasBackground = action != 'left' && action != 'right';
+        view.graphics.lineStyle(1, 0x000000, 1);
+        if (hasBackground) view.graphics.beginFill(0xFFFFFF, 1);
+        view.graphics.drawRect(1, 1, w - 2, h - 2);
+        if (hasBackground) view.graphics.endFill();
         view.x = x;
         view.y = y;
         var text = new TextField();
-        text.defaultTextFormat = new TextFormat('_sans', Std.int(Math.max(12, unit * (label.length > 4 ? 0.22 : 0.38))), 0xFFFFFF, true, null, null, null, null, TextFormatAlign.CENTER);
+        text.defaultTextFormat = new TextFormat('_sans', Std.int(Math.max(12, unit * (label.length > 4 ? 0.22 : 0.38))), 0x000000, false, null, null, null, null, TextFormatAlign.CENTER);
         text.selectable = false;
         text.mouseEnabled = false;
         text.width = w;

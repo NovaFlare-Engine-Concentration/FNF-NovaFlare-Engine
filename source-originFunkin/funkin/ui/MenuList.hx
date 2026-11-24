@@ -145,7 +145,7 @@ class MenuTypedList<T:MenuListItem> extends FlxTypedGroup<T>
 
     #if FEATURE_TOUCH_CONTROLS
     // Update touch position
-    if (TouchUtil.pressed)
+    if (touchNavigationEnabled && TouchUtil.pressed)
     {
       touchBuddy.setPosition(TouchUtil.touch.x, TouchUtil.touch.y);
     }
@@ -156,7 +156,7 @@ class MenuTypedList<T:MenuListItem> extends FlxTypedGroup<T>
       selectItem(newIndex);
     }
 
-    if (TouchUtil.pressed)
+    if (touchNavigationEnabled && TouchUtil.pressed)
     {
       for (i in 0...members.length)
       {

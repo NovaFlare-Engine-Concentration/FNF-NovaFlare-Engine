@@ -420,16 +420,16 @@ class Preferences
 
   /**
    * If enabled, the game will utilize VSync (or adaptive VSync) on startup.
-   * @default `OFF`
+   * @default `ON`
    */
   public static var vsyncMode(get, set):OriginVSyncMode;
 
   static function get_vsyncMode():OriginVSyncMode
   {
-    #if (mobile || web)
+    #if web
     return OriginVSyncMode.OFF;
     #else
-    var value = Save?.instance?.options?.vsyncMode ?? "Off";
+    var value = Save?.instance?.options?.vsyncMode ?? "On";
 
     return switch (value)
     {
@@ -440,14 +440,14 @@ class Preferences
       case "Adaptive":
         OriginVSyncMode.ADAPTIVE;
       default:
-        OriginVSyncMode.OFF;
+        OriginVSyncMode.ON;
     };
     #end
   }
 
   static function set_vsyncMode(value:OriginVSyncMode):OriginVSyncMode
   {
-    #if (mobile || web)
+    #if web
     return OriginVSyncMode.OFF;
     #else
     var string;

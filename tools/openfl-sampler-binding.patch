@@ -1,0 +1,16 @@
+diff --git a/src/openfl/display3D/textures/TextureBase.hx b/src/openfl/display3D/textures/TextureBase.hx
+index 81880e3..0376970 100644
+--- a/src/openfl/display3D/textures/TextureBase.hx
++++ b/src/openfl/display3D/textures/TextureBase.hx
+@@ -337,10 +337,7 @@ class TextureBase extends EventDispatcher
+ 		{
+ 			var gl = __context.gl;
+ 
+-			if (__textureTarget == __context.gl.TEXTURE_CUBE_MAP) __context.__bindGLTextureCubeMap(__textureID);
+-			else
+-				__context.__bindGLTexture2D(__textureID);
+-
++			// Context3D binds this texture on the active sampler before setting its parameters.
+ 			var wrapModeS = 0, wrapModeT = 0;
+ 
+ 			switch (state.wrap)

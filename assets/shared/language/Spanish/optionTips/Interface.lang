@@ -10,6 +10,6 @@ freeplayOld => Usa el menú antiguo de selección de canciones de Psych.
 skipTitleVideo => Omite el video de introducción.
 resultsScreen => Abre la pantalla de resultados al terminar la canción.
 loadingScreen => Muestra una pantalla de carga al iniciar la partida.
-loadThreads => Cantidad de hilos usados para cargar recursos.
+loadThreads => Límite de núcleos físicos, menos 3 en móvil, mínimo 1
 useFlixelCoords => Usa coordenadas de Flixel para elementos de la interfaz; si se desactiva, usa coordenadas de pantalla de OpenFL.
 SelectGameSubState => Cambia de motor. En PC permite elegir V-Slice o Codename; en móvil solo V-Slice.

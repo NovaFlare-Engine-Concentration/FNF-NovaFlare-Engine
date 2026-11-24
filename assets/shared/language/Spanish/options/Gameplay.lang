@@ -30,7 +30,6 @@ NoteOffsetState => Ajuste de sincronización
 
 Gameplaybackend => Opciones internas de jugabilidad
 
-gameplayGC => Gestión de memoria GameplayGC
 fixLNL => Corregir notas largas
 saveScoreBase => Criterio para guardar récords de repetición
 replayQuality => Repetición de alta calidad

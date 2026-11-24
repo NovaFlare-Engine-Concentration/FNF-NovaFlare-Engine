@@ -12,6 +12,6 @@ freeplayOld => Usar freeplay do Psych
 skipTitleVideo => Pular vídeo de introdução
 resultsScreen => Abrir tela de resultados ao final da música
 loadingScreen => Adicionar uma tela de carregamento para o estado de jogo
-loadThreads => Número de threads para carregamento de recursos
+loadThreads => Limite pelos núcleos físicos, menos 3 no celular, mínimo 1
 useFlixelCoords => Usa coordenadas de palco do Flixel para elementos de UI (hitbox, reprodução de vídeo). Quando desativado, usa coordenadas de tela do OpenFL.
 SelectGameSubState => Alterna a engine iniciada; no PC é possível escolher V-Slice e Codename, enquanto no celular apenas V-Slice está disponível.

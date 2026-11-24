@@ -1,0 +1,7 @@
+<project>
+    <meta title="NovaFlare Render Geometry Test" package="org.novaflare.tests.rendergeometry" version="1.0.0" company="NovaFlare Tests" />
+    <app main="Main" file="NovaFlareRenderGeometryTest" path="../../../_build/render-geometry-test" />
+    <window width="160" height="128" fps="60" background="#000000" hardware="true" allowHighDPI="false" resizable="false" vsync="false" antialiasing="0" />
+    <haxelib name="openfl" />
+    <source path="." />
+</project>

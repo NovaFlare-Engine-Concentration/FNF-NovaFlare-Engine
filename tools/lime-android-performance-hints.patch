@@ -1,0 +1,662 @@
+--- a/project/Build.xml
++++ b/project/Build.xml
+@@ -313,4 +313,5 @@
+ 		<file name="src/graphics/FrameTimeline.cpp" />
++		<file name="src/graphics/AndroidPerformanceHints.cpp" if="android" />
+ 		<file name="src/graphics/SharedBufferManager.cpp" />
+ 		<file name="src/graphics/PerformanceMonitor.cpp" />
+ 		<file name="src/graphics/utils/ImageDataUtil.cpp" />
+--- a/project/include/graphics/RenderThread.h
++++ b/project/include/graphics/RenderThread.h
+@@ -254,6 +254,10 @@
+             bool timelineUpdate = false;
+             bool mixedTimelinePhase = false;
+ #endif
++#ifdef HX_ANDROID
++            std::uint64_t androidCycle = 0;
++            bool androidFinalSubmission = false;
++#endif
+         };
+         
+         LockFreeQueue<Frame*, 16> framePool;
+--- a/project/src/backend/sdl/SDLApplication.cpp
++++ b/project/src/backend/sdl/SDLApplication.cpp
+@@ -4,6 +4,7 @@
+ #include "SDLJoystick.h"
+ #include <graphics/RenderThread.h>
+ #include <graphics/FrameTimeline.h>
++#include <graphics/AndroidPerformanceHints.h>
+ #include "../../graphics/opengl/OpenGLBindings.h"
+ #include <graphics/PerformanceMonitor.h>
+ #include <system/System.h>
+@@ -49,13 +50,17 @@
+ 		if (auto* thread = OpenGLBindings::renderThread) thread->BeginTimelinePhase();
+ 	}
+ 
+-	static void DispatchScheduledRender(RenderEvent* event) {
++	static void DispatchScheduledRender(RenderEvent* event, double periodMs) {
++		const bool threaded = OpenGLBindings::isMultiThreaded && OpenGLBindings::renderThread
++			&& OpenGLBindings::renderThread->IsRunning();
++		AndroidPerformanceHints::BeginRender(periodMs, threaded);
+ 		FrameTimeline::BeginRender();
+ 		BeginTimelinePhase();
+ 		if (!OpenGLBindings::isMultiThreaded)
+ 			FrameTimeline::BeginGpu(FrameTimeline::CurrentRender());
+ 		RenderEvent::Dispatch(event);
+ 		FrameTimeline::EndRender();
++		AndroidPerformanceHints::EndRender();
+ 	}
+ 
+ 	static void TraceFrameSetting(const char* name, std::uint64_t value) {
+@@ -285,6 +290,7 @@
+ 
+ 							applicationEvent.type = UPDATE;
+ 							applicationEvent.deltaTime = framePeriod;
++							AndroidPerformanceHints::BeginUpdate();
+ 							FrameTimeline::BeginUpdate();
+ 							BeginTimelinePhase();
+ 							const auto update = FrameTimeline::CurrentUpdate();
+@@ -300,12 +306,13 @@
+ 							}
+ 
+ 							FrameTimeline::EndUpdate();
++							AndroidPerformanceHints::EndUpdate();
+ 
+ 							if (!lockRender) {
+ 								if (!OpenGLBindings::isMultiThreaded || !OpenGLBindings::renderThread || !OpenGLBindings::renderThread->IsRunning() || RenderThread::activePendingFrames < RenderThread::MaxPendingFrames) {
+ 									renderEvent.type = RENDER;
+ 									PerformanceMonitor::Instance().StartFrame();
+-									DispatchScheduledRender (&renderEvent);
++									DispatchScheduledRender (&renderEvent, framePeriod);
+ 								} else {
+ 									FrameTimeline::RenderBlocked(RenderThread::activePendingFrames.load(std::memory_order_relaxed));
+ 								}
+@@ -336,7 +343,7 @@
+ 
+ 								renderEvent.type = RENDER;
+ 								PerformanceMonitor::Instance().StartFrame();
+-								DispatchScheduledRender (&renderEvent);
++								DispatchScheduledRender (&renderEvent, renderFramePeriod);
+ 
+ 								accumulatorRender -= renderFramePeriod;
+ 								if (accumulatorRender > renderFramePeriod * 2) accumulatorRender = 0;
+@@ -350,6 +357,7 @@
+ 
+ 			case SDL_APP_WILLENTERBACKGROUND:
+ 
++				AndroidPerformanceHints::SetForeground(false);
+ 				inBackground = true;
+ 				SDLWindow::PauseRendering();
+ 
+@@ -362,6 +370,7 @@
+ 				break;
+ 
+ 			case SDL_APP_DIDENTERFOREGROUND:
++				AndroidPerformanceHints::SetForeground(true);
+ 
+ 				SDLWindow::ResumeRendering();
+ 				windowEvent.type = WINDOW_ACTIVATE;
+@@ -1068,6 +1077,7 @@
+ 		applicationEvent.type = EXIT;
+ 		ApplicationEvent::Dispatch (&applicationEvent);
+ 
++		AndroidPerformanceHints::SetForeground(false);
+ 		FrameTimeline::Flush();
+ 		SDL_QuitSubSystem (initFlags);
+ 
+--- a/project/src/backend/sdl/SDLWindow.cpp
++++ b/project/src/backend/sdl/SDLWindow.cpp
+@@ -5,6 +5,7 @@
+ #include "../../graphics/opengl/OpenGLBindings.h"
+ #include <graphics/PerformanceMonitor.h>
+ #include <graphics/FrameTimeline.h>
++#include <graphics/AndroidPerformanceHints.h>
+ #include <future>
+ 
+ #ifdef HX_WINDOWS
+@@ -571,7 +572,9 @@
+ 			SDL_GL_SwapWindow(window);
+ 			return;
+ 		}
++		AndroidPerformanceHints::BeforeSwap();
+ 		SDL_GL_SwapWindow(window);
++		AndroidPerformanceHints::AfterSwap();
+ 	}
+ 
+ 	void SDLWindow::ContextFlip () {
+--- a/project/src/graphics/RenderThread.cpp
++++ b/project/src/graphics/RenderThread.cpp
+@@ -1,3 +1,4 @@
++#include <graphics/AndroidPerformanceHints.h>
+ #include <graphics/RenderThread.h> 
+ #include "opengl/OpenGLBindings.h" 
+ #include <graphics/PerformanceMonitor.h> 
+@@ -174,6 +175,10 @@
+ #else
+             activePendingFrames.fetch_add(1, std::memory_order_acq_rel);
+ #endif
++#ifdef HX_ANDROID
++            submitted->androidCycle = AndroidPerformanceHints::CurrentCycle();
++            submitted->androidFinalSubmission = !forceWait;
++#endif
+             bool queued = pendingFrames.push(submitted);
+             while (!queued) {
+                 FrameTimeline::Span wait("submit_wait", FrameTimeline::CurrentWork());
+@@ -243,6 +248,7 @@
+         tracy::SetThreadName("Render Thread");
+         #endif
+ 
++        AndroidPerformanceHints::RegisterWorker(true);
+         threadId = std::this_thread::get_id(); 
+         const char* perfTraceValue = std::getenv("NOVAGC_PERF_TRACE");
+         const bool perfTrace = perfTraceValue != nullptr &&
+@@ -333,6 +339,9 @@
+                     if (!frame->timelineUpdate) FrameTimeline::BeginGpu(timelineId);
+                     const auto driverStarted = timelineId ? FrameTimeline::Now() : 0;
+ #endif
++#ifdef HX_ANDROID
++                    AndroidPerformanceHints::BeginWorkerBatch(frame->androidCycle);
++#endif
+                     for (auto& command : frame->commands) {
+                         if (command) {
+                             command();
+@@ -350,6 +359,9 @@
+                         FrameTimeline::Write({"driver_batch", timelineId, driverStarted, driverEnded,
+                             commandCount, 0, detail, frame->timelineBatch, phase});
+                     }
++#endif
++#ifdef HX_ANDROID
++                    AndroidPerformanceHints::EndWorkerBatch(frame->androidFinalSubmission);
+ #endif
+                     const std::uint64_t executionMicros =
+                         static_cast<std::uint64_t>(
+@@ -434,6 +446,7 @@
+             }
+         } 
+ 
++        AndroidPerformanceHints::RegisterWorker(false);
+         // Cleanup 
+         if (window && context) { 
+             if (SDL_GL_MakeCurrent(window, NULL) < 0) {
+diff --git a/templates/android/template/app/src/main/java/org/haxe/lime/GameActivity.java b/templates/android/template/app/src/main/java/org/haxe/lime/GameActivity.java
+index 1225bbf0..cdd10c6a 100644
+--- a/templates/android/template/app/src/main/java/org/haxe/lime/GameActivity.java
++++ b/templates/android/template/app/src/main/java/org/haxe/lime/GameActivity.java
+@@ -35,6 +35,12 @@ import java.util.List;
+ 
+ public class GameActivity extends SDLActivity {
+ 
++	@Override
++	protected String[] getArguments() {
++		FramePerformanceHints.configureDiagnostics(this);
++		return super.getArguments();
++	}
++
+ 
+ 	private static AssetManager assetManager;
+ 	private static List<Extension> extensions;
+diff --git a/project/include/graphics/AndroidPerformanceHints.h b/project/include/graphics/AndroidPerformanceHints.h
+new file mode 100644
+index 00000000..e426e1ca
+--- /dev/null
++++ b/project/include/graphics/AndroidPerformanceHints.h
+@@ -0,0 +1,36 @@
++#ifndef LIME_ANDROID_PERFORMANCE_HINTS_H
++#define LIME_ANDROID_PERFORMANCE_HINTS_H
++
++#include <cstdint>
++
++namespace lime {
++namespace AndroidPerformanceHints {
++#ifdef HX_ANDROID
++    void BeginUpdate();
++    void EndUpdate();
++    void BeginRender(double periodMs, bool threaded);
++    void EndRender();
++    std::uint64_t CurrentCycle();
++    void BeforeSwap();
++    void AfterSwap();
++    void RegisterWorker(bool running);
++    void BeginWorkerBatch(std::uint64_t cycle);
++    void EndWorkerBatch(bool finalSubmission);
++    void SetForeground(bool foreground);
++#else
++    inline void BeginUpdate() {}
++    inline void EndUpdate() {}
++    inline void BeginRender(double, bool) {}
++    inline void EndRender() {}
++    inline std::uint64_t CurrentCycle() { return 0; }
++    inline void BeforeSwap() {}
++    inline void AfterSwap() {}
++    inline void RegisterWorker(bool) {}
++    inline void BeginWorkerBatch(std::uint64_t) {}
++    inline void EndWorkerBatch(bool) {}
++    inline void SetForeground(bool) {}
++#endif
++}
++}
++
++#endif
+diff --git a/project/src/graphics/AndroidPerformanceHints.cpp b/project/src/graphics/AndroidPerformanceHints.cpp
+new file mode 100644
+index 00000000..55ac8c6b
+--- /dev/null
++++ b/project/src/graphics/AndroidPerformanceHints.cpp
+@@ -0,0 +1,297 @@
++#include <graphics/AndroidPerformanceHints.h>
++
++#ifdef HX_ANDROID
++#include <SDL.h>
++#include <android/log.h>
++#include <jni.h>
++#include <algorithm>
++#include <array>
++#include <atomic>
++#include <mutex>
++#include <sys/syscall.h>
++#include <time.h>
++#include <unistd.h>
++
++namespace lime {
++namespace AndroidPerformanceHints {
++namespace {
++    constexpr std::size_t History = 16;
++    constexpr std::int64_t NanosPerSecond = 1000000000;
++    std::atomic<int> workerId{0};
++    std::atomic<bool> measuring{false};
++
++    std::int64_t Now() {
++        timespec value{};
++        if (clock_gettime(CLOCK_MONOTONIC, &value) != 0) return 0;
++        return value.tv_sec * NanosPerSecond + value.tv_nsec;
++    }
++
++    int ThreadId() {
++        return static_cast<int>(syscall(SYS_gettid));
++    }
++
++    struct WorkerFrame {
++        std::int64_t swapBegan = 0;
++        std::int64_t swapEnded = 0;
++        std::uint64_t cycle = 0;
++    };
++
++    struct Work {
++        std::uint64_t cycle = 0;
++        std::int64_t started = 0;
++        std::int64_t swapBegan = 0;
++        std::int64_t swapEnded = 0;
++    };
++
++    struct GameFrame {
++        std::int64_t started = 0;
++        std::int64_t producerEnded = 0;
++        std::int64_t updates = 0;
++        std::int64_t target = 0;
++    };
++
++    struct JavaSession {
++        JNIEnv* env = nullptr;
++        jclass bridge = nullptr;
++        jmethodID begin = nullptr;
++        jmethodID update = nullptr;
++        jmethodID close = nullptr;
++
++        bool Load();
++        bool Start(int worker, std::int64_t target);
++        bool Report(std::int64_t work, std::int64_t target);
++        void Stop();
++        bool Failed();
++    };
++
++    bool JavaSession::Failed() {
++        if (!env->ExceptionCheck()) return false;
++        env->ExceptionClear();
++        __android_log_write(ANDROID_LOG_WARN, "NovaFlareADPF", "JNI failure");
++        return true;
++    }
++
++    bool JavaSession::Load() {
++        env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
++        if (!env) return false;
++        if (bridge) return begin && update && close;
++        jclass local = env->FindClass("org/haxe/lime/FramePerformanceHints");
++        if (Failed() || !local) return false;
++        bridge = static_cast<jclass>(env->NewGlobalRef(local));
++        env->DeleteLocalRef(local);
++        if (Failed() || !bridge) return false;
++        begin = env->GetStaticMethodID(bridge, "start", "(Landroid/content/Context;IIJ)Z");
++        if (!Failed() && begin) update = env->GetStaticMethodID(bridge, "report", "(JJ)Z");
++        if (!Failed() && update) close = env->GetStaticMethodID(bridge, "stop", "()V");
++        if (!Failed() && begin && update && close) return true;
++        env->DeleteGlobalRef(bridge);
++        bridge = nullptr;
++        begin = update = close = nullptr;
++        return false;
++    }
++
++    bool JavaSession::Start(int worker, std::int64_t target) {
++        if (!Load()) return false;
++        jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
++        if (Failed()) {
++            if (activity) env->DeleteLocalRef(activity);
++            return false;
++        }
++        if (!activity) return false;
++        const jboolean opened = env->CallStaticBooleanMethod(bridge, begin, activity,
++            static_cast<jint>(ThreadId()), static_cast<jint>(worker), static_cast<jlong>(target));
++        env->DeleteLocalRef(activity);
++        return !Failed() && opened;
++    }
++
++    bool JavaSession::Report(std::int64_t work, std::int64_t target) {
++        const jboolean reported = env->CallStaticBooleanMethod(bridge, update,
++            static_cast<jlong>(work), static_cast<jlong>(target));
++        return !Failed() && reported;
++    }
++
++    void JavaSession::Stop() {
++        env->CallStaticVoidMethod(bridge, close);
++        Failed();
++    }
++
++    class FrameSession {
++    public:
++        void Begin(double periodMs, bool threaded);
++        void Finish();
++        void Foreground(bool foreground);
++
++        Work work;
++        std::int64_t startedUpdate = 0;
++        std::int64_t pendingUpdate = 0;
++
++    private:
++        void Send(const GameFrame& frame, std::int64_t swapBegan, std::int64_t priorSwapIdle = 0);
++        void Stop();
++        void ReadWorkerFrames();
++
++        JavaSession java;
++        std::array<GameFrame, History> gameFrames{};
++        std::uint64_t cycle = 0;
++        std::uint64_t consumed = 0;
++        std::int64_t target = 0;
++        int sessionWorker = 0;
++        int refresh = 60;
++        bool foreground = true;
++        bool attemptFailed = false;
++        bool running = false;
++    };
++
++    FrameSession game;
++    std::array<WorkerFrame, History> workerFrames;
++    std::atomic<std::uint64_t> latestWorkerCycle{0};
++    std::mutex workerFramesMutex;
++    thread_local Work worker;
++    thread_local bool workerThread = false;
++
++    void FrameSession::Begin(double periodMs, bool threaded) {
++        if (!foreground || attemptFailed) return;
++        const int currentWorker = threaded ? workerId.load(std::memory_order_acquire) : 0;
++        if (threaded && !currentWorker) return;
++        if (running && currentWorker != sessionWorker) Stop();
++        if (!running || cycle % 120 == 0) {
++            SDL_DisplayMode mode{};
++            if (SDL_GetCurrentDisplayMode(0, &mode) == 0 && mode.refresh_rate > 0)
++                refresh = mode.refresh_rate;
++        }
++
++        const auto displayPeriod = NanosPerSecond / refresh;
++        const auto capPeriod = static_cast<std::int64_t>(periodMs * 1000000.0);
++        target = std::max(displayPeriod, capPeriod);
++        if (!running) {
++            running = java.Start(currentWorker, target);
++            if (!running) {
++                attemptFailed = true;
++                return;
++            }
++            sessionWorker = currentWorker;
++            measuring.store(true, std::memory_order_release);
++        }
++
++        work = {};
++        work.cycle = ++cycle;
++        work.started = Now();
++    }
++
++    void FrameSession::Stop() {
++        if (!running) return;
++        measuring.store(false, std::memory_order_release);
++        java.Stop();
++        running = false;
++        work = {};
++        startedUpdate = 0;
++        pendingUpdate = 0;
++        consumed = cycle;
++    }
++
++    void FrameSession::Foreground(bool visible) {
++        if (visible && !foreground) attemptFailed = false;
++        foreground = visible;
++        if (!visible) Stop();
++    }
++
++    void FrameSession::Send(const GameFrame& frame, std::int64_t swapBegan, std::int64_t priorSwapIdle) {
++        if (!frame.started || swapBegan < frame.started) return;
++        const auto duration = frame.updates + swapBegan - frame.started - priorSwapIdle;
++        if (duration > 0 && !java.Report(duration, frame.target)) {
++            Stop();
++            attemptFailed = true;
++        }
++    }
++
++    void FrameSession::ReadWorkerFrames() {
++        const auto completed = latestWorkerCycle.load(std::memory_order_acquire);
++        if (completed <= consumed) return;
++        const auto earliest = completed >= History ? completed - History + 1 : 1;
++        for (auto sample = std::max(consumed + 1, earliest); running && sample <= completed; ++sample) {
++            WorkerFrame rendered;
++            std::int64_t priorSwapIdle = 0;
++            const auto& frame = gameFrames[sample % History];
++            {
++                std::lock_guard<std::mutex> lock(workerFramesMutex);
++                rendered = workerFrames[sample % History];
++                // Deduct a preceding swap only when it blocked the worker
++                // after this frame's producer had finished submitting work.
++                for (const auto& previous : workerFrames) {
++                    if (!previous.cycle || previous.cycle >= sample) continue;
++                    const auto start = std::max(previous.swapBegan, frame.producerEnded);
++                    const auto end = std::min(previous.swapEnded, rendered.swapBegan);
++                    if (end > start) priorSwapIdle += end - start;
++                }
++            }
++            consumed = sample;
++            if (rendered.cycle == sample) Send(frame, rendered.swapBegan, priorSwapIdle);
++        }
++    }
++
++    void FrameSession::Finish() {
++        if (!work.cycle) return;
++        GameFrame frame;
++        frame.started = work.started;
++        frame.producerEnded = Now();
++        frame.updates = pendingUpdate;
++        frame.target = target;
++        if (sessionWorker) {
++            gameFrames[work.cycle % History] = frame;
++            ReadWorkerFrames();
++        } else if (work.swapBegan) {
++            Send(frame, work.swapBegan);
++        }
++        work = {};
++        pendingUpdate = 0;
++    }
++}
++
++void BeginUpdate() {
++    if (measuring.load(std::memory_order_relaxed)) game.startedUpdate = Now();
++}
++
++void EndUpdate() {
++    if (!game.startedUpdate) return;
++    game.pendingUpdate += std::max<std::int64_t>(0, Now() - game.startedUpdate);
++    game.startedUpdate = 0;
++}
++
++void BeginRender(double periodMs, bool threaded) { game.Begin(periodMs, threaded); }
++void EndRender() { game.Finish(); }
++std::uint64_t CurrentCycle() { return game.work.cycle; }
++void SetForeground(bool foreground) { game.Foreground(foreground); }
++
++void RegisterWorker(bool running) {
++    workerThread = running;
++    workerId.store(running ? ThreadId() : 0, std::memory_order_release);
++}
++
++void BeginWorkerBatch(std::uint64_t cycle) {
++    worker = {};
++    worker.cycle = cycle;
++}
++
++void EndWorkerBatch(bool finalSubmission) {
++    if (!worker.cycle || !finalSubmission || !worker.swapBegan) return;
++    {
++        std::lock_guard<std::mutex> lock(workerFramesMutex);
++        auto& rendered = workerFrames[worker.cycle % History];
++        rendered.swapBegan = worker.swapBegan;
++        rendered.swapEnded = worker.swapEnded;
++        rendered.cycle = worker.cycle;
++    }
++    latestWorkerCycle.store(worker.cycle, std::memory_order_release);
++}
++
++void BeforeSwap() {
++    auto& work = workerThread ? worker : game.work;
++    if (work.cycle) work.swapBegan = Now();
++}
++
++void AfterSwap() {
++    if (workerThread && worker.swapBegan) worker.swapEnded = Now();
++}
++}
++}
++#endif
+diff --git a/templates/android/template/app/src/main/java/org/haxe/lime/FramePerformanceHints.java b/templates/android/template/app/src/main/java/org/haxe/lime/FramePerformanceHints.java
+new file mode 100644
+index 00000000..f432326a
+--- /dev/null
++++ b/templates/android/template/app/src/main/java/org/haxe/lime/FramePerformanceHints.java
+@@ -0,0 +1,114 @@
++package org.haxe.lime;
++
++import android.app.Activity;
++import android.content.Context;
++import android.content.Intent;
++import android.os.Build;
++import android.os.PerformanceHintManager;
++import android.util.Log;
++
++final class FramePerformanceHints {
++    private static final String TAG = "NovaFlareADPF";
++
++    static boolean start(Context context, int gameThread, int renderThread, long targetNanos) {
++        if (isDiagnostic(context) && !((Activity) context).getIntent().getBooleanExtra("nova_adpf", false)) {
++            Log.i(TAG, "disabled by diagnostic setting");
++            return false;
++        }
++        if (Build.VERSION.SDK_INT < 31) {
++            Log.i(TAG, "unavailable on Android API " + Build.VERSION.SDK_INT);
++            return false;
++        }
++        return Api31.start(context, gameThread, renderThread, targetNanos);
++    }
++
++    static boolean report(long actualNanos, long targetNanos) {
++        return Api31.report(actualNanos, targetNanos);
++    }
++
++    static void stop() {
++        Api31.stop();
++    }
++
++    static boolean isDiagnostic(Context context) {
++        return context instanceof Activity && context.getPackageName().endsWith(".renderdiagnostics");
++    }
++
++    static void configureDiagnostics(GameActivity activity) {
++        if (!isDiagnostic(activity)) return;
++        Intent intent = activity.getIntent();
++        GameActivity.nativeSetenv("NOVAFLARE_ANDROID_DIAGNOSTICS", "1");
++        String song = intent.getStringExtra("nova_song");
++        if (song != null && song.matches("[A-Za-z0-9_-]+")) {
++            GameActivity.nativeSetenv("NOVAFLARE_DIAGNOSTIC_SONG", song);
++            GameActivity.nativeSetenv("NOVAFLARE_DIAGNOSTIC_DIFFICULTY", "2");
++            GameActivity.nativeSetenv("NOVAFLARE_DIAGNOSTIC_MOD", "");
++            GameActivity.nativeSetenv("NOVAFLARE_DIAGNOSTIC_BOTPLAY", "1");
++        }
++        String resolution = intent.getStringExtra("nova_resolution");
++        if (resolution != null && resolution.matches("native|[1-9][0-9]{0,3}x[1-9][0-9]{0,3}")) {
++            GameActivity.nativeSetenv("NOVAFLARE_RENDER_RESOLUTION", resolution);
++        }
++        GameActivity.nativeSetenv("NOVAFLARE_RENDER_TARGET_TRACE", "1");
++    }
++
++    private static final class Api31 {
++        private static PerformanceHintManager.Session session;
++        private static long target;
++        private static boolean firstReport;
++
++        static boolean start(Context context, int gameThread, int renderThread, long targetNanos) {
++            try {
++                PerformanceHintManager manager = context.getSystemService(PerformanceHintManager.class);
++                long preferred = manager == null ? -1 : manager.getPreferredUpdateRateNanos();
++                if (preferred <= 0) {
++                    Log.i(TAG, "unavailable preferred_rate_ns=" + preferred);
++                    return false;
++                }
++                int[] tids = renderThread > 0 ? new int[] {gameThread, renderThread} : new int[] {gameThread};
++                session = manager.createHintSession(tids, targetNanos);
++                if (session == null) {
++                    Log.i(TAG, "session creation unavailable");
++                    return false;
++                }
++                target = targetNanos;
++                firstReport = true;
++                Log.i(TAG, "session started game_tid=" + gameThread + " render_tid=" + renderThread + " target_ns=" + target);
++                return true;
++            } catch (RuntimeException error) {
++                Log.w(TAG, "session creation failed", error);
++                return false;
++            }
++        }
++
++        static boolean report(long actualNanos, long targetNanos) {
++            try {
++                if (target != targetNanos) {
++                    session.updateTargetWorkDuration(targetNanos);
++                    target = targetNanos;
++                }
++                session.reportActualWorkDuration(actualNanos);
++                if (firstReport) {
++                    firstReport = false;
++                    Log.i(TAG, "first report actual_ns=" + actualNanos + " target_ns=" + target);
++                }
++                return true;
++            } catch (RuntimeException error) {
++                Log.w(TAG, "session reporting failed", error);
++                return false;
++            }
++        }
++
++        static void stop() {
++            if (session == null) return;
++            try {
++                session.close();
++            } catch (RuntimeException error) {
++                Log.w(TAG, "session close failed", error);
++            } finally {
++                session = null;
++            }
++            Log.i(TAG, "session closed");
++        }
++    }
++}

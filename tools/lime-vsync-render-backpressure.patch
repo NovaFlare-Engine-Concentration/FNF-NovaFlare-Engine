@@ -1,0 +1,53 @@
+diff --git a/project/src/backend/sdl/SDLApplication.cpp b/project/src/backend/sdl/SDLApplication.cpp
+--- a/project/src/backend/sdl/SDLApplication.cpp
++++ b/project/src/backend/sdl/SDLApplication.cpp
+@@ -286,8 +286,18 @@
+ 		auto* thread = OpenGLBindings::renderThread;
+ 		if (OpenGLBindings::isMultiThreaded && thread && thread->IsRunning()) {
+ 			const int pending = RenderThread::activePendingFrames.load (std::memory_order_acquire);
+-			if (pending >= RenderThread::MaxPendingFrames) {
++			// Starting a draw while a vsynced swap is pending can strand a
++			// synchronous GL request behind the previous presentation.
++			#ifdef IPHONE
++			// UIKit drives frames with a display link and exposes no swap interval.
++			const int pendingLimit = 1;
++			#else
++			const int pendingLimit = thread->CurrentSwapInterval () != 0
++				? 1 : RenderThread::MaxPendingFrames;
++			#endif
++			if (pending >= pendingLimit) {
+ 				FrameTimeline::RenderBlocked (pending);
++				if (lockRender && pendingLimit == 1) windowRedrawRequested = true;
+ 				return false;
+ 			}
+ 		}
+diff --git a/project/include/graphics/RenderThread.h b/project/include/graphics/RenderThread.h
+--- a/project/include/graphics/RenderThread.h
++++ b/project/include/graphics/RenderThread.h
+@@ -223,6 +223,7 @@
+         bool ApplySwapInterval();
+         bool SetCurrentSwapInterval(int interval);
+         int ConfiguredSwapInterval() const { return swapInterval.load(); }
++        int CurrentSwapInterval() const { return currentSwapInterval.load(); }
+         std::uint64_t SwapIntervalRevision() const { return swapIntervalRevision.load(std::memory_order_relaxed); }
+         bool WaitForContext(bool held, int timeoutMS);
+ 
+@@ -278,6 +279,7 @@
+         std::atomic<ContextState> contextState{ContextState::Released};
+         bool contextError = false;
+         std::atomic<int> swapInterval;
++        std::atomic<int> currentSwapInterval{0};
+         std::atomic<std::uint64_t> swapIntervalRevision{0};
+         
+         std::condition_variable condition;
+diff --git a/project/src/graphics/RenderThread.cpp b/project/src/graphics/RenderThread.cpp
+--- a/project/src/graphics/RenderThread.cpp
++++ b/project/src/graphics/RenderThread.cpp
+@@ -283,6 +283,7 @@
+     bool RenderThread::SetCurrentSwapInterval(int interval) {
+         const bool applied = SDL_GL_SetSwapInterval(interval) == 0;
+         if (applied) swapInterval = interval;
++        currentSwapInterval = SDL_GL_GetSwapInterval();
+         swapIntervalRevision.fetch_add(1, std::memory_order_relaxed);
+         return applied;
+     }

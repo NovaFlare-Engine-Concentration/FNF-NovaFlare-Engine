@@ -1,11 +1,15 @@
 General => 常规设置
 
-framerate => Update刷新率上限
-drawFramerate => 绘制帧数的上限，请与update上限区分
+framerate => 每秒最多更新次数
+scriptUpdateFrameLimit => 关闭时随游戏更新，开启时随实际绘制。
+scriptUpdateRate => 0 随更新模式，正数限制每秒更新次数。
+drawFramerate => 启用独立绘制时生效
 language => 切换语言
-lockRender => 将update和draw的更新分开，效果就是帧数提升大约两到三倍（取决于设备性能）
+lockRender => 关闭后，绘制随更新执行
 renderThread => 渲染线程分离提升画面帧数
-gameQuality => 更改屏幕的游戏画面质量
+vsync => 跟随屏幕刷新
+generationalGC => 下次启动生效。
+androidPerformanceHints => 向系统报告帧耗时
 lowQuality => 低质量模式
 resolution => 游戏画面的分辨率
 colorblindMode => 色盲滤镜模式

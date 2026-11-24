@@ -29,6 +29,12 @@ class DataCalc
 	static public var updateMember:Float = 0;
 	static var updateInitialized:Bool = false;
 	static var memoryTimeSave:Float = 0;
+	static var memoryTargetApp:Float = 0;
+	static var memoryTargetGc:Float = 0;
+	static var memoryStartApp:Float = 0;
+	static var memoryStartGc:Float = 0;
+	static var memoryTransitionTime:Float = 0;
+	static var memoryInitialized:Bool = false;
 	#if sys
 	static var memorySampleMutex:Mutex = new Mutex();
 	static var memorySampleThread:Thread;
@@ -127,8 +133,7 @@ class DataCalc
 		memorySampleMutex.acquire();
 		if (memorySampleReady)
 		{
-			appMem = memorySampleApp;
-			gcMem = memorySampleGc;
+			setMemoryTarget(memorySampleApp, memorySampleGc, time);
 			memorySampleReady = false;
 		}
 
@@ -149,10 +154,30 @@ class DataCalc
 		if (memoryTimeSave == 0 || time - memoryTimeSave >= 1000)
 		{
 			memoryTimeSave = time;
-			appMem = getAppMem();
-			gcMem = getGcMem();
+			setMemoryTarget(getAppMem(), getGcMem(), time);
 		}
 		#end
+		if (memoryInitialized)
+		{
+			var progress = Math.min(1, Math.max(0, (time - memoryTransitionTime) / 1000));
+			appMem = memoryStartApp + (memoryTargetApp - memoryStartApp) * progress;
+			gcMem = memoryStartGc + (memoryTargetGc - memoryStartGc) * progress;
+		}
+	}
+
+	static function setMemoryTarget(app:Float, gc:Float, time:Float):Void
+	{
+		if (!memoryInitialized)
+		{
+			appMem = app;
+			gcMem = gc;
+			memoryInitialized = true;
+		}
+		memoryStartApp = appMem;
+		memoryStartGc = gcMem;
+		memoryTargetApp = app;
+		memoryTargetGc = gc;
+		memoryTransitionTime = time;
 	}
 
 	#if sys
@@ -281,18 +306,11 @@ class Display
 {
 	static public function fix(data:Float, decimal:Int):String
 	{
-		var returnString:String = '';
-		var zeros:String= '';
-
-		for (i in 0...decimal)
-			zeros += '0';
-
-		if (data % 1 == 0)
-			returnString = Std.string(data) + '.' + zeros;
-		else
-			returnString = Std.string(data);
-
-		return returnString;
+		var text = Std.string(data);
+		var dot = text.indexOf('.');
+		return dot == -1
+			? StringTools.rpad(text + '.', '0', text.length + decimal + 1)
+			: StringTools.rpad(text, '0', dot + decimal + 1);
 	}
 }
 

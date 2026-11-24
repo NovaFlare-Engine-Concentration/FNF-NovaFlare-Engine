@@ -156,14 +156,15 @@ class NoteSkinStyle
 		if (imagePath == null || !FileSystem.exists(imagePath)) return null;
 
 		var graphic:FlxGraphic = Paths.image(skin, null, false);
-		var bitmap:BitmapData = (graphic != null && graphic.bitmap != null && graphic.bitmap.readable) ? graphic.bitmap : null;
+		var bitmap:BitmapData = (graphic != null && graphic.bitmap != null && graphic.bitmap.readable && !graphic.isTextureScaled)
+			? graphic.bitmap : null;
 		var temporary:Bool = false;
 
 		if (bitmap == null)
 		{
 			try
 			{
-				bitmap = BitmapData.fromFile(imagePath);
+				bitmap = BitmapData.fromImage(ImageCompression.keepOriginal(lime.graphics.Image.fromFile(imagePath)));
 			}
 			catch (e:Dynamic)
 			{

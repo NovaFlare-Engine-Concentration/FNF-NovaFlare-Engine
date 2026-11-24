@@ -192,13 +192,18 @@ class Option extends FlxSpriteGroup
 			case BOOL:
 				boolButton.updateDisplay();
 			case INT, FLOAT, PERCENT:
-				numButton.initData();
-				updateDisText();
+				refreshNumericDisplay();
 			case STRING:
 				updateDisText();
 			default:
 		}
 		change();
+	}
+
+	public function refreshNumericDisplay():Void
+	{
+		numButton.initData();
+		updateDisText();
 	}
 
 	function defaultDataCheck() {

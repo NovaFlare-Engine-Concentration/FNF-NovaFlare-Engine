@@ -46,9 +46,17 @@ class HScriptState extends MusicBeatState {
 	}
 
 	override function update(elapsed:Float) {
-		stateScripts.call("onUpdate", [elapsed]);
+		final scriptElapsed = general.backend.NovaFlareGame.scriptElapsedForUpdate(elapsed);
+		if (scriptElapsed != null) stateScripts.call("onUpdate", [scriptElapsed]);
 		super.update(elapsed);
-		stateScripts.call("onUpdatePost");
+		if (scriptElapsed != null) stateScripts.call("onUpdatePost");
+	}
+
+	override public function drawUpdate(elapsed:Float):Void {
+		final runScriptUpdate = general.backend.NovaFlareGame.scriptUpdateActive;
+		if (runScriptUpdate) stateScripts.call("onUpdate", [general.backend.NovaFlareGame.scriptUpdateElapsed]);
+		super.drawUpdate(elapsed);
+		if (runScriptUpdate) stateScripts.call("onUpdatePost");
 	}
 
 	override function draw() {

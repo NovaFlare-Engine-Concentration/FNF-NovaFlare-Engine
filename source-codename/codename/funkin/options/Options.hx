@@ -238,6 +238,8 @@ class Options
 	/** Reads only settings needed before the Codename runtime is initialized. */
 	public static function loadStartupSettings():Void {
 		bindSave();
+		devMode = __save.data.devMode == true;
+		applyDeveloperMode();
 		if (__save.data.skipTitleVideo != null)
 			skipTitleVideo = __save.data.skipTitleVideo;
 		#if mobile
@@ -250,6 +252,7 @@ class Options
 	public static function load() {
 		bindSave();
 		__load();
+		applyDeveloperMode();
 
 		if (!__eventAdded) {
 			Lib.application.onExit.add(function(i:Int) {
@@ -265,6 +268,10 @@ class Options
 		}
 		FlxG.sound.volume = volume;
 		applySettings();
+	}
+
+	public static function applyDeveloperMode():Void {
+		developer.console.Console.setAvailability(CodeName, devMode);
 	}
 
 	public static function applySettings() {

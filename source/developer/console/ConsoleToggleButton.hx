@@ -1,7 +1,5 @@
 package developer.console;
 
-import general.backend.ClientPrefs;
-import general.backend.Paths;
 import openfl.Lib;
 import openfl.display.Sprite;
 import openfl.events.Event;
@@ -39,7 +37,7 @@ class ConsoleToggleButton extends Sprite {
 		visible = false;
 
 		label = new TextField();
-		labelFormat = new TextFormat(Paths.font("Lang-ZH.ttf"), 12, 0xF4F7FA, true);
+		labelFormat = new TextFormat(Console.theme.font, 12, 0xF4F7FA, true);
 		labelFormat.align = TextFormatAlign.CENTER;
 		label.defaultTextFormat = labelFormat;
 		label.text = "LOG";
@@ -71,7 +69,7 @@ class ConsoleToggleButton extends Sprite {
 	}
 
 	public static function show():Void {
-		if (!ClientPrefs.data.developerMode || Console.isVisible()) {
+		if (!Console.isAvailable() || Console.isVisible()) {
 			hide();
 			return;
 		}
@@ -109,10 +107,10 @@ class ConsoleToggleButton extends Sprite {
 
 	private function redraw():Void {
 		graphics.clear();
-		graphics.beginFill(hovering ? 0x355A6D : 0x243746, hovering ? 0.96 : 0.88);
+		graphics.beginFill(hovering ? Console.theme.launcherHover : Console.theme.launcher, hovering ? 0.96 : 0.88);
 		graphics.drawRoundRect(0, 0, WIDTH, HEIGHT, 6, 6);
 		graphics.endFill();
-		graphics.lineStyle(1, 0x8BD3FF, hovering ? 0.55 : 0.25);
+		graphics.lineStyle(1, Console.theme.launcherBorder, hovering ? 0.55 : 0.25);
 		graphics.drawRoundRect(0.5, 0.5, WIDTH - 1, HEIGHT - 1, 6, 6);
 	}
 }

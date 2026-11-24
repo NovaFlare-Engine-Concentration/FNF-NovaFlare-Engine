@@ -311,6 +311,12 @@ class MouseEffect extends Sprite {
         }
     }
     
+    public static function setBitmapScale(bitmap:Bitmap, scale:Float):Void {
+        var data = bitmap.bitmapData;
+        bitmap.scaleX = data != null && data.imageSourceWidth > 0 ? scale * data.imageSourceWidth / data.width : scale;
+        bitmap.scaleY = data != null && data.imageSourceHeight > 0 ? scale * data.imageSourceHeight / data.height : scale;
+    }
+
     private function removeEffect(effect:Sprite):Void {
         if (contains(effect)) {
             removeChild(effect);
@@ -338,6 +344,8 @@ class ClickEffect extends Sprite {
         
         clickBitmap = new Bitmap(clickBitmapData);
         circleBitmap = new Bitmap(circleBitmapData);
+        MouseEffect.setBitmapScale(clickBitmap, 1);
+        MouseEffect.setBitmapScale(circleBitmap, 1);
         
         // 计算中心点偏移量
         clickOffsetX = clickBitmap.width / 2;
@@ -347,11 +355,11 @@ class ClickEffect extends Sprite {
         
         // 设置初始属性
         clickBitmap.alpha = MouseEffect.clickStartAlpha;
-        clickBitmap.scaleX = clickBitmap.scaleY = MouseEffect.clickStartScale;
+        MouseEffect.setBitmapScale(clickBitmap, MouseEffect.clickStartScale);
         clickBitmap.visible = false;
         
         circleBitmap.alpha = MouseEffect.circleStartAlpha;
-        circleBitmap.scaleX = circleBitmap.scaleY = MouseEffect.circleStartScale;
+        MouseEffect.setBitmapScale(circleBitmap, MouseEffect.circleStartScale);
         circleBitmap.visible = false;
         
         // 设置初始位置（会在init中更新）
@@ -380,13 +388,13 @@ class ClickEffect extends Sprite {
         
         // 重置状态
         clickBitmap.alpha = MouseEffect.clickStartAlpha;
-        clickBitmap.scaleX = clickBitmap.scaleY = MouseEffect.clickStartScale;
+        MouseEffect.setBitmapScale(clickBitmap, MouseEffect.clickStartScale);
         clickBitmap.x = -clickOffsetX * MouseEffect.clickStartScale;
         clickBitmap.y = -clickOffsetY * MouseEffect.clickStartScale;
         clickBitmap.visible = true;
         
         circleBitmap.alpha = MouseEffect.circleStartAlpha;
-        circleBitmap.scaleX = circleBitmap.scaleY = MouseEffect.circleStartScale;
+        MouseEffect.setBitmapScale(circleBitmap, MouseEffect.circleStartScale);
         circleBitmap.x = -circleOffsetX * MouseEffect.circleStartScale;
         circleBitmap.y = -circleOffsetY * MouseEffect.circleStartScale;
         circleBitmap.visible = true;
@@ -401,7 +409,7 @@ class ClickEffect extends Sprite {
             
             clickBitmap.alpha = MouseEffect.clickStartAlpha + (MouseEffect.clickEndAlpha - MouseEffect.clickStartAlpha) * progress;
             var scale = MouseEffect.clickStartScale + (MouseEffect.clickEndScale - MouseEffect.clickStartScale) * progress;
-            clickBitmap.scaleX = clickBitmap.scaleY = scale;
+            MouseEffect.setBitmapScale(clickBitmap, scale);
             
             // 更新位置确保中心点不变
             clickBitmap.x = -clickOffsetX * scale;
@@ -418,7 +426,7 @@ class ClickEffect extends Sprite {
             
             circleBitmap.alpha = MouseEffect.circleStartAlpha + (MouseEffect.circleEndAlpha - MouseEffect.circleStartAlpha) * progress;
             var scale = MouseEffect.circleStartScale + (MouseEffect.circleEndScale - MouseEffect.circleStartScale) * progress;
-            circleBitmap.scaleX = circleBitmap.scaleY = scale;
+            MouseEffect.setBitmapScale(circleBitmap, scale);
             
             // 更新位置确保中心点不变
             circleBitmap.x = -circleOffsetX * scale;
@@ -456,6 +464,7 @@ class TrailEffect extends Sprite {
         super();
         
         bitmap = new Bitmap(bitmapData);
+        MouseEffect.setBitmapScale(bitmap, 1);
         offsetX = bitmap.width / 2;
         offsetY = bitmap.height / 2;
         bitmap.x = -offsetX;
@@ -477,7 +486,7 @@ class TrailEffect extends Sprite {
         startAlpha = MouseEffect.trailStartAlpha;
         endAlpha = MouseEffect.trailEndAlpha;
         
-        bitmap.scaleX = bitmap.scaleY = startScale;
+        MouseEffect.setBitmapScale(bitmap, startScale);
         bitmap.alpha = startAlpha;
         bitmap.x = -offsetX * startScale;
         bitmap.y = -offsetY * startScale;
@@ -494,7 +503,7 @@ class TrailEffect extends Sprite {
             
             bitmap.alpha = startAlpha + (endAlpha - startAlpha) * progress;
             var scale = startScale + (endScale - startScale) * progress;
-            bitmap.scaleX = bitmap.scaleY = scale;
+            MouseEffect.setBitmapScale(bitmap, scale);
             bitmap.x = -offsetX * scale;
             bitmap.y = -offsetY * scale;
         } else {

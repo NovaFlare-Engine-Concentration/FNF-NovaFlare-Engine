@@ -120,16 +120,17 @@ class SelectGameSubState extends MusicBeatSubstate
         }
 
 		#if mobile
-		if (backButtonTouchJustPressed())
+		var useVirtualMouse = #if FLX_MOUSE mobile.input.VirtualMouse.getActive() != null #else false #end;
+		if (backButtonJustPressed(useVirtualMouse))
 		{
 			requestClose();
 			return;
 		}
 
-		if (selectedGameTouchJustPressed())
+		if (selectedGameJustPressed(useVirtualMouse))
 			return;
 
-		if (infoBackgroundJustPressed())
+		if (infoBackgroundJustPressed(useVirtualMouse))
 		{
 			requestSelectedGame();
 			return;
@@ -175,8 +176,11 @@ class SelectGameSubState extends MusicBeatSubstate
 	}
 
 	#if mobile
-	function backButtonTouchJustPressed():Bool
+	function backButtonJustPressed(useVirtualMouse:Bool):Bool
 	{
+		if (useVirtualMouse)
+			return FlxG.mouse.justPressed && FlxG.mouse.overlaps(backButton, subcameras);
+
 		#if FLX_TOUCH
 		for (touch in FlxG.touches.list)
 		{
@@ -188,42 +192,47 @@ class SelectGameSubState extends MusicBeatSubstate
 		return false;
 	}
 
-	function selectedGameTouchJustPressed():Bool
+	function selectedGameJustPressed(useVirtualMouse:Bool):Bool
 	{
+		if (useVirtualMouse)
+			return FlxG.mouse.justPressed && selectGameAt(FlxG.mouse);
+
 		#if FLX_TOUCH
 		for (touch in FlxG.touches.list)
 		{
-			if (!touch.justPressed)
-				continue;
-
-			for (i in 0...selectedGroup.members.length)
-			{
-				var option:FlxSprite = selectedGroup.members[i];
-				if (option != null && option.visible && pointerOverlapsSprite(touch, option))
-				{
-					if (nowSelected != i)
-					{
-						nowSelected = i;
-						toggleBG();
-					}
-
-					return true;
-				}
-			}
+			if (touch.justPressed && selectGameAt(touch))
+				return true;
 		}
 		#end
 
 		return false;
 	}
 
-	function infoBackgroundJustPressed():Bool
+	function selectGameAt(pointer:FlxPointer):Bool
+	{
+		for (i in 0...selectedGroup.members.length)
+		{
+			var option:FlxSprite = selectedGroup.members[i];
+			if (option == null || !option.visible || !pointerOverlapsSprite(pointer, option))
+				continue;
+			if (nowSelected != i)
+			{
+				nowSelected = i;
+				toggleBG();
+			}
+			return true;
+		}
+		return false;
+	}
+
+	function infoBackgroundJustPressed(useVirtualMouse:Bool):Bool
 	{
 		var target:FlxSprite = nowSelected == 0 ? infoBG1 : infoBG2;
 		if (!target.visible)
 			return false;
 
-		if (FlxG.mouse.justPressed && pointerOverlapsSprite(FlxG.mouse, target))
-			return true;
+		if (useVirtualMouse)
+			return FlxG.mouse.justPressed && pointerOverlapsSprite(FlxG.mouse, target);
 
 		#if FLX_TOUCH
 		for (touch in FlxG.touches.list)

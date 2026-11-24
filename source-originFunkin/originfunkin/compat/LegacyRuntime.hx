@@ -386,6 +386,11 @@ class LegacyRuntime
     return hasApiVersion(origin, '>=0.1.0 <0.7.2');
   }
 
+  public static function usesFinalGetters(origin:Null<String>):Bool
+  {
+    return hasApiVersion(origin, '>=0.8.0 <0.9.0');
+  }
+
   public static function usesImplicitMembers(origin:Null<String>):Bool
   {
     return hasApiVersion(origin, '>=0.1.0 <0.8.2');

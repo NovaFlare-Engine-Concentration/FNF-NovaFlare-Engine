@@ -352,15 +352,25 @@ class OptionsMenu extends Page<OptionsMenuPageName>
   function openDebugMenu():Void
   {
     var state = OptionsState.instance;
+    #if FEATURE_TOUCH_CONTROLS
+    var scrollY = FlxG.camera.scroll.y;
+    touchController.reset();
+    #end
     enabled = false;
     state.persistentUpdate = false;
     state.subStateClosed.addOnce(_ ->
     {
       state.persistentUpdate = true;
       enabled = true;
+      #if FEATURE_TOUCH_CONTROLS
+      FlxG.camera.target = null;
+      FlxG.camera.scroll.y = scrollY;
+      touchController.reset();
+      #else
       FlxG.camera.follow(camFocusPoint, null, 0.085);
       FlxG.camera.deadzone.set(0, CAMERA_MARGIN / 2, FlxG.camera.width, FlxG.camera.height - CAMERA_MARGIN + 40);
       FlxG.camera.minScrollY = -CAMERA_MARGIN / 2;
+      #end
     });
     state.openSubState(new funkin.ui.debug.DebugMenuSubState());
   }

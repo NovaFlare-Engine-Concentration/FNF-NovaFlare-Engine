@@ -116,6 +116,12 @@ class HScript implements ISharedScript {
 		return active && (interp.variables.exists(name) || interp.directorFields.get(name) != null);
 	}
 
+	public function matchesFile(path:String):Bool {
+		final currentPath = haxe.io.Path.normalize(#if sys sys.FileSystem.absolutePath(filePath) #else filePath #end);
+		final requestedPath = haxe.io.Path.normalize(#if sys sys.FileSystem.absolutePath(path) #else path #end);
+		return #if windows currentPath.toLowerCase() == requestedPath.toLowerCase() #else currentPath == requestedPath #end;
+	}
+
 	public inline function checkType(name: String): Null<String> {
 		if (active && interp.directorFields.get(name) != null) {
 			return interp.directorFields.get(name).type;
@@ -386,6 +392,7 @@ class HScript implements ISharedScript {
 			});
 
 			if (parent is PlayState) {
+				cast(parent, PlayState).provideSongScriptGlobals(set);
 				set('debugPrint', function(text: String, ?color: FlxColor = null) {
 					if (color == null)
 						color = FlxColor.WHITE;

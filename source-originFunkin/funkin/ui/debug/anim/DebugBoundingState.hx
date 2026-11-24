@@ -115,6 +115,10 @@ class DebugBoundingState extends FlxState
     initSpritesheetView();
     initOffsetView();
 
+    #if android
+    addTouchActions();
+    #end
+
     Cursor.show();
 
     super.create();
@@ -289,6 +293,10 @@ class DebugBoundingState extends FlxState
 
   override function update(elapsed:Float)
   {
+    #if android
+    if (subState == null && originfunkin.input.OriginEditorBack.handle(exitEditor)) return;
+    #end
+
     if (FlxG.keys.justPressed.ONE)
     {
       var lv:DropDown = offsetEditorDialog.findComponent("swapper", DropDown);
@@ -326,11 +334,7 @@ class DebugBoundingState extends FlxState
 
     if (FlxG.keys.justPressed.H) hudCam.visible = !hudCam.visible;
 
-    if (FlxG.keys.justPressed.F4)
-    {
-      resetWindowTitle();
-      FlxG.switchState(() -> new MainMenuState());
-    }
+    if (FlxG.keys.justPressed.F4) exitEditor();
 
     if (FlxG.mouse.justPressed || FlxG.mouse.justPressedMiddle) FunkinSound.playOnce(Paths.sound('ui/editors/chart-editor/charting-sounds/click-down'));
     if (FlxG.mouse.justReleased || FlxG.mouse.justReleasedMiddle) FunkinSound.playOnce(Paths.sound('ui/editors/chart-editor/charting-sounds/click-up'));
@@ -347,6 +351,43 @@ class DebugBoundingState extends FlxState
   }
 
   static final TRACKPAD_PAN_SCALE:Float = 25.0;
+
+  function exitEditor():Void
+  {
+    resetWindowTitle();
+    FlxG.switchState(() -> new MainMenuState());
+  }
+
+  #if android
+  function addTouchActions():Void
+  {
+    final actions = new haxe.ui.containers.HBox();
+    offsetEditorDialog.addComponent(actions);
+    addTouchAction(actions, "Play", () -> {
+      if (swagChar != null && curView == ANIMATIONS) playCharacterAnimation(currentAnimationName, false);
+    });
+    addTouchAction(actions, "Save", () -> {
+      if (swagChar != null && curView == ANIMATIONS) saveOffsets(buildOutputStringNew(), swagChar.characterId + ".json");
+    });
+    addTouchAction(actions, "Onion Skin", () -> {
+      if (onionSkinChar != null && curView == ANIMATIONS)
+      {
+        onionSkinChar.visible = !onionSkinChar.visible;
+        if (onionSkinChar.visible) updateOnionSkin();
+      }
+    });
+    addTouchAction(actions, "Exit", exitEditor);
+  }
+
+  function addTouchAction(parent:haxe.ui.containers.HBox, label:String, action:Void->Void):Void
+  {
+    final button = new haxe.ui.components.Button();
+    button.text = label;
+    button.height = 40;
+    button.onClick = _ -> action();
+    parent.addComponent(button);
+  }
+  #end
 
   function handleTrackpadScroll():Void
   {
@@ -695,11 +736,19 @@ class DebugBoundingState extends FlxState
   {
     if ((saveString != null) && (saveString.length > 0))
     {
+      #if android
+      funkin.util.FileUtil.writeFileReference(fileName, saveString, (result) ->
+      {
+        if (result == 'success') FlxG.log.notice("Successfully saved LEVEL DATA.");
+        if (result == 'error') FlxG.log.error("Problem saving Level data");
+      });
+      #else
       _file = new FileReference();
       _file.addEventListener(Event.COMPLETE, onSaveComplete);
       _file.addEventListener(Event.CANCEL, onSaveCancel);
       _file.addEventListener(IOErrorEvent.IO_ERROR, onSaveError);
       _file.save(saveString, fileName);
+      #end
     }
   }
 

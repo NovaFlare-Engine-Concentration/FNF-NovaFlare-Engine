@@ -1,0 +1,171 @@
+diff --git a/project/include/graphics/RenderThread.h b/project/include/graphics/RenderThread.h
+index 5b73eb6..50ba3a2 100644
+--- a/project/include/graphics/RenderThread.h
++++ b/project/include/graphics/RenderThread.h
+@@ -217,7 +217,9 @@ namespace lime {
+         bool IsRenderThread();
+         bool IsRunning() { return running; }
+         void MakeCurrent();
+-        void SetSwapInterval(int interval);
++        bool SetSwapInterval(int interval, bool useWorker = false);
++        bool ApplySwapInterval();
++        std::uint64_t SwapIntervalRevision() const { return swapIntervalRevision.load(std::memory_order_relaxed); }
+         bool WaitForContext(bool held, int timeoutMS);
+         
+         static constexpr int MaxPendingFrames = 2;
+@@ -231,13 +233,16 @@ namespace lime {
+ 
+     private:
+         void Run();
++        bool IsContextCurrent() const;
+ 
+         SDL_Window* window;
+         SDL_GLContext context;
+         std::thread* workerThread;
++        std::thread::id applicationThread;
+         std::atomic<bool> running;
+         std::atomic<bool> paused;
+         std::atomic<int> swapInterval;
++        std::atomic<std::uint64_t> swapIntervalRevision{0};
+         
+         std::condition_variable condition;
+         std::mutex mutex;
+diff --git a/project/src/backend/sdl/SDLWindow.cpp b/project/src/backend/sdl/SDLWindow.cpp
+index 86f0358..ee01fed 100644
+--- a/project/src/backend/sdl/SDLWindow.cpp
++++ b/project/src/backend/sdl/SDLWindow.cpp
+@@ -64,6 +64,7 @@ namespace lime {
+ 
+             if (currentContext && (!currentWindow || window->sdlWindow == currentWindow)) {
+                 window->SetGLContext(currentContext);
++                if (!OpenGLBindings::isMultiThreaded) window->renderThread.ApplySwapInterval();
+                 contextTransferred = true;
+             }
+         }
+@@ -116,6 +117,8 @@ namespace lime {
+ 				window->SetGLContext (currentContext);
+ 				if (OpenGLBindings::isMultiThreaded) {
+ 					window->renderThread.RebindContext ();
++				} else {
++					window->renderThread.ApplySwapInterval ();
+ 				}
+ 			}
+ 		}
+@@ -507,7 +510,8 @@ namespace lime {
+ 	bool SDLWindow::SetVSyncMode (int mode) {
+ 
+ 		#if defined (SDL_VIDEO_DRIVER_OPENGL) || defined (SDL_H)
+-		return SDL_GL_SetSwapInterval (mode) == 0;
++		if (!sdlWindow || sdlRenderer) return false;
++		return renderThread.SetSwapInterval (mode, OpenGLBindings::isMultiThreaded);
+ 		#else
+ 		return false;
+ 		#endif
+@@ -554,14 +558,20 @@ void SDLWindow::Close () {
+ 	}
+ 
+ 
+-	static void SwapGLWindow(SDL_Window* window, std::uint64_t frame) {
++	static void SwapGLWindow(SDL_Window* window, const RenderThread& thread, std::uint64_t frame) {
+ 		if (frame) {
+ 			FrameTimeline::EndGpu(frame);
+ 			static thread_local SDL_GLContext reportedContext = nullptr;
++			static thread_local SDL_Window* reportedWindow = nullptr;
++			static thread_local std::uint64_t reportedRevision = 0;
+ 			SDL_GLContext context = SDL_GL_GetCurrentContext();
+-			if (context != reportedContext) {
++			const auto revision = thread.SwapIntervalRevision();
++			const bool contextChanged = context != reportedContext || window != reportedWindow;
++			if (context && (contextChanged || revision != reportedRevision)) {
+ 				reportedContext = context;
+-				FrameTimeline::WindowGeometry(window, frame);
++				reportedWindow = window;
++				reportedRevision = revision;
++				if (contextChanged) FrameTimeline::WindowGeometry(window, frame);
+ 				const int interval = SDL_GL_GetSwapInterval();
+ 				const auto now = FrameTimeline::Now();
+ 				const char* mode = interval < 0 ? "adaptive" : interval == 0 ? "immediate" : "vsync";
+@@ -584,12 +594,12 @@ void SDLWindow::Close () {
+ 			FrameTimeline::EndCommands(threaded);
+ 			if (threaded) {
+ 				renderThread.PushCommand([this, frame]() {
+-					SwapGLWindow(sdlWindow, frame);
++					SwapGLWindow(sdlWindow, renderThread, frame);
+ 					PerformanceMonitor::Instance().EndFrame();
+ 				});
+ 				renderThread.Flip();
+ 			} else {
+-				SwapGLWindow(sdlWindow, frame);
++				SwapGLWindow(sdlWindow, renderThread, frame);
+ 				PerformanceMonitor::Instance().EndFrame();
+ 			}
+ 		} else if (sdlRenderer) {
+diff --git a/project/src/graphics/RenderThread.cpp b/project/src/graphics/RenderThread.cpp
+index 1e9ea19..9cb13d3 100644
+--- a/project/src/graphics/RenderThread.cpp
++++ b/project/src/graphics/RenderThread.cpp
+@@ -60,6 +60,7 @@ namespace lime {
+     void RenderThread::Start(SDL_Window* window, SDL_GLContext context) { 
+         this->window = window; 
+         this->context = context; 
++        applicationThread = std::this_thread::get_id();
+         running = true; 
+         workerThread = new std::thread(&RenderThread::Run, this); 
+     } 
+@@ -116,6 +117,8 @@ namespace lime {
+                 }
+                 if (SDL_GL_MakeCurrent(window, context) < 0) {
+                     printf("RenderThread::RebindContext: Failed to bind context: %s\n", SDL_GetError());
++                } else {
++                    ApplySwapInterval();
+                 }
+             }
+         });
+@@ -220,19 +223,30 @@ namespace lime {
+         if (window && context) {
+             if (SDL_GL_MakeCurrent(window, context) < 0) {
+                 printf("RenderThread::MakeCurrent: Failed to make context current: %s\n", SDL_GetError());
++            } else {
++                ApplySwapInterval();
+             }
+         }
+     }
+ 
+-    void RenderThread::SetSwapInterval(int interval) {
++    bool RenderThread::SetSwapInterval(int interval, bool useWorker) {
++        if (std::this_thread::get_id() != applicationThread && !IsRenderThread()) return false;
+         swapInterval = interval;
+-        if (IsRenderThread()) {
+-            SDL_GL_SetSwapInterval(interval);
+-        } else {
+-            PushCommand([this, interval]() {
+-                SDL_GL_SetSwapInterval(interval);
+-            });
+-        }
++        if (IsContextCurrent()) return ApplySwapInterval();
++        if (useWorker && running && !paused && contextHeld)
++            return RunCommandAndWait<bool>("SDL_GL_SetSwapInterval", [this]() { return ApplySwapInterval(); });
++        return false;
++    }
++
++    bool RenderThread::IsContextCurrent() const {
++        return window && context && SDL_GL_GetCurrentWindow() == window && SDL_GL_GetCurrentContext() == context;
++    }
++
++    bool RenderThread::ApplySwapInterval() {
++        if (!IsContextCurrent()) return false;
++        const bool applied = SDL_GL_SetSwapInterval(swapInterval) == 0;
++        swapIntervalRevision.fetch_add(1, std::memory_order_relaxed);
++        return applied;
+     }
+ 
+     bool RenderThread::WaitForContext(bool held, int timeoutMS) {
+@@ -301,7 +315,7 @@ namespace lime {
+                         printf("RenderThread::Run: Resume context bind failed: %s\n", SDL_GetError());
+                     } else {
+                         contextHeld = true;
+-                        SDL_GL_SetSwapInterval(swapInterval);
++                        ApplySwapInterval();
+                         std::lock_guard<std::mutex> lock(mutex);
+                         condition.notify_all();
+                     }

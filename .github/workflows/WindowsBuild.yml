@@ -43,6 +43,13 @@ jobs:
         shell: pwsh
         run: ./tools/setup-origin-editor-layouts.ps1 -AssetsRoot "$env:GITHUB_WORKSPACE/_build/origin-editor-build-assets"
 
+      - name: Prepare render thread and Immix runtime
+        shell: pwsh
+        run: |
+          ./tools/setup-novaflare-render-dependencies.ps1 -Component GenerationalGC,ImmixReclaim,RenderThreadRepair,ImageCoordinates
+          haxelib run lime rebuild windows -64
+          if ($LASTEXITCODE -ne 0) { throw 'Lime native rebuild failed' }
+
       - name: Extract current version
         id: get_version
         shell: pwsh

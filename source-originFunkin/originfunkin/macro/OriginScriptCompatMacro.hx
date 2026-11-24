@@ -40,6 +40,9 @@ class OriginScriptCompatMacro
       "@:build(originfunkin.macro.OriginScriptCompatMacro.uniqueScriptSources())", false, true, false);
     Compiler.addGlobalMetadata("polymod.backends",
       "@:build(originfunkin.macro.OriginScriptCompatMacro.completeAsyncReadsOnMainThread())", true, true, false);
+    if (haxe.macro.Context.defined('hscriptPos'))
+      Compiler.addGlobalMetadata("polymod.hscript._internal.Parser",
+        "@:build(originfunkin.macro.OriginScriptCompatMacro.historicalFinalGetters())", false, true, false);
     Compiler.addGlobalMetadata("polymod.hscript._internal.Interp",
       "@:build(originfunkin.macro.OriginScriptCompatMacro.legacyNativeWrites())", false, true, false);
     Compiler.addGlobalMetadata("polymod.hscript._internal.Interp",
@@ -390,10 +393,46 @@ class OriginScriptCompatMacro
     return fields;
   }
 
+  public static macro function historicalFinalGetters():Array<haxe.macro.Expr.Field>
+  {
+    var fields = haxe.macro.Context.getBuildFields();
+    var replacements = 0;
+
+    function rewrite(expr:haxe.macro.Expr):haxe.macro.Expr
+    {
+      return switch (expr.expr)
+      {
+        case EBlock([macro if (id == "final") { unexpected(TPOpen); }, readGetter, readComma, readSetter, readClose]):
+          replacements++;
+          macro {
+            if (id == "final" && !originfunkin.compat.LegacyRuntime.usesFinalGetters(origin))
+              unexpected(TPOpen);
+            $e{readGetter};
+            if (id == "final" && get != "get") unexpected(TId(get));
+            $e{readComma};
+            $e{readSetter};
+            if (id == "final" && set != "never") unexpected(TId(set));
+            $e{readClose};
+          };
+        default: haxe.macro.ExprTools.map(expr, rewrite);
+      }
+    }
+
+    for (field in fields) switch (field.kind)
+    {
+      case FFun(func) if (field.name == 'parseField' && func.expr != null): func.expr = rewrite(func.expr);
+      default:
+    }
+    if (replacements != 1)
+      haxe.macro.Context.error('Review Polymod final-getter field parsing after the parser changed.', haxe.macro.Context.currentPos());
+    return fields;
+  }
+
   public static macro function historicalFieldDeclarations():Array<haxe.macro.Expr.Field>
   {
     var fields = haxe.macro.Context.getBuildFields();
     var hooks = 0;
+    var cacheWrites = 0;
     function recordDeclaration(expr:haxe.macro.Expr):haxe.macro.Expr
     {
       var mapped = haxe.macro.ExprTools.map(expr, recordDeclaration);
@@ -410,6 +449,9 @@ class OriginScriptCompatMacro
       var mapped = haxe.macro.ExprTools.map(expr, guardDuplicates);
       return switch (mapped.expr)
       {
+        case ECall({expr:EField({expr:EConst(CIdent('_cachedFieldDecls'))}, 'set')}, _):
+          cacheWrites++;
+          mapped;
         case EIf(condition = {expr:ECall({expr:EField({expr:EConst(CIdent('_cachedFieldDecls'))}, 'exists')}, _)}, thenExpr, elseExpr):
           hooks++;
           // Preserve the entire original loop, including every initializer and
@@ -437,7 +479,7 @@ class OriginScriptCompatMacro
         else if (!isInterp && field.name == 'buildCaches') func.expr = guardDuplicates(original);
       default:
     }
-    if (hooks != (isInterp ? 2 : 1))
+    if (isInterp ? hooks != 2 : (hooks != 1 && !(hooks == 0 && cacheWrites == 1)))
       haxe.macro.Context.error('Review Polymod repeated-field compatibility hooks.', haxe.macro.Context.currentPos());
     return fields;
   }

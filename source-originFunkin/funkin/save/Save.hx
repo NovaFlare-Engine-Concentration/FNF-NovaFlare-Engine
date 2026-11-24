@@ -160,7 +160,7 @@ class Save implements ConsoleClass implements ISerializable
         hapticsIntensityMultiplier: 1,
         controlsScheme: FunkinHitboxControlSchemes.Arrows,
         autoPause: true,
-        vsyncMode: 'Off',
+        vsyncMode: 'On',
         strumlineBackgroundOpacity: 0,
         autoFullscreen: false,
         globalOffset: 0,
@@ -193,7 +193,8 @@ class Save implements ConsoleClass implements ISerializable
           fpsViewScale: 1.0,
           skipVideo: false,
           autoShaderConversion: true,
-          mouseEffects: true
+          mouseEffects: true,
+          traceConsole: false
         }
       },
       #if mobile
@@ -1567,6 +1568,7 @@ typedef NovaFlareSettings =
   var skipVideo:Bool;
   var autoShaderConversion:Bool;
   var mouseEffects:Bool;
+  @:optional var traceConsole:Bool;
 }
 
 /**

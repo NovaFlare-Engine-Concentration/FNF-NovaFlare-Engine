@@ -44,6 +44,11 @@ class FNFPsych extends FNFPsychBasic<PsychJsonFormat>
 	{
 		return cast super.fromJson(data, meta, diff);
 	}
+
+	override public function resolveBasicNoteType(type:BasicFNFNoteType):FNFLegacyNoteType
+	{
+		return indexedTypes ? super.resolveBasicNoteType(type) : noteTypeResolver.fromBasicKeepingCustomType(type);
+	}
 }
 
 @:private

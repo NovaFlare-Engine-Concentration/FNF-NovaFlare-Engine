@@ -1,0 +1,1894 @@
+--- a/project/Build.xml
++++ b/project/Build.xml
+@@ -310,6 +310,7 @@
+ 		<file name="src/graphics/ImageBuffer.cpp" />
+ 		<file name="src/graphics/RenderEvent.cpp" />
+ 		<file name="src/graphics/RenderThread.cpp" />
++		<file name="src/graphics/FrameTimeline.cpp" />
+ 		<file name="src/graphics/SharedBufferManager.cpp" />
+ 		<file name="src/graphics/PerformanceMonitor.cpp" />
+ 		<file name="src/graphics/utils/ImageDataUtil.cpp" />
+--- a/project/include/graphics/RenderThread.h
++++ b/project/include/graphics/RenderThread.h
+@@ -2,6 +2,7 @@
+ #define LIME_GRAPHICS_RENDER_THREAD_H
+ 
+ #include <SDL.h>
++#include <graphics/FrameTimeline.h>
+ #include <mutex>
+ #include <condition_variable>
+ #include <functional>
+@@ -184,15 +185,22 @@
+         void PushCommand(Callable&& command) {
+             // Render submission is SPSC: only the stage thread appends to the
+             // current frame, and only the worker consumes submitted frames.
+-            currentFrame->emplace_back(std::forward<Callable>(command));
+-        }
+-        void Flip(bool forceWait = false);
++            currentFrame->commands.emplace_back(std::forward<Callable>(command));
++        }
++        std::uint64_t Flip(bool forceWait = false);
++        void BeginTimelinePhase() {
++#ifdef HX_WINDOWS
++            if (FrameTimeline::CurrentWork() && !currentFrame->commands.empty())
++                currentFrame->mixedTimelinePhase = true;
++#endif
++        }
+         
+         template<typename T>
+-        T RunCommandAndWait(std::function<T()> command) {
++        T RunCommandAndWait(const char* operation, std::function<T()> command) {
+             if (IsRenderThread()) {
+                 return command();
+             }
++            FrameTimeline::Span wait(FrameTimeline::SyncEvent(), FrameTimeline::CurrentWork(), operation);
+             std::promise<T> promise;
+             std::future<T> future = promise.get_future();
+             PushCommand([&]() {
+@@ -202,7 +210,7 @@
+                     promise.set_exception(std::current_exception());
+                 }
+             });
+-            Flip(true);
++            wait.SetBatch(Flip(true));
+             return future.get();
+         }
+ 
+@@ -235,7 +243,18 @@
+         std::mutex mutex;
+         
+         // Use pointers to vectors to avoid copying and enable lightweight swapping
+-        using Frame = std::vector<RenderCommand>;
++        struct Frame {
++            std::vector<RenderCommand> commands;
++#ifdef HX_WINDOWS
++            std::uint64_t timelineId = 0;
++            std::uint64_t timelineBatch = 0;
++            std::uint64_t submittedAt = 0;
++            int queueDepth = 0;
++            bool synchronization = false;
++            bool timelineUpdate = false;
++            bool mixedTimelinePhase = false;
++#endif
++        };
+         
+         LockFreeQueue<Frame*, 16> framePool;
+         LockFreeQueue<Frame*, 16> pendingFrames;
+@@ -245,11 +264,12 @@
+     };
+ 
+     template<>
+-    inline void RenderThread::RunCommandAndWait<void>(std::function<void()> command) {
++    inline void RenderThread::RunCommandAndWait<void>(const char* operation, std::function<void()> command) {
+          if (IsRenderThread()) {
+             command();
+             return;
+         }
++        FrameTimeline::Span wait(FrameTimeline::SyncEvent(), FrameTimeline::CurrentWork(), operation);
+         std::promise<void> promise;
+         std::future<void> future = promise.get_future();
+         PushCommand([&]() {
+@@ -260,7 +280,7 @@
+                 promise.set_exception(std::current_exception());
+             }
+         });
+-        Flip(true);
++        wait.SetBatch(Flip(true));
+         future.get();
+     }
+ 
+--- a/project/src/backend/sdl/SDLApplication.cpp
++++ b/project/src/backend/sdl/SDLApplication.cpp
+@@ -3,6 +3,7 @@
+ #include "SDLGamepad.h"
+ #include "SDLJoystick.h"
+ #include <graphics/RenderThread.h>
++#include <graphics/FrameTimeline.h>
+ #include "../../graphics/opengl/OpenGLBindings.h"
+ #include <graphics/PerformanceMonitor.h>
+ #include <system/System.h>
+@@ -42,6 +43,25 @@
+ 
+ 
+ namespace lime {
++
++	static void BeginTimelinePhase() {
++		if (!FrameTimeline::CurrentWork() || !OpenGLBindings::isMultiThreaded) return;
++		if (auto* thread = OpenGLBindings::renderThread) thread->BeginTimelinePhase();
++	}
++
++	static void DispatchScheduledRender(RenderEvent* event) {
++		FrameTimeline::BeginRender();
++		BeginTimelinePhase();
++		if (!OpenGLBindings::isMultiThreaded)
++			FrameTimeline::BeginGpu(FrameTimeline::CurrentRender());
++		RenderEvent::Dispatch(event);
++		FrameTimeline::EndRender();
++	}
++
++	static void TraceFrameSetting(const char* name, std::uint64_t value) {
++		const auto now = FrameTimeline::Now();
++		if (now) FrameTimeline::Write({name, 0, now, now, value});
++	}
+ 
+ 
+ 	AutoGCRoot* Application::callback = 0;
+@@ -265,16 +285,29 @@
+ 
+ 							applicationEvent.type = UPDATE;
+ 							applicationEvent.deltaTime = framePeriod;
+-							ApplicationEvent::Dispatch (&applicationEvent);
++							FrameTimeline::BeginUpdate();
++							BeginTimelinePhase();
++							const auto update = FrameTimeline::CurrentUpdate();
++							{
++								FrameTimeline::Span duration("update", update);
++								ApplicationEvent::Dispatch (&applicationEvent);
++							}
+ 
+ 							renderEvent.type = RENDER_UPDATE;
+-							RenderEvent::Dispatch (&renderEvent);
++							{
++								FrameTimeline::Span duration("render_update", update);
++								RenderEvent::Dispatch (&renderEvent);
++							}
++
++							FrameTimeline::EndUpdate();
+ 
+ 							if (!lockRender) {
+ 								if (!OpenGLBindings::isMultiThreaded || !OpenGLBindings::renderThread || !OpenGLBindings::renderThread->IsRunning() || RenderThread::activePendingFrames < RenderThread::MaxPendingFrames) {
+ 									renderEvent.type = RENDER;
+ 									PerformanceMonitor::Instance().StartFrame();
+-									RenderEvent::Dispatch (&renderEvent);
++									DispatchScheduledRender (&renderEvent);
++								} else {
++									FrameTimeline::RenderBlocked(RenderThread::activePendingFrames.load(std::memory_order_relaxed));
+ 								}
+ 							}
+ 
+@@ -286,6 +319,7 @@
+ 						if (!lockRender) break;
+ 
+ 						if (OpenGLBindings::isMultiThreaded && OpenGLBindings::renderThread && OpenGLBindings::renderThread->IsRunning() && RenderThread::activePendingFrames >= RenderThread::MaxPendingFrames) {
++							FrameTimeline::RenderBlocked(RenderThread::activePendingFrames.load(std::memory_order_relaxed));
+ 							RenderThread::hasPendingRenderRequest.exchange (true);
+ 							break;
+ 						}
+@@ -302,7 +336,7 @@
+ 
+ 								renderEvent.type = RENDER;
+ 								PerformanceMonitor::Instance().StartFrame();
+-								RenderEvent::Dispatch (&renderEvent);
++								DispatchScheduledRender (&renderEvent);
+ 
+ 								accumulatorRender -= renderFramePeriod;
+ 								if (accumulatorRender > renderFramePeriod * 2) accumulatorRender = 0;
+@@ -480,6 +514,10 @@
+ 							RenderEvent::Dispatch (&renderEvent);
+ 						}
+ 
++						break;
++
++					case SDL_WINDOWEVENT_DISPLAY_CHANGED:
++						if (FrameTimeline::Now()) FrameTimeline::WindowGeometry(SDL_GetWindowFromID(event->window.windowID));
+ 						break;
+ 
+ 					case SDL_WINDOWEVENT_CLOSE:
+@@ -966,6 +1004,23 @@
+ 
+ 
+ 	void SDLApplication::ProcessWindowEvent (SDL_Event* event) {
++		const auto timelineNow = FrameTimeline::Now();
++		if (timelineNow) {
++			const SDL_WindowEvent& window = event->window;
++			auto* nativeWindow = SDL_GetWindowFromID(window.windowID);
++			switch (window.event) {
++				case SDL_WINDOWEVENT_FOCUS_GAINED:
++				case SDL_WINDOWEVENT_FOCUS_LOST:
++					FrameTimeline::Write({"window_focus", 0, timelineNow, timelineNow,
++						window.event == SDL_WINDOWEVENT_FOCUS_GAINED ? 1u : 0u,
++						nativeWindow ? SDL_GetWindowFlags(nativeWindow) : 0u});
++					break;
++				case SDL_WINDOWEVENT_SIZE_CHANGED:
++					FrameTimeline::WindowGeometry(nativeWindow);
++					break;
++				default: break;
++			}
++		}
+ 
+ 		if (WindowEvent::callback) {
+ 
+@@ -1013,6 +1068,7 @@
+ 		applicationEvent.type = EXIT;
+ 		ApplicationEvent::Dispatch (&applicationEvent);
+ 
++		FrameTimeline::Flush();
+ 		SDL_QuitSubSystem (initFlags);
+ 
+ 		SDL_Quit ();
+@@ -1053,6 +1109,7 @@
+ 			lastPerfCounter = SDL_GetPerformanceCounter ();
+ 			nextPerfCounter = lastPerfCounter + periodPerfTicks;
+ 		}
++		TraceFrameSetting("update_period_ns", static_cast<std::uint64_t>(framePeriod * 1000000.0 + .5));
+ 	}
+ 
+ 
+@@ -1080,6 +1137,7 @@
+ 				periodRenderPerfTicks;
+ 		}
+ 
++		TraceFrameSetting("render_period_ns", static_cast<std::uint64_t>(renderFramePeriod * 1000000.0 + .5));
+ 	}
+ 
+ 
+@@ -1093,6 +1151,7 @@
+ 		}
+ 		#endif
+ 		lockRender = split;
++		TraceFrameSetting("split_render", split ? 1 : 0);
+ 		if (split) {
+ 			accumulatorRender = 0;
+ 			if (perfFreq) {
+--- a/project/src/backend/sdl/SDLWindow.cpp
++++ b/project/src/backend/sdl/SDLWindow.cpp
+@@ -4,6 +4,7 @@
+ #include "../../graphics/opengl/OpenGL.h"
+ #include "../../graphics/opengl/OpenGLBindings.h"
+ #include <graphics/PerformanceMonitor.h>
++#include <graphics/FrameTimeline.h>
+ #include <future>
+ 
+ #ifdef HX_WINDOWS
+@@ -552,27 +553,45 @@
+ 	}
+ 
+ 
++	static void SwapGLWindow(SDL_Window* window, std::uint64_t frame) {
++		if (frame) {
++			FrameTimeline::EndGpu(frame);
++			static thread_local SDL_GLContext reportedContext = nullptr;
++			SDL_GLContext context = SDL_GL_GetCurrentContext();
++			if (context != reportedContext) {
++				reportedContext = context;
++				FrameTimeline::WindowGeometry(window, frame);
++				const int interval = SDL_GL_GetSwapInterval();
++				const auto now = FrameTimeline::Now();
++				const char* mode = interval < 0 ? "adaptive" : interval == 0 ? "immediate" : "vsync";
++				FrameTimeline::Write({"swap_interval", frame, now, now,
++					static_cast<std::uint64_t>(interval < 0 ? -interval : interval), 0, mode});
++			}
++			FrameTimeline::Span duration("sdl_gl_swap", frame);
++			SDL_GL_SwapWindow(window);
++			return;
++		}
++		SDL_GL_SwapWindow(window);
++	}
++
+ 	void SDLWindow::ContextFlip () {
+-
+ 		if (context && !sdlRenderer) {
+-
+-			if (renderThread.IsRunning() && OpenGLBindings::isMultiThreaded) {
+-			renderThread.PushCommand ([this] () {
+-				SDL_GL_SwapWindow (sdlWindow);
++			const bool threaded = renderThread.IsRunning() && OpenGLBindings::isMultiThreaded;
++			const auto frame = FrameTimeline::CurrentRender();
++			FrameTimeline::EndCommands(threaded);
++			if (threaded) {
++				renderThread.PushCommand([this, frame]() {
++					SwapGLWindow(sdlWindow, frame);
++					PerformanceMonitor::Instance().EndFrame();
++				});
++				renderThread.Flip();
++			} else {
++				SwapGLWindow(sdlWindow, frame);
+ 				PerformanceMonitor::Instance().EndFrame();
+-			});
+-			renderThread.Flip();
+-		} else {
+-				SDL_GL_SwapWindow (sdlWindow);
+-				PerformanceMonitor::Instance().EndFrame();
+-			}
+-
++			}
+ 		} else if (sdlRenderer) {
+-
+-			SDL_RenderPresent (sdlRenderer);
+-
+-		}
+-
++			SDL_RenderPresent(sdlRenderer);
++		}
+ 	}
+ 
+ 
+--- a/project/src/graphics/RenderThread.cpp
++++ b/project/src/graphics/RenderThread.cpp
+@@ -20,14 +20,14 @@
+ 
+     RenderThread::RenderThread() : window(nullptr), context(nullptr), workerThread(nullptr), running(false), paused(false), contextHeld(false), swapInterval(1), workerWaiting(false), mainWaiting(false) {
+         currentFrame = new Frame();
+-        currentFrame->reserve(1024);
++        currentFrame->commands.reserve(1024);
+         
+         // Keep only enough reusable frames for the bounded in-flight queue.
+         // Typical NovaFlare frames contain roughly 300 commands; reserving
+         // 4096 commands across 16 frames retained several MiB permanently.
+         for (int i = 0; i < MaxPendingFrames + 1; ++i) {
+             Frame* frame = new Frame();
+-            frame->reserve(1024);
++            frame->commands.reserve(1024);
+             if (!framePool.push(frame)) {
+                 delete frame; 
+             }
+@@ -120,19 +120,26 @@
+         });
+     }
+ 
+-    void RenderThread::Flip(bool forceWait) {
++    std::uint64_t RenderThread::Flip(bool forceWait) {
+         (void)forceWait;
+-        if (!running) return;
+-
+-        if (paused) return;
+-
+-        if (!currentFrame->empty()) {
++        if (!running) return 0;
++
++        if (paused) return 0;
++
++        std::uint64_t batch = 0;
++        if (!currentFrame->commands.empty()) {
++#ifdef HX_WINDOWS
++            const auto timelineId = FrameTimeline::CurrentWork();
++            if (timelineId) batch = FrameTimeline::NextBatch();
++#endif
+             Frame* nextFrame = nullptr;
+             
+             // A submitted frame is never discarded. If the bounded pool is
+             // temporarily exhausted, apply backpressure until the worker
+             // returns one.
+             if (!framePool.pop(nextFrame)) {
++                FrameTimeline::Span wait("pool_wait", FrameTimeline::CurrentWork());
++                wait.SetBatch(batch);
+                 std::unique_lock<std::mutex> lock(mutex);
+                 mainWaiting = true;
+                 condition.wait(lock, [this, &nextFrame] {
+@@ -145,23 +152,38 @@
+                             std::this_thread::yield();
+                         }
+                     }
+-                    return;
++                    return 0;
+                 }
+             }
+ 
+             Frame* submitted = currentFrame;
+ 
+             currentFrame = nextFrame;
+-            currentFrame->clear();
++            currentFrame->commands.clear();
+ 
+             // Publish the in-flight count before the queue item so the worker
+             // can never complete a frame before its submission is counted.
++#ifdef HX_WINDOWS
++            currentFrame->mixedTimelinePhase = false;
++            submitted->timelineId = timelineId;
++            submitted->timelineUpdate = FrameTimeline::IsUpdate();
++            submitted->synchronization = forceWait;
++            submitted->timelineBatch = batch;
++            submitted->queueDepth = activePendingFrames.fetch_add(1, std::memory_order_acq_rel) + 1;
++            submitted->submittedAt = submitted->timelineId ? FrameTimeline::Now() : 0;
++#else
+             activePendingFrames.fetch_add(1, std::memory_order_acq_rel);
++#endif
+             bool queued = pendingFrames.push(submitted);
+             while (!queued) {
++                FrameTimeline::Span wait("submit_wait", FrameTimeline::CurrentWork());
++                wait.SetBatch(batch);
+                 std::unique_lock<std::mutex> lock(mutex);
+                 mainWaiting = true;
+                 condition.wait(lock, [this, submitted, &queued] {
++#ifdef HX_WINDOWS
++                    if (submitted->timelineId) submitted->submittedAt = FrameTimeline::Now();
++#endif
+                     queued = pendingFrames.push(submitted);
+                     return queued || !running;
+                 });
+@@ -169,11 +191,11 @@
+                 if (!queued && !running) {
+                     activePendingFrames.fetch_sub(
+                         1, std::memory_order_acq_rel);
+-                    submitted->clear();
++                    submitted->commands.clear();
+                     while (!framePool.push(submitted)) {
+                         std::this_thread::yield();
+                     }
+-                    return;
++                    return 0;
+                 }
+             }
+ 
+@@ -182,6 +204,7 @@
+                 condition.notify_all();
+             }
+         }
++        return batch;
+     }
+ 
+     bool RenderThread::IsRenderThread() { 
+@@ -300,22 +323,41 @@
+             }
+             
+             if (frame) {
+-                if (!frame->empty()) {
+-                    const std::size_t commandCount = frame->size();
++                if (!frame->commands.empty()) {
++                    const std::size_t commandCount = frame->commands.size();
+                     const auto executionStarted =
+                         std::chrono::steady_clock::now();
+-                    for (auto& command : *frame) {
++#ifdef HX_WINDOWS
++                    const auto timelineId = frame->timelineId;
++                    const auto dequeuedAt = timelineId ? FrameTimeline::Now() : 0;
++                    if (!frame->timelineUpdate) FrameTimeline::BeginGpu(timelineId);
++                    const auto driverStarted = timelineId ? FrameTimeline::Now() : 0;
++#endif
++                    for (auto& command : frame->commands) {
+                         if (command) {
+                             command();
+                         }
+                     }
++#ifdef HX_WINDOWS
++                    if (timelineId) {
++                        const auto driverEnded = FrameTimeline::Now();
++                        const char* detail = frame->synchronization ? "sync" : "submission";
++                        const char* phase = frame->timelineUpdate ? "update" : "render";
++                        if (frame->mixedTimelinePhase)
++                            phase = frame->timelineUpdate ? "update_mixed" : "render_mixed";
++                        FrameTimeline::Write({"queue", timelineId, frame->submittedAt, dequeuedAt,
++                            static_cast<std::uint64_t>(frame->queueDepth), commandCount, detail, frame->timelineBatch, phase});
++                        FrameTimeline::Write({"driver_batch", timelineId, driverStarted, driverEnded,
++                            commandCount, 0, detail, frame->timelineBatch, phase});
++                    }
++#endif
+                     const std::uint64_t executionMicros =
+                         static_cast<std::uint64_t>(
+                             std::chrono::duration_cast<
+                                 std::chrono::microseconds>(
+                                     std::chrono::steady_clock::now() -
+                                     executionStarted).count());
+-                    frame->clear();
++                    frame->commands.clear();
+ 
+                     if (perfTrace) {
+                         ++perfFrames;
+diff --git a/project/include/graphics/FrameTimeline.h b/project/include/graphics/FrameTimeline.h
+new file mode 100644
+index 00000000..0053042d
+--- /dev/null
++++ b/project/include/graphics/FrameTimeline.h
+@@ -0,0 +1,86 @@
++#ifndef LIME_GRAPHICS_FRAME_TIMELINE_H
++#define LIME_GRAPHICS_FRAME_TIMELINE_H
++
++#include <cstdint>
++
++struct SDL_Window;
++
++namespace lime {
++namespace FrameTimeline {
++
++    struct Event {
++        const char* name;
++        std::uint64_t frame;
++        std::uint64_t begin;
++        std::uint64_t end;
++        std::uint64_t value;
++        std::uint64_t auxiliary;
++        const char* detail;
++        std::uint64_t batch;
++        const char* phase;
++    };
++
++#ifdef HX_WINDOWS
++    std::uint64_t Now();
++    void Write(const Event& event);
++    std::uint64_t CurrentRender();
++    void BeginUpdate();
++    void EndUpdate();
++    std::uint64_t CurrentWork();
++    std::uint64_t NextBatch();
++    bool IsUpdate();
++    const char* SyncEvent();
++    void Flush();
++    void BeginRender();
++    void EndCommands(bool threaded);
++    void EndRender();
++    void RenderBlocked(int depth);
++    void BeginGpu(std::uint64_t frame);
++    void EndGpu(std::uint64_t frame);
++    void WindowGeometry(SDL_Window* window, std::uint64_t frame = 0);
++#else
++    inline std::uint64_t Now() { return 0; }
++    inline void Write(const Event&) {}
++    inline std::uint64_t CurrentRender() { return 0; }
++    inline void BeginUpdate() {}
++    inline void EndUpdate() {}
++    inline std::uint64_t CurrentWork() { return 0; }
++    inline std::uint64_t NextBatch() { return 0; }
++    inline bool IsUpdate() { return false; }
++    inline const char* SyncEvent() { return ""; }
++    inline void Flush() {}
++    inline void BeginRender() {}
++    inline void EndCommands(bool) {}
++    inline void EndRender() {}
++    inline void RenderBlocked(int) {}
++    inline void BeginGpu(std::uint64_t) {}
++    inline void EndGpu(std::uint64_t) {}
++    inline void WindowGeometry(SDL_Window*, std::uint64_t = 0) {}
++#endif
++
++    class Span {
++    public:
++        explicit Span(const char* name, const char* detail = "")
++            : Span(name, CurrentRender(), detail) {}
++        Span(const char* name, std::uint64_t frame, const char* detail = "")
++            : event{name, frame, frame ? Now() : 0, 0, 0, 0, detail, 0, IsUpdate() ? "update" : "render"} {}
++        void SetBatch(std::uint64_t batch) { event.batch = batch; }
++        ~Span() {
++            if (!event.begin) return;
++            event.end = Now();
++            Write(event);
++        }
++
++    private:
++        Event event;
++    };
++
++#ifdef HX_WINDOWS
++    std::uint64_t CurrentUpdate();
++#else
++    inline std::uint64_t CurrentUpdate() { return 0; }
++#endif
++}
++}
++
++#endif
+diff --git a/project/src/graphics/FrameTimeline.cpp b/project/src/graphics/FrameTimeline.cpp
+new file mode 100644
+index 00000000..6bf89a29
+--- /dev/null
++++ b/project/src/graphics/FrameTimeline.cpp
+@@ -0,0 +1,291 @@
++#include <graphics/FrameTimeline.h>
++
++#ifdef HX_WINDOWS
++#include <SDL.h>
++#include <windows.h>
++#include <array>
++#include <cstdio>
++
++namespace lime {
++namespace FrameTimeline {
++namespace {
++
++    FILE* OpenTimeline() {
++        wchar_t path[32768];
++        DWORD length = GetEnvironmentVariableW(L"NOVAFLARE_FRAME_TIMELINE", path, 32768);
++        if (!length || length >= 32768) return nullptr;
++        FILE* file = _wfopen(path, L"wb");
++        if (!file) return nullptr;
++        std::fputs("event,frame,begin_qpc,end_qpc,value,auxiliary,detail,batch,phase\n", file);
++        std::fprintf(file, "clock,0,0,0,%llu,0,qpc_frequency,0,\n",
++            static_cast<unsigned long long>(SDL_GetPerformanceFrequency()));
++        std::fflush(file);
++        return file;
++    }
++
++    FILE* Timeline() {
++        static FILE* file = OpenTimeline();
++        return file;
++    }
++
++    class TraceBuffer {
++    public:
++        ~TraceBuffer() { Flush(); }
++
++        void Append(const Event& event, FILE* file) {
++            output = file;
++            if (bytes.size() - size < 512) Flush();
++            const int count = std::snprintf(bytes.data() + size, bytes.size() - size,
++                "%s,%llu,%llu,%llu,%llu,%llu,%s,%llu,%s\n", event.name,
++                static_cast<unsigned long long>(event.frame),
++                static_cast<unsigned long long>(event.begin),
++                static_cast<unsigned long long>(event.end),
++                static_cast<unsigned long long>(event.value),
++                static_cast<unsigned long long>(event.auxiliary), event.detail ? event.detail : "",
++                static_cast<unsigned long long>(event.batch), event.phase ? event.phase : "");
++            if (count > 0 && static_cast<std::size_t>(count) < bytes.size() - size)
++                size += static_cast<std::size_t>(count);
++        }
++
++        void Flush() {
++            if (!size) return;
++            std::fwrite(bytes.data(), 1, size, output);
++            std::fflush(output);
++            size = 0;
++        }
++
++    private:
++        FILE* output = nullptr;
++        std::array<char, 16384> bytes{};
++        std::size_t size = 0;
++    };
++
++    thread_local TraceBuffer traceBuffer;
++
++    struct DispatchState {
++        std::uint64_t update = 0;
++        bool updating = false;
++        std::uint64_t sequence = 0;
++        std::uint64_t batchSequence = 0;
++        std::uint64_t render = 0;
++        std::uint64_t renderStart = 0;
++    };
++
++    thread_local DispatchState dispatch;
++
++    class GpuQueries {
++    public:
++        void Begin(std::uint64_t frame);
++        void End(std::uint64_t frame);
++
++    private:
++        struct Query {
++            unsigned int begin = 0;
++            unsigned int end = 0;
++            std::uint64_t frame = 0;
++            bool pending = false;
++        };
++
++        bool Load();
++        void ReadAvailable();
++
++        // SDL returns OpenGL entry points with the platform's GL calling convention.
++        using CreateQueries = void (APIENTRY*)(int, unsigned int*);
++        using QueryCounter = void (APIENTRY*)(unsigned int, unsigned int);
++        using QueryParameter = void (APIENTRY*)(unsigned int, unsigned int, int*);
++        using QueryResult = void (APIENTRY*)(unsigned int, unsigned int, std::uint64_t*);
++        static constexpr unsigned int Timestamp = 0x8E28;
++        static constexpr unsigned int CounterBits = 0x8864;
++        static constexpr unsigned int Result = 0x8866;
++        static constexpr unsigned int ResultAvailable = 0x8867;
++
++        SDL_GLContext context = nullptr;
++        std::array<Query, 16> queries{};
++        Query* active = nullptr;
++        std::uint64_t currentFrame = 0;
++        QueryCounter counter = nullptr;
++        QueryParameter queryParameter = nullptr;
++        QueryResult queryResult = nullptr;
++    };
++
++    bool GpuQueries::Load() {
++        auto profile = 0;
++        SDL_GL_GetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, &profile);
++        if (profile & SDL_GL_CONTEXT_PROFILE_ES) return false;
++        int major = 0;
++        int minor = 0;
++        SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, &major);
++        SDL_GL_GetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, &minor);
++        if (major < 4 && (major < 3 || minor < 3) &&
++            !SDL_GL_ExtensionSupported("GL_ARB_timer_query")) return false;
++
++        const auto create = reinterpret_cast<CreateQueries>(SDL_GL_GetProcAddress("glGenQueries"));
++        const auto getParameter = reinterpret_cast<QueryParameter>(SDL_GL_GetProcAddress("glGetQueryiv"));
++        counter = reinterpret_cast<QueryCounter>(SDL_GL_GetProcAddress("glQueryCounter"));
++        queryParameter = reinterpret_cast<QueryParameter>(SDL_GL_GetProcAddress("glGetQueryObjectiv"));
++        queryResult = reinterpret_cast<QueryResult>(SDL_GL_GetProcAddress("glGetQueryObjectui64v"));
++        if (!create || !getParameter || !counter || !queryParameter || !queryResult)
++            return false;
++
++        int counterBits = 0;
++        getParameter(Timestamp, CounterBits, &counterBits);
++        if (counterBits <= 0) return false;
++        std::array<unsigned int, 32> ids{};
++        create(static_cast<int>(ids.size()), ids.data());
++        for (std::size_t index = 0; index < queries.size(); ++index) {
++            queries[index].begin = ids[index * 2];
++            queries[index].end = ids[index * 2 + 1];
++        }
++        return queries.front().begin != 0;
++    }
++
++    void GpuQueries::ReadAvailable() {
++        for (Query& query : queries) {
++            if (!query.pending) continue;
++            int available = 0;
++            queryParameter(query.end, ResultAvailable, &available);
++            if (!available) continue;
++            std::uint64_t begin = 0;
++            std::uint64_t end = 0;
++            queryResult(query.begin, Result, &begin);
++            queryResult(query.end, Result, &end);
++            if (end >= begin) {
++                const auto read = Now();
++                Write({"gpu_elapsed", query.frame, read, read, end - begin});
++            }
++            query.pending = false;
++        }
++    }
++
++    void GpuQueries::Begin(std::uint64_t frame) {
++        if (frame == currentFrame) return;
++        currentFrame = frame;
++        SDL_GLContext currentContext = SDL_GL_GetCurrentContext();
++        if (context != currentContext) {
++            context = currentContext;
++            active = nullptr;
++            queries = {};
++            const bool supported = context && Load();
++            const auto now = Now();
++            Write({"gpu_support", frame, now, now, supported ? 1u : 0u});
++        }
++        if (!queries.front().begin) return;
++
++        active = nullptr;
++        ReadAvailable();
++        for (Query& query : queries) {
++            if (!query.pending && query.begin && query.end) {
++                active = &query;
++                counter(query.begin, Timestamp);
++                return;
++            }
++        }
++        const auto now = Now();
++        Write({"gpu_query_backlog", frame, now, now});
++    }
++
++    void GpuQueries::End(std::uint64_t frame) {
++        if (frame != currentFrame || !active) return;
++        counter(active->end, Timestamp);
++        active->frame = frame;
++        active->pending = true;
++        active = nullptr;
++    }
++
++    thread_local GpuQueries gpu;
++}
++
++std::uint64_t Now() {
++    return Timeline() ? SDL_GetPerformanceCounter() : 0;
++}
++
++void Write(const Event& event) {
++    if (FILE* file = Timeline()) traceBuffer.Append(event, file);
++}
++
++void Flush() { traceBuffer.Flush(); }
++
++std::uint64_t CurrentRender() { return dispatch.render; }
++
++std::uint64_t CurrentUpdate() { return dispatch.update; }
++
++void BeginUpdate() {
++    if (!Timeline()) return;
++    ++dispatch.update;
++    dispatch.updating = true;
++}
++
++void EndUpdate() { dispatch.updating = false; }
++
++std::uint64_t CurrentWork() {
++    return dispatch.updating ? dispatch.update : dispatch.render;
++}
++
++std::uint64_t NextBatch() { return ++dispatch.batchSequence; }
++
++bool IsUpdate() { return dispatch.updating; }
++
++const char* SyncEvent() {
++    return dispatch.updating ? "update_gl_sync" : "gl_sync";
++}
++
++void BeginRender() {
++    if (!Timeline()) return;
++    dispatch.render = ++dispatch.sequence;
++    dispatch.renderStart = Now();
++}
++
++void EndCommands(bool threaded) {
++    if (!dispatch.render) return;
++    Write({"render_commands", dispatch.render, dispatch.renderStart, Now(),
++        dispatch.update, threaded ? 1u : 0u});
++}
++
++void EndRender() {
++    if (!dispatch.render) return;
++    Write({"render_dispatch", dispatch.render, dispatch.renderStart, Now(), dispatch.update});
++    dispatch.render = 0;
++}
++
++void RenderBlocked(int depth) {
++    const auto now = Now();
++    if (now) Write({"queue_full", 0, now, now, static_cast<std::uint64_t>(depth), dispatch.update});
++}
++
++void BeginGpu(std::uint64_t frame) {
++    if (frame) gpu.Begin(frame);
++}
++
++void EndGpu(std::uint64_t frame) {
++    if (frame) gpu.End(frame);
++}
++
++void WindowGeometry(SDL_Window* window, std::uint64_t frame) {
++    const auto tick = Now();
++    if (!tick || !window) return;
++
++    int width = 0;
++    int height = 0;
++    int drawableWidth = 0;
++    int drawableHeight = 0;
++    SDL_GetWindowSize(window, &width, &height);
++    SDL_GL_GetDrawableSize(window, &drawableWidth, &drawableHeight);
++    const char* mode = SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN ? "fullscreen" : "windowed";
++    if (width > 0 && height > 0)
++        Write({"window_size", frame, tick, tick, static_cast<std::uint64_t>(width),
++            static_cast<std::uint64_t>(height), mode});
++    if (drawableWidth > 0 && drawableHeight > 0)
++        Write({"drawable_size", frame, tick, tick, static_cast<std::uint64_t>(drawableWidth),
++            static_cast<std::uint64_t>(drawableHeight), mode});
++
++    const int display = SDL_GetWindowDisplayIndex(window);
++    float horizontal = 0;
++    float vertical = 0;
++    if (display >= 0 && SDL_GetDisplayDPI(display, nullptr, &horizontal, &vertical) == 0 &&
++        horizontal > 0 && vertical > 0)
++        Write({"display_dpi_milli", frame, tick, tick, static_cast<std::uint64_t>(horizontal * 1000.0 + .5),
++            static_cast<std::uint64_t>(vertical * 1000.0 + .5), mode});
++}
++}
++}
++#endif
+--- a/project/src/graphics/opengl/OpenGLBindings.cpp
++++ b/project/src/graphics/opengl/OpenGLBindings.cpp
+@@ -280,7 +280,7 @@
+ 	void lime_gl_attach_shader (int program, int shader) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glAttachShader (program, shader);
+ 			});
+ 		} else {
+@@ -848,7 +848,7 @@
+ 	int lime_gl_check_framebuffer_status (int target) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				return glCheckFramebufferStatus (target);
+ 			});
+ 		} else {
+@@ -861,7 +861,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_check_framebuffer_status) (int target) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				return glCheckFramebufferStatus (target);
+ 			});
+ 		} else {
+@@ -1119,7 +1119,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [=] () {
+ 				GLuint64 timeout = (GLuint64) timeoutA << 32 | timeoutB;
+ 				return glClientWaitSync ((GLsync)sync->ptr, flags, timeout);
+ 			});
+@@ -1163,7 +1163,7 @@
+ 	void lime_gl_compile_shader (int shader) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glCompileShader (shader);
+ 				GLint status;
+ 				glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+@@ -1189,7 +1189,7 @@
+ 	HL_PRIM void HL_NAME(hl_gl_compile_shader) (int shader) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glCompileShader (shader);
+ 				GLint status;
+ 				glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+@@ -1470,7 +1470,7 @@
+ 	int lime_gl_create_buffer () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				glGenBuffers (1, &id);
+ 				return id;
+@@ -1487,7 +1487,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_create_buffer) () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				glGenBuffers (1, &id);
+ 				return id;
+@@ -1504,7 +1504,7 @@
+ 	int lime_gl_create_framebuffer () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				glGenFramebuffers (1, &id);
+ 				return id;
+@@ -1521,7 +1521,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_create_framebuffer) () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				glGenFramebuffers (1, &id);
+ 				return id;
+@@ -1538,7 +1538,7 @@
+ 	int lime_gl_create_program () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				int pid = glCreateProgram ();
+ 				//printf("[GL] glCreateProgram: %d\n", pid);
+ 				return pid;
+@@ -1553,7 +1553,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_create_program) () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				return glCreateProgram ();
+ 			});
+ 		} else {
+@@ -1566,7 +1566,7 @@
+ 	int lime_gl_create_query () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				#ifdef LIME_GLES3_API
+ 				glGenQueries (1, &id);
+@@ -1587,7 +1587,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_create_query) () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				#ifdef LIME_GLES3_API
+ 				glGenQueries (1, &id);
+@@ -1608,7 +1608,7 @@
+ 	int lime_gl_create_renderbuffer () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				glGenRenderbuffers (1, &id);
+ 				return id;
+@@ -1625,7 +1625,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_create_renderbuffer) () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				glGenRenderbuffers (1, &id);
+ 				return id;
+@@ -1642,7 +1642,7 @@
+ 	int lime_gl_create_sampler () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				#ifdef LIME_GLES3_API
+ 				glGenSamplers (1, &id);
+@@ -1663,7 +1663,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_create_sampler) () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				#ifdef LIME_GLES3_API
+ 				glGenSamplers (1, &id);
+@@ -1684,7 +1684,7 @@
+ 	int lime_gl_create_shader (int type) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [=] () {
+ 				return glCreateShader (type);
+ 			});
+ 		} else {
+@@ -1697,7 +1697,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_create_shader) (int type) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [=] () {
+ 				return glCreateShader (type);
+ 			});
+ 		} else {
+@@ -1710,7 +1710,7 @@
+ 	int lime_gl_create_texture () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				glGenTextures (1, &id);
+ 				return id;
+@@ -1727,7 +1727,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_create_texture) () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				glGenTextures (1, &id);
+ 				return id;
+@@ -1744,7 +1744,7 @@
+ 	int lime_gl_create_transform_feedback () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				#ifdef LIME_GLES3_API
+ 				glGenTransformFeedbacks (1, &id);
+@@ -1765,7 +1765,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_create_transform_feedback) () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				#ifdef LIME_GLES3_API
+ 				glGenTransformFeedbacks (1, &id);
+@@ -1786,7 +1786,7 @@
+ 	int lime_gl_create_vertex_array () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				#ifdef LIME_GLES3_API
+ 				glGenVertexArrays (1, &id);
+@@ -1807,7 +1807,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_create_vertex_array) () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int> ([] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int> (__func__, [] () {
+ 				GLuint id = 0;
+ 				#ifdef LIME_GLES3_API
+ 				glGenVertexArrays (1, &id);
+@@ -2638,7 +2638,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<value>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<value>(__func__, [=] () {
+ 				GLsync result = glFenceSync (condition, flags);
+ 				value handle = CFFIPointer (result, gc_gl_object);
+ 				glObjectPtrs[handle] = result;
+@@ -2661,7 +2661,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<HL_CFFIPointer*>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<HL_CFFIPointer*>(__func__, [=] () {
+ 				GLsync result = glFenceSync (condition, flags);
+ 				HL_CFFIPointer* handle = HLCFFIPointer (result, (hl_finalizer)gc_gl_object);
+ 				glObjectPtrs[handle] = result;
+@@ -2683,7 +2683,7 @@
+ 	void lime_gl_finish () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glFinish ();
+ 			});
+ 		} else {
+@@ -2696,7 +2696,7 @@
+ 	HL_PRIM void HL_NAME(hl_gl_finish) () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glFinish ();
+ 			});
+ 		} else {
+@@ -2875,7 +2875,7 @@
+ 				std::string name;
+ 			};
+ 
+-			AttribInfo info = OpenGLBindings::renderThread->RunCommandAndWait<AttribInfo>([=] () {
++			AttribInfo info = OpenGLBindings::renderThread->RunCommandAndWait<AttribInfo>(__func__, [=] () {
+ 				std::string buffer (GL_ACTIVE_ATTRIBUTE_MAX_LENGTH, 0);
+ 				GLsizei outLen = 0;
+ 				GLsizei size = 0;
+@@ -2924,7 +2924,7 @@
+ 				std::string name;
+ 			};
+ 
+-			AttribInfo info = OpenGLBindings::renderThread->RunCommandAndWait<AttribInfo>([=] () {
++			AttribInfo info = OpenGLBindings::renderThread->RunCommandAndWait<AttribInfo>(__func__, [=] () {
+ 				std::string buffer (GL_ACTIVE_ATTRIBUTE_MAX_LENGTH, 0);
+ 				GLsizei outLen = 0;
+ 				GLsizei size = 0;
+@@ -2986,7 +2986,7 @@
+ 				std::string name;
+ 			};
+ 
+-			UniformInfo info = OpenGLBindings::renderThread->RunCommandAndWait<UniformInfo>([=] () {
++			UniformInfo info = OpenGLBindings::renderThread->RunCommandAndWait<UniformInfo>(__func__, [=] () {
+ 				std::string buffer (GL_ACTIVE_UNIFORM_MAX_LENGTH, 0);
+ 				GLsizei outLen = 0;
+ 				GLsizei size = 0;
+@@ -3033,7 +3033,7 @@
+ 				std::string name;
+ 			};
+ 
+-			UniformInfo info = OpenGLBindings::renderThread->RunCommandAndWait<UniformInfo>([=] () {
++			UniformInfo info = OpenGLBindings::renderThread->RunCommandAndWait<UniformInfo>(__func__, [=] () {
+ 				std::string buffer (GL_ACTIVE_UNIFORM_MAX_LENGTH, 0);
+ 				GLsizei outLen = 0;
+ 				GLsizei size = 0;
+@@ -3089,7 +3089,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint param = 0;
+ 				glGetActiveUniformBlockiv (program, uniformBlockIndex, pname, &param);
+ 				return (int)param;
+@@ -3110,7 +3110,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint param = 0;
+ 				glGetActiveUniformBlockiv (program, uniformBlockIndex, pname, &param);
+ 				return (int)param;
+@@ -3131,7 +3131,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetActiveUniformBlockiv (program, uniformBlockIndex, pname, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3146,7 +3146,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetActiveUniformBlockiv (program, uniformBlockIndex, pname, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3161,7 +3161,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<value>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<value>(__func__, [=] () {
+ 				GLint length;
+ 				glGetActiveUniformBlockiv (program, uniformBlockIndex, GL_UNIFORM_BLOCK_NAME_LENGTH, &length);
+ 
+@@ -3234,7 +3234,7 @@
+ 			GLenum *src = (GLenum*)hl_aptr (uniformIndices, int);
+ 			for(int i=0; i<size; i++) indicesCopy[i] = src[i];
+ 
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetActiveUniformsiv (program, size, indicesCopy, pname, (GLint*)(uintptr_t)params);
+ 				delete[] indicesCopy;
+ 			});
+@@ -3302,7 +3302,7 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			std::string nameStr(name.__s);
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				return glGetAttribLocation (program, nameStr.c_str());
+ 			});
+ 		} else {
+@@ -3316,7 +3316,7 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			std::string nameStr = name ? (char*)hl_to_utf8(name->bytes) : "";
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				return glGetAttribLocation (program, nameStr.c_str());
+ 			});
+ 		} else {
+@@ -3329,7 +3329,7 @@
+ 	bool lime_gl_get_boolean (int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<bool>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<bool>(__func__, [=] () {
+ 				GLboolean params = 0;
+ 				glGetBooleanv (pname, &params);
+ 				return (bool)params;
+@@ -3346,7 +3346,7 @@
+ 	HL_PRIM bool HL_NAME(hl_gl_get_boolean) (int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<bool>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<bool>(__func__, [=] () {
+ 				unsigned char params;
+ 				glGetBooleanv (pname, &params);
+ 				return params;
+@@ -3363,7 +3363,7 @@
+ 	void lime_gl_get_booleanv (int pname, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetBooleanv (pname, (GLboolean*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3376,7 +3376,7 @@
+ 	HL_PRIM void HL_NAME(hl_gl_get_booleanv) (int pname, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetBooleanv (pname, (GLboolean*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3398,7 +3398,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_get_buffer_parameteri) (int target, int index) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint params = 0;
+ 				glGetBufferParameteriv (target, index, &params);
+ 				return params;
+@@ -3440,7 +3440,7 @@
+ 	HL_PRIM void HL_NAME(hl_gl_get_buffer_parameteriv) (int target, int index, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetBufferParameteriv (target, index, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3453,7 +3453,7 @@
+ 	double lime_gl_get_buffer_pointerv (int target, int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<double>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<double>(__func__, [=] () {
+ 				uintptr_t result = 0;
+ 				#ifdef LIME_GLES3_API
+ 				glGetBufferPointerv (target, pname, (void**)&result);
+@@ -3474,7 +3474,7 @@
+ 	HL_PRIM double HL_NAME(hl_gl_get_buffer_pointerv) (int target, int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<double>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<double>(__func__, [=] () {
+ 				uintptr_t result = 0;
+ 				#ifdef LIME_GLES3_API
+ 				glGetBufferPointerv (target, pname, (void**)&result);
+@@ -3505,7 +3505,7 @@
+ 
+ 		#ifndef LIME_GLES
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetBufferSubData (target, (GLintptr)(uintptr_t)offset, size, (void*)(uintptr_t)data);
+ 			});
+ 		} else {
+@@ -3553,7 +3553,7 @@
+ 	int lime_gl_get_error () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				return glGetError ();
+ 			});
+ 		} else {
+@@ -3566,7 +3566,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_get_error) () {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				return glGetError ();
+ 			});
+ 		} else {
+@@ -3679,7 +3679,7 @@
+ 	float lime_gl_get_float (int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<float>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<float>(__func__, [=] () {
+ 				GLfloat params = 0;
+ 				glGetFloatv (pname, &params);
+ 				return (float)params;
+@@ -3696,7 +3696,7 @@
+ 	HL_PRIM float HL_NAME(hl_gl_get_float) (int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<float>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<float>(__func__, [=] () {
+ 				GLfloat params = 0;
+ 				glGetFloatv (pname, &params);
+ 				return (float)params;
+@@ -3713,7 +3713,7 @@
+ 	void lime_gl_get_floatv (int pname, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetFloatv (pname, (GLfloat*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3726,7 +3726,7 @@
+ 	HL_PRIM void HL_NAME(hl_gl_get_floatv) (int pname, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetFloatv (pname, (GLfloat*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3752,7 +3752,7 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			std::string nameStr = name ? (char*)hl_to_utf8(name->bytes) : "";
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				return glGetFragDataLocation (program, nameStr.c_str());
+ 			});
+ 		} else {
+@@ -3768,7 +3768,7 @@
+ 	int lime_gl_get_framebuffer_attachment_parameteri (int target, int attachment, int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint params = 0;
+ 				glGetFramebufferAttachmentParameteriv (target, attachment, pname, &params);
+ 				return params;
+@@ -3785,7 +3785,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_get_framebuffer_attachment_parameteri) (int target, int attachment, int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint params = 0;
+ 				glGetFramebufferAttachmentParameteriv (target, attachment, pname, &params);
+ 				return params;
+@@ -3802,7 +3802,7 @@
+ 	void lime_gl_get_framebuffer_attachment_parameteriv (int target, int attachment, int pname, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetFramebufferAttachmentParameteriv (target, attachment, pname, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3815,7 +3815,7 @@
+ 	HL_PRIM void HL_NAME(hl_gl_get_framebuffer_attachment_parameteriv) (int target, int attachment, int pname, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetFramebufferAttachmentParameteriv (target, attachment, pname, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3828,7 +3828,7 @@
+ 	int lime_gl_get_integer (int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint params = 0;
+ 				glGetIntegerv (pname, &params);
+ 				return (int)params;
+@@ -3845,7 +3845,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_get_integer) (int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint params = 0;
+ 				glGetIntegerv (pname, &params);
+ 				return (int)params;
+@@ -3863,7 +3863,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetInteger64v (pname, (GLint64*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3878,7 +3878,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetInteger64v (pname, (GLint64*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3893,7 +3893,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetInteger64i_v (pname, index, (GLint64*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3908,7 +3908,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetInteger64i_v (pname, index, (GLint64*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3922,7 +3922,7 @@
+ 	void lime_gl_get_integerv (int pname, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetIntegerv (pname, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3935,7 +3935,7 @@
+ 	HL_PRIM void HL_NAME(hl_gl_get_integerv) (int pname, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetIntegerv (pname, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3949,7 +3949,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetIntegeri_v (pname, index, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3964,7 +3964,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetIntegeri_v (pname, index, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3979,7 +3979,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetInternalformativ (target, internalformat, pname, (GLsizei)bufSize, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -3994,7 +3994,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetInternalformativ (target, internalformat, pname, (GLsizei)bufSize, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -4045,7 +4045,7 @@
+ 	value lime_gl_get_program_info_log (int handle) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			std::string log = OpenGLBindings::renderThread->RunCommandAndWait<std::string>([=] () {
++			std::string log = OpenGLBindings::renderThread->RunCommandAndWait<std::string>(__func__, [=] () {
+ 				GLuint program = handle;
+ 				GLint logSize = 0;
+ 				glGetProgramiv (program, GL_INFO_LOG_LENGTH, &logSize);
+@@ -4085,7 +4085,7 @@
+ 	HL_PRIM vbyte* HL_NAME(hl_gl_get_program_info_log) (int handle) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			std::string log = OpenGLBindings::renderThread->RunCommandAndWait<std::string>([=] () {
++			std::string log = OpenGLBindings::renderThread->RunCommandAndWait<std::string>(__func__, [=] () {
+ 				GLuint program = handle;
+ 				GLint logSize = 0;
+ 				glGetProgramiv (program, GL_INFO_LOG_LENGTH, &logSize);
+@@ -4126,7 +4126,7 @@
+ 	int lime_gl_get_programi (int program, int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint params = 0;
+ 				glGetProgramiv (program, pname, &params);
+ 				return params;
+@@ -4143,7 +4143,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_get_programi) (int program, int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint params = 0;
+ 				glGetProgramiv (program, pname, &params);
+ 				return (int)params;
+@@ -4167,7 +4167,7 @@
+ 	HL_PRIM void HL_NAME(hl_gl_get_programiv) (int program, int pname, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetProgramiv (program, pname, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -4372,7 +4372,7 @@
+ 	value lime_gl_get_shader_info_log (int handle) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			std::string log = OpenGLBindings::renderThread->RunCommandAndWait<std::string>([=] () {
++			std::string log = OpenGLBindings::renderThread->RunCommandAndWait<std::string>(__func__, [=] () {
+ 				GLuint shader = handle;
+ 				GLint logSize = 0;
+ 				glGetShaderiv (shader, GL_INFO_LOG_LENGTH, &logSize);
+@@ -4413,7 +4413,7 @@
+ 	HL_PRIM vbyte* HL_NAME(hl_gl_get_shader_info_log) (int handle) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			std::string log = OpenGLBindings::renderThread->RunCommandAndWait<std::string>([=] () {
++			std::string log = OpenGLBindings::renderThread->RunCommandAndWait<std::string>(__func__, [=] () {
+ 				GLuint shader = handle;
+ 				GLint logSize = 0;
+ 				glGetShaderiv (shader, GL_INFO_LOG_LENGTH, &logSize);
+@@ -4455,7 +4455,7 @@
+ 	int lime_gl_get_shaderi (int shader, int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint params = 0;
+ 				glGetShaderiv (shader, pname, &params);
+ 				return params;
+@@ -4472,7 +4472,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_get_shaderi) (int shader, int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint params = 0;
+ 				glGetShaderiv (shader, pname, &params);
+ 				return (int)params;
+@@ -4496,7 +4496,7 @@
+ 	HL_PRIM void HL_NAME(hl_gl_get_shaderiv) (int shader, int pname, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetShaderiv (shader, pname, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -4561,7 +4561,7 @@
+ 	value lime_gl_get_shader_source (int shader) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			std::string source = OpenGLBindings::renderThread->RunCommandAndWait<std::string>([=] () {
++			std::string source = OpenGLBindings::renderThread->RunCommandAndWait<std::string>(__func__, [=] () {
+ 				GLint len = 0;
+ 				glGetShaderiv (shader, GL_SHADER_SOURCE_LENGTH, &len);
+ 
+@@ -4603,7 +4603,7 @@
+ 	HL_PRIM vbyte* HL_NAME(hl_gl_get_shader_source) (int shader) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			std::string source = OpenGLBindings::renderThread->RunCommandAndWait<std::string>([=] () {
++			std::string source = OpenGLBindings::renderThread->RunCommandAndWait<std::string>(__func__, [=] () {
+ 				GLint len = 0;
+ 				glGetShaderiv (shader, GL_SHADER_SOURCE_LENGTH, &len);
+ 				if (len == 0) return std::string("");
+@@ -4640,7 +4640,7 @@
+ 	value lime_gl_get_string (int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			std::string val = OpenGLBindings::renderThread->RunCommandAndWait<std::string>([=] () {
++			std::string val = OpenGLBindings::renderThread->RunCommandAndWait<std::string>(__func__, [=] () {
+ 				const char* result = (const char*)glGetString (pname);
+ 				return result ? std::string(result) : std::string("");
+ 			});
+@@ -4665,7 +4665,7 @@
+ 	HL_PRIM vbyte* HL_NAME(hl_gl_get_string) (int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			std::string val = OpenGLBindings::renderThread->RunCommandAndWait<std::string>([=] () {
++			std::string val = OpenGLBindings::renderThread->RunCommandAndWait<std::string>(__func__, [=] () {
+ 				const char* result = (const char*)glGetString (pname);
+ 				return result ? std::string(result) : std::string("");
+ 			});
+@@ -4785,7 +4785,7 @@
+ 	float lime_gl_get_tex_parameterf (int target, int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<float>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<float>(__func__, [=] () {
+ 				GLfloat params = 0;
+ 				glGetTexParameterfv (target, pname, &params);
+ 				return (float)params;
+@@ -4802,7 +4802,7 @@
+ 	HL_PRIM float HL_NAME(hl_gl_get_tex_parameterf) (int target, int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<float>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<float>(__func__, [=] () {
+ 				GLfloat params = 0;
+ 				glGetTexParameterfv (target, pname, &params);
+ 				return (float)params;
+@@ -4833,7 +4833,7 @@
+ 	int lime_gl_get_tex_parameteri (int target, int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint params = 0;
+ 				glGetTexParameteriv (target, pname, &params);
+ 				return (int)params;
+@@ -4850,7 +4850,7 @@
+ 	HL_PRIM int HL_NAME(hl_gl_get_tex_parameteri) (int target, int pname) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				GLint params = 0;
+ 				glGetTexParameteriv (target, pname, &params);
+ 				return (int)params;
+@@ -4867,7 +4867,7 @@
+ 	void lime_gl_get_tex_parameteriv (int target, int pname, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetTexParameteriv (target, pname, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -4880,7 +4880,7 @@
+ 	HL_PRIM void HL_NAME(hl_gl_get_tex_parameteriv) (int target, int pname, double params) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glGetTexParameteriv (target, pname, (GLint*)(uintptr_t)params);
+ 			});
+ 		} else {
+@@ -5075,7 +5075,7 @@
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			std::string nameStr = uniformBlockName ? (char*)hl_to_utf8(uniformBlockName->bytes) : "";
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				return glGetUniformBlockIndex (program, nameStr.c_str());
+ 			});
+ 		} else {
+@@ -5092,7 +5092,7 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			std::string nameStr(name.__s);
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				return glGetUniformLocation (program, nameStr.c_str());
+ 			});
+ 		} else {
+@@ -5106,7 +5106,7 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			std::string nameStr = name ? (char*)hl_to_utf8(name->bytes) : "";
+-			return OpenGLBindings::renderThread->RunCommandAndWait<int>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, [=] () {
+ 				return glGetUniformLocation (program, nameStr.c_str());
+ 			});
+ 		} else {
+@@ -5575,7 +5575,7 @@
+ 	void lime_gl_link_program (int program) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glLinkProgram (program);
+ 				GLint status;
+ 				glGetProgramiv(program, GL_LINK_STATUS, &status);
+@@ -5603,7 +5603,7 @@
+ 	HL_PRIM void HL_NAME(hl_gl_link_program) (int program) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glLinkProgram (program);
+ 				GLint status;
+ 				glGetProgramiv(program, GL_LINK_STATUS, &status);
+@@ -5629,7 +5629,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<double>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<double>(__func__, [=] () {
+ 				uintptr_t result = (uintptr_t)glMapBufferRange (target, (GLintptr)(uintptr_t)offset, length, access);
+ 				return (double)result;
+ 			});
+@@ -5648,7 +5648,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<double>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<double>(__func__, [=] () {
+ 				uintptr_t result = (uintptr_t)glMapBufferRange (target, (GLintptr)(uintptr_t)offset, length, access);
+ 				return (double)result;
+ 			});
+@@ -5984,7 +5984,7 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			// This MUST be synchronous because we are reading back to CPU memory provided by the caller
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glReadPixels (x, y, width, height, format, type, (void*)(uintptr_t)pixels);
+ 			});
+ 		} else {
+@@ -5997,7 +5997,7 @@
+ 	HL_PRIM void HL_NAME(hl_gl_read_pixels) (int x, int y, int width, int height, int format, int type, double pixels) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glReadPixels (x, y, width, height, format, type, (void*)(uintptr_t)pixels);
+ 			});
+ 		} else {
+@@ -6294,7 +6294,7 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			std::string sourceStr(source.__s);
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				const char* s = sourceStr.c_str();
+ 				glShaderSource (handle, 1, &s, 0);
+ 			});
+@@ -6309,7 +6309,7 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			std::string sourceStr = source ? (char*)hl_to_utf8(source->bytes) : "";
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				const char* s = sourceStr.c_str();
+ 				glShaderSource (handle, 1, &s, 0);
+ 			});
+@@ -6487,7 +6487,7 @@
+ 				return;
+ 			}
+ 			
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glTexImage2D (target, level, internalformat, width, height, border, format, type, (void*)(uintptr_t)data);
+ 			});
+ 		} else {
+@@ -6505,7 +6505,7 @@
+ 					glTexImage2D (target, level, internalformat, width, height, border, format, type, nullptr);
+ 				});
+ 			} else {
+-				OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++				OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 					glTexImage2D (target, level, internalformat, width, height, border, format, type, (void*)(uintptr_t)data);
+ 				});
+ 			}
+@@ -6525,7 +6525,7 @@
+ 					glTexImage3D (target, level, internalformat, width, height, depth, border, format, type, nullptr);
+ 				});
+ 			} else {
+-				OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++				OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 					glTexImage3D (target, level, internalformat, width, height, depth, border, format, type, (void*)(uintptr_t)data);
+ 				});
+ 			}
+@@ -6546,7 +6546,7 @@
+ 					glTexImage3D (target, level, internalformat, width, height, depth, border, format, type, nullptr);
+ 				});
+ 			} else {
+-				OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++				OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 					glTexImage3D (target, level, internalformat, width, height, depth, border, format, type, (void*)(uintptr_t)data);
+ 				});
+ 			}
+@@ -6650,7 +6650,7 @@
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+ 			// Blocking for safety and simplicity
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glTexSubImage2D (target, level, xoffset, yoffset, width, height, format, type, (void*)(uintptr_t)data);
+ 			});
+ 		} else {
+@@ -6671,7 +6671,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glTexSubImage3D (target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, (void*)(uintptr_t)data);
+ 			});
+ 		} else {
+@@ -6686,7 +6686,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			OpenGLBindings::renderThread->RunCommandAndWait<void>([=] () {
++			OpenGLBindings::renderThread->RunCommandAndWait<void>(__func__, [=] () {
+ 				glTexSubImage3D (target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, (void*)(uintptr_t)data);
+ 			});
+ 		} else {
+@@ -7926,7 +7926,7 @@
+ 
+ 		#ifdef LIME_GLES3_API
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+-			return OpenGLBindings::renderThread->RunCommandAndWait<bool>([=] () {
++			return OpenGLBindings::renderThread->RunCommandAndWait<bool>(__func__, [=] () {
+ 				return glUnmapBuffer (target);
+ 			});
+ 		} else {

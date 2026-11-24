@@ -97,6 +97,16 @@ Starting from NovaFlare 1.2.0, Hscript has been upgraded to Hscript--iris-improv
 - Thread separation for rendering has been implemented for the first time.
 - Immix GC optimization reduces lag during gameplay.
 
+## Image compression
+
+In Graphics settings, **Maximum Image Side** limits the longest side of a texture in pixels. The value `0` uses the device limit. **Compression Threshold** is the minimum original longest side eligible for ratio compression. Its range is `0` to the device texture limit. The value `0` makes every size eligible. **Image Compression Ratio** retains a fraction of the total pixel count, from `0.1` to `1.0`. The engine multiplies both dimensions by the square root of that fraction, then rounds to whole pixels and applies the side limit. For example, `0.25` halves each side. The maximum side still applies below the threshold. Changes apply during play and refresh loaded textures from their source images.
+
+Sprite sheets keep their original frame coordinates, dimensions and offsets after compression. Very low ratios can make neighboring frames share texture pixels.
+
+Native scaled decoding builds reduced non-interlaced PNG textures with a small set of source rows and the output buffer. RGB and grayscale JPEG can also use scaled decoding and scanline resampling. Synchronous and asynchronous display loads share these decoders. Local async loads decode directly from the file, and remote loads decode the downloaded bytes on a worker. Interlaced PNG and CMYK JPEG use the full-image resampling fallback. Color sampling and separately supplied alpha keep the original pixels.
+
+After installing haxelibs for a local build, run `pwsh -File tools/setup-novaflare-render-dependencies.ps1 -Component ImageCoordinates` and rebuild Lime for the target platform to enable native scaled decoding. CI applies the dependency patches as part of its build setup.
+
 ## Interface and Underlying Updates
 
 - The freeplay option interface has been rewritten for a better visual experience.

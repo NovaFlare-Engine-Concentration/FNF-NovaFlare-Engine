@@ -510,6 +510,17 @@ class CoolUtil
     {
         return 1;
     }
+
+    public static function maxLoadingThreads():Int
+    {
+        final reservedCores = #if mobile 3 #else 0 #end;
+        return Std.int(Math.max(1, PhysicalCpuTopology.coreCount() - reservedCores));
+    }
+
+    public static function loadingThreadCount(requestedThreads:Int):Int
+    {
+        return Std.int(Math.max(1, Math.min(requestedThreads, maxLoadingThreads())));
+    }
 }
 
 class ArrowRGBSavedData {

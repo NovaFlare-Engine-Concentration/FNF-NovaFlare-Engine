@@ -330,7 +330,7 @@ class Alphabet extends FlxSprite {
 					colorMode.setColorTransform(colorTransform, __renderData.red, __renderData.green, __renderData.blue, __renderData.alpha);
 
 				if (isGraphicsShader)
-					shader.setCamSize(_frame.frame.x, _frame.frame.y, _frame.frame.width, _frame.frame.height);
+					shader.setFrameCamSize(_frame);
 				drawLetter(camera);
 
 				frameOffset.y -= offsetY;

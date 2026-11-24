@@ -99,6 +99,13 @@ class Replay extends FlxBasic
 	public var recordedSongSpeed(default, null):Float = 0;
 	public var recordedPlaybackRate(default, null):Float = 0;
 	public var replayVersion(default, null):Int = 1;
+	private var replayBotPlay:Bool = false;
+
+	public function initialSongSpeed(fallback:Float):Float
+		return frameData.length > 0 ? frameData[0].songSpeed : fallback;
+
+	public function initialPlaybackRate(fallback:Float):Float
+		return frameData.length > 0 ? frameData[0].playbackRate : fallback;
 
 	/////////////////////////////////////////////
 
@@ -114,7 +121,13 @@ class Replay extends FlxBasic
 		buildJudgmentMap();
 
 		if (ReplaySave.loadedStateRecord != null) {
+			var saved = ReplaySave.loadedStateRecord;
+			replayBotPlay = saved.cpuControlled == true || saved.botPlay == true;
 			var result:String = verifyIntegrity(ReplaySave.loadedStateRecord);
+			if (saved.replayVersion < 2) {
+				settingsBackup.set('cpuControlled', Reflect.field(follow, 'cpuControlled'));
+				Reflect.setField(follow, 'cpuControlled', replayBotPlay);
+			}
 			if (result != null) trace('REPLAY INTEGRITY WARNING: $result');
 			// Always continue playback regardless of integrity
 		}
@@ -171,12 +184,12 @@ class Replay extends FlxBasic
 		settingsBackup.set('keyBinds', kbBackup);
 
 		// Force-restore all recorded settings to prevent cheating
-		Reflect.setField(follow, 'songSpeed', stateRecord.songSpeed);
-		Reflect.setField(follow, 'playbackRate', stateRecord.playbackRate);
+		Reflect.setProperty(follow, 'songSpeed', initialSongSpeed(stateRecord.songSpeed));
+		Reflect.setProperty(follow, 'playbackRate', initialPlaybackRate(stateRecord.playbackRate));
 		Reflect.setField(follow, 'healthGain', stateRecord.healthGain);
 		Reflect.setField(follow, 'healthLoss', stateRecord.healthLoss);
 		Reflect.setField(follow, 'instakillOnMiss', stateRecord.instakillOnMiss);
-		Reflect.setField(follow, 'cpuControlled', stateRecord.cpuControlled);
+		Reflect.setField(follow, 'cpuControlled', replayBotPlay);
 		Reflect.setField(follow, 'practiceMode', stateRecord.practiceMode);
 		ClientPrefs.data.playOpponent = stateRecord.playOpponent;
 		ClientPrefs.data.flipChart = stateRecord.flipChart;
@@ -274,6 +287,12 @@ class Replay extends FlxBasic
 			}
 			lastReplayTimeForResync = frame.time;
 			applyRateResync(frame, dtMs);
+			if (replayBotPlay)
+			{
+				lastFrameCount++;
+				globalTick++;
+				continue;
+			}
 
 			tmpPressLanes.resize(0);
 			tmpReleaseLanes.resize(0);
@@ -325,8 +344,6 @@ class Replay extends FlxBasic
 				keysHeld.remove(flxKey);
 			}
 
-			PlayState.instance.playbackRate = frame.playbackRate;
-
 			Reflect.callMethod(follow, Reflect.field(follow, "replayApplyInput"), [frame.time, tmpPressLanes, tmpReleaseLanes, tmpHeldLanes]);
 			
 			lastFrameCount++;
@@ -362,16 +379,14 @@ class Replay extends FlxBasic
 	{
 		if (Reflect.hasField(follow, "songSpeed")) {
 			var curSongSpeed:Float = Reflect.field(follow, "songSpeed");
-			if (Math.abs(curSongSpeed - frame.songSpeed) > songSpeedResyncThreshold) songSpeedDesyncMs += dtMs; else songSpeedDesyncMs = 0;
-			if (songSpeedDesyncMs >= songSpeedResyncDelayMs) {
+			if (frame.songSpeed > 0 && Math.abs(curSongSpeed - frame.songSpeed) > 0.00001) {
 				Reflect.setProperty(follow, "songSpeed", frame.songSpeed);
 				songSpeedDesyncMs = 0;
 			}
 		}
 		if (Reflect.hasField(follow, "playbackRate")) {
 			var curPlaybackRate:Float = Reflect.field(follow, "playbackRate");
-			if (Math.abs(curPlaybackRate - frame.playbackRate) > playbackRateResyncThreshold) playbackRateDesyncMs += dtMs; else playbackRateDesyncMs = 0;
-			if (playbackRateDesyncMs >= playbackRateResyncDelayMs) {
+			if (frame.playbackRate > 0 && Math.abs(curPlaybackRate - frame.playbackRate) > 0.00001) {
 				Reflect.setProperty(follow, "playbackRate", frame.playbackRate);
 				playbackRateDesyncMs = 0;
 			}

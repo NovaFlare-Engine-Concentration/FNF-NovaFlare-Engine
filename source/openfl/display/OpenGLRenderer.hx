@@ -106,8 +106,8 @@ class OpenGLRenderer extends DisplayObjectRenderer
 	@:noCompletion private var __numClipRects:Int;
 	@:noCompletion private var __offsetX:Int;
 	@:noCompletion private var __offsetY:Int;
-	@SuppressWarnings("checkstyle:Dynamic") @:noCompletion private var __projection:#if lime Matrix4 #else Dynamic #end;
-	@SuppressWarnings("checkstyle:Dynamic") @:noCompletion private var __projectionFlipped:#if lime Matrix4 #else Dynamic #end;
+	@:noCompletion private var __projectionScaleX:Float = Math.POSITIVE_INFINITY;
+	@:noCompletion private var __projectionScaleY:Float = Math.POSITIVE_INFINITY;
 	@:noCompletion private var __scrollRectMasks:ObjectPool<Shape>;
 	@:noCompletion private var __softwareRenderer:DisplayObjectRenderer;
 	@:noCompletion private var __stencilReference:Int;
@@ -166,10 +166,6 @@ class OpenGLRenderer extends DisplayObjectRenderer
 		__clipRects = new Array();
 		__maskObjects = new Array();
 		__numClipRects = 0;
-		#if lime
-		__projection = new Matrix4();
-		__projectionFlipped = new Matrix4();
-		#end
 		__stencilReference = 0;
 		__tempRect = new Rectangle();
 
@@ -414,7 +410,11 @@ class OpenGLRenderer extends DisplayObjectRenderer
 	**/
 	public function setViewport():Void
 	{
+		#if nova_stage_render_target
+		__context3D.__setStageViewport(__offsetX, __offsetY, __displayWidth, __displayHeight);
+		#else
 		__gl.viewport(__offsetX, __offsetY, __displayWidth, __displayHeight);
+		#end
 	}
 
 	/**
@@ -551,10 +551,8 @@ class OpenGLRenderer extends DisplayObjectRenderer
 		// individual Float32Array reads/writes here. On a moving collector each
 		// scalar access has to pin the backing byte array, which dominated complex
 		// UI pages. Multiply the 2D transform by that sparse projection directly.
-		var projectionWidth = __displayWidth + __offsetX * 2;
-		var projectionHeight = __displayHeight + __offsetY * 2;
-		var projectionX = 2.0 / projectionWidth;
-		var projectionY = (__flipped ? -2.0 : 2.0) / projectionHeight;
+		var projectionX = __projectionScaleX;
+		var projectionY = __flipped ? -__projectionScaleY : __projectionScaleY;
 
 		__values[0] = _matrix.a * projectionX;
 		__values[1] = _matrix.b * projectionY;
@@ -1113,8 +1111,8 @@ class OpenGLRenderer extends DisplayObjectRenderer
 		__displayWidth = __defaultRenderTarget == null ? Math.round(__worldTransform.__transformX(w, 0) - __offsetX) : w;
 		__displayHeight = __defaultRenderTarget == null ? Math.round(__worldTransform.__transformY(0, h) - __offsetY) : h;
 
-		__projection.createOrtho(0, __displayWidth + __offsetX * 2, 0, __displayHeight + __offsetY * 2, -1000, 1000);
-		__projectionFlipped.createOrtho(0, __displayWidth + __offsetX * 2, __displayHeight + __offsetY * 2, 0, -1000, 1000);
+		__projectionScaleX = 2.0 / (__displayWidth + __offsetX * 2);
+		__projectionScaleY = 2.0 / (__displayHeight + __offsetY * 2);
 	}
 
 	@:noCompletion private function __resumeClipAndMask(childRenderer:OpenGLRenderer):Void

@@ -2,7 +2,7 @@
 -- Lua stuff
 
 function onCreate()
-	-- triggered when the lua file is started, some variables weren't created yet
+	-- Song metadata, BPM, and the known instrumental length in milliseconds are available here.
 end
 
 function onCreatePost()
@@ -43,11 +43,12 @@ function onStepHit()
 end
 
 function onUpdate(elapsed)
-	-- start of "update", some variables weren't updated yet
+	-- Follows game updates by default and follows drawing when that mode is enabled.
+	-- A positive script rate caps callbacks. elapsed includes skipped game time and respects time scaling.
 end
 
 function onUpdatePost(elapsed)
-	-- end of "update"
+	-- Runs after the matching update with the same elapsed value.
 end
 
 function onStartCountdown()
@@ -57,6 +58,7 @@ function onStartCountdown()
 end
 
 function onCountdownStarted()
+	-- The initial receptor positions are available as defaultPlayerStrumX0, defaultOpponentStrumY0, etc.
 	-- called AFTER countdown started, if you want to stop it from starting, refer to the previous function (onStartCountdown)
 end
 

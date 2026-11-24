@@ -131,6 +131,7 @@ jobs:
           haxelib setup C:\haxelib
           haxelib git hmm https://github.com/NovaFlare-Engine-haxelib/hmm-3.1.0 70aca779a9d374a6e6b83c18715a3991a147ca37 --skip-dependencies --quiet
           haxelib run hmm install
+          ./tools/setup-novaflare-render-dependencies.ps1 -Component ImageCoordinates
           haxelib dev hxcpp "$env:GITHUB_WORKSPACE\hxcpp"
 
           $hxcppPath = [IO.Path]::GetFullPath(@(haxelib path hxcpp)[0]).TrimEnd('\', '/')

@@ -17,18 +17,17 @@ function onCreate() {}
 function onCreatePost() {}
 
 /**
- * 当自定义界面调用update时
- * When the custom state calls `update`
- * @param elapsed 每一次更新屏幕所消耗的时间 - Time spent each time the screen is updated
+ * 脚本可随游戏更新或实际绘制。帧率上限大于零时限制回调频率，elapsed 包含跳过的游戏时间。
+ * Follows updates or drawing. A positive rate caps callbacks, and elapsed includes skipped game time.
+ * @param elapsed 当前更新经过的游戏秒数，已计入时间倍率 - Scaled game seconds for this update
  */
 function onUpdate(elapsed:Float) {}
 
 /**
- * 当自定义界面调用update后
- * After the custom state calls `update`
- * @param elapsed 每一次更新屏幕所消耗的时间 - Time spent each time the screen is updated
+ * 在同一次脚本更新后调用。
+ * Runs after the matching script update.
  */
-function onUpdatePost(elapsed:Float) {}
+function onUpdatePost() {}
 
 /**
  * 当自定义界面调用draw时

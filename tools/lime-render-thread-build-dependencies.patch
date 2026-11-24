@@ -1,0 +1,43 @@
+diff --git a/project/Build.xml b/project/Build.xml
+index dc49596..65644df 100644
+--- a/project/Build.xml
++++ b/project/Build.xml
+@@ -64,4 +64,8 @@
+ 
+-		<file name="src/ExternalInterface.cpp" />
+-		<file name="src/compat/LimeCompat.cpp" />
++		<file name="src/ExternalInterface.cpp">
++			<depend name="include/graphics/RenderThread.h" />
++		</file>
++		<file name="src/compat/LimeCompat.cpp">
++			<depend name="include/graphics/RenderThread.h" />
++		</file>
+ 
+@@ -208,3 +212,5 @@
+ 
+-			<file name="src/graphics/opengl/OpenGLBindings.cpp" />
++			<file name="src/graphics/opengl/OpenGLBindings.cpp">
++				<depend name="include/graphics/RenderThread.h" />
++			</file>
+ 
+@@ -268,3 +274,5 @@
+ 
+-			<file name="src/backend/sdl/SDLApplication.cpp" />
++			<file name="src/backend/sdl/SDLApplication.cpp">
++				<depend name="include/graphics/RenderThread.h" />
++			</file>
+ 			<file name="src/backend/sdl/SDLGamepad.cpp" />
+@@ -274,3 +282,5 @@
+ 			<file name="src/backend/sdl/SDLSystem.cpp" />
+-			<file name="src/backend/sdl/SDLWindow.cpp" />
++			<file name="src/backend/sdl/SDLWindow.cpp">
++				<depend name="include/graphics/RenderThread.h" />
++			</file>
+ 
+@@ -311,3 +321,5 @@
+ 		<file name="src/graphics/RenderEvent.cpp" />
+-		<file name="src/graphics/RenderThread.cpp" />
++		<file name="src/graphics/RenderThread.cpp">
++			<depend name="include/graphics/RenderThread.h" />
++		</file>
+ 		<file name="src/graphics/FrameTimeline.cpp" />

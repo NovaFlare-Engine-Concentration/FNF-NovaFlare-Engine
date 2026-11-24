@@ -771,11 +771,14 @@ class NoteSplashEditorState extends MusicBeatState
 
     function saveSplash()
     {
+        #if android
+        if (_file != null) return;
+        #end
         imageSkin = imageInputText.text;
         var data:String = Json.stringify(config, "\t");
         if (data.length > 0)
         {
-            _file = new FileReference();
+            _file = new EditorFileReference();
             _file.addEventListener(Event.COMPLETE, onSaveComplete);
             _file.addEventListener(Event.CANCEL, onSaveCancel);
             _file.addEventListener(IOErrorEvent.IO_ERROR, onSaveError);
@@ -785,8 +788,11 @@ class NoteSplashEditorState extends MusicBeatState
 
     public function loadTxt()
     {
+        #if android
+        if (_file != null) return;
+        #end
         var jsonFilter:FileFilter = new FileFilter('Select a note splash TXT', '*.txt');
-        _file = new FileReference();
+        _file = new EditorFileReference();
         _file.addEventListener(Event.SELECT, onLoadComplete);
         _file.addEventListener(Event.CANCEL, onLoadCancel);
         _file.addEventListener(IOErrorEvent.IO_ERROR, onLoadError);
@@ -801,27 +807,30 @@ class NoteSplashEditorState extends MusicBeatState
 
         try 
         {
-            var txtLoaded:Dynamic = Json.parse(Json.stringify(_file));
+            var selectedPath = @:privateAccess _file.__path;
+            _file = null;
             var txt:String = null;
             var file:String = "config.json";
             #if MODS_ALLOWED
-            if (txtLoaded.__path != null)
+            if (selectedPath != null)
             {
-                try txt = File.getContent(txtLoaded.__path) catch (e) txt = null;
-                file = txtLoaded.__path;
+                txt = File.getContent(selectedPath);
+                file = selectedPath;
                 file = file.substring(0, file.length - 4) + ".json";
             }
 
             var conf = parseTxt(txt);
-            _file = new FileReference();
+            _file = new EditorFileReference();
             _file.addEventListener(Event.COMPLETE, onSaveComplete);
             _file.addEventListener(Event.CANCEL, onSaveCancel);
             _file.addEventListener(IOErrorEvent.IO_ERROR, onSaveError);
             _file.save(Json.stringify(conf, "\t"), file);
             #end
         }
-        catch (e)
+        catch (e:haxe.Exception)
         {
+            _file = null;
+            FlxG.log.error('Could not convert the note splash file: ${e.message}');
             trace(e.stack);
         }
     }

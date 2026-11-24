@@ -1,5 +1,9 @@
 Graphics => 图形设置
 
+gameQuality => 更改屏幕的游戏画面质量
+maxImageSize => 0 使用设备上限。
+minImageCompressionSize => 原图最长边达到此值时应用压缩比例。
+imageCompressionRatio => 按总像素数计算，0.1 保留约 10%。
 
 FPScounter => 数据显示
 

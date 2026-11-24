@@ -33,22 +33,16 @@ class FunkinSoundTray extends FlxSoundTray
     super();
     removeChildren();
 
-    var bg:Bitmap = new Bitmap(Assets.getBitmapData(Paths.image('ui/soundtray/volume-box')));
-    bg.scaleX = GRAPHIC_SCALE;
-    bg.scaleY = GRAPHIC_SCALE;
-    bg.smoothing = true;
+    var bg = createGraphic('volume-box');
     addChild(bg);
 
     y = -height;
     visible = false;
 
     // makes an alpha'd version of all the bars (bar_10.png)
-    var backingBar:Bitmap = new Bitmap(Assets.getBitmapData(Paths.image('ui/soundtray/bars-10')));
+    var backingBar = createGraphic('bars-10');
     backingBar.x = 9;
     backingBar.y = 5;
-    backingBar.scaleX = GRAPHIC_SCALE;
-    backingBar.scaleY = GRAPHIC_SCALE;
-    backingBar.smoothing = true;
     addChild(backingBar);
     backingBar.alpha = BACKING_BAR_OPACITY;
 
@@ -61,12 +55,9 @@ class FunkinSoundTray extends FlxSoundTray
 
     for (i in 1...(BAR_COUNT + 1))
     {
-      var bar:Bitmap = new Bitmap(Assets.getBitmapData(Paths.image('ui/soundtray/bars-${('$i'.lpad('0', 2))}')));
+      var bar = createGraphic('bars-${('$i'.lpad('0', 2))}');
       bar.x = BAR_X_POS;
       bar.y = BAR_Y_POS;
-      bar.scaleX = GRAPHIC_SCALE;
-      bar.scaleY = GRAPHIC_SCALE;
-      bar.smoothing = true;
       addChild(bar);
       _bars.push(bar);
     }
@@ -79,8 +70,21 @@ class FunkinSoundTray extends FlxSoundTray
     volumeMaxSound = Paths.sound('ui/soundtray/volume-max').toFlxSoundAsset();
   }
 
+  function createGraphic(key:String):Bitmap
+  {
+    var bitmap = new Bitmap(Assets.getBitmapData(Paths.image('ui/soundtray/$key')));
+    general.objects.screen.MouseEffect.setBitmapScale(bitmap, GRAPHIC_SCALE);
+    bitmap.smoothing = true;
+    return bitmap;
+  }
+
   override public function update(ms:Float):Void
   {
+    for (index in 0...numChildren)
+    {
+      var child = getChildAt(index);
+      if (child is Bitmap) general.objects.screen.MouseEffect.setBitmapScale(cast child, GRAPHIC_SCALE);
+    }
     var elapsed = ms / Constants.MS_PER_SEC;
 
     // If it has volume, we want to auto-hide after 1 second (1000ms), we simply decrement a timer

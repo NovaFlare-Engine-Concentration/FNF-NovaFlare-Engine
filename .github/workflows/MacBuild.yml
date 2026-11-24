@@ -58,6 +58,13 @@ jobs:
           haxelib git hmm https://github.com/NovaFlare-Engine-haxelib/hmm-3.1.0 70aca779a9d374a6e6b83c18715a3991a147ca37 --skip-dependencies --quiet
           haxelib run hmm install
 
+      - name: Prepare render thread and Immix runtime
+        shell: pwsh
+        run: |
+          ./tools/setup-novaflare-render-dependencies.ps1 -Component ImmixReclaim,RenderThreadRepair,ImageCoordinates
+          haxelib run lime rebuild mac -release
+          if ($LASTEXITCODE -ne 0) { throw 'Lime native rebuild failed' }
+
       - name: Extract current version
         id: get_version
         run: |

@@ -584,6 +584,10 @@ class StageEditorState extends UIState
 
   override public function update(elapsed:Float):Void
   {
+    #if android
+    if (subState == null && originfunkin.input.OriginEditorBack.handle(() -> onMenuItemClick('exit'), WelcomeDialog)) return;
+    #end
+
     // Save the stage if exiting through the F4 keybind, as it moves you to the Main Menu.
     if (FlxG.keys.justPressed.F4)
     {

@@ -7,15 +7,32 @@ import openfl.utils.Assets;
 
 class OriginFunkinEditors
 {
-  public static function initialize():Void
+  static final STYLES = ["buttons", "compact", "dialogs", "notifs", "text", "general", "playbar", "toolbox"];
+  static var initialized = false;
+
+  public static function initialize(requireStyles:Bool = true):Void
   {
-    Toolkit.init();
+    if (initialized) return;
+    for (name in STYLES)
+    {
+      final path = 'assets/exclude/ui/editors/style/$name.css';
+      if (!Assets.exists(path, TEXT))
+      {
+        if (requireStyles) throw 'Origin editor style is missing: $path. Install the complete external assets pack.';
+        return;
+      }
+    }
+
+    #if android
+    mobile.ui.MobileHaxeUI.initialize();
+    #else
+    if (!Toolkit.initialized) Toolkit.init();
+    #end
     funkin.input.Cursor.setupHaxeUICursors();
     var themes = ThemeManager.instance;
-    for (name in ["buttons", "compact", "dialogs", "notifs", "text", "general", "playbar", "toolbox"])
+    for (name in STYLES)
     {
       var path = 'assets/exclude/ui/editors/style/$name.css';
-      if (!Assets.exists(path, TEXT)) throw 'Origin editor style is missing: $path. Install the complete external assets pack.';
       var priority = switch (name)
       {
         case "general": 15;
@@ -25,6 +42,7 @@ class OriginFunkinEditors
       themes.addStyleResource("funkin-dark", path, priority);
     }
     Toolkit.theme = "funkin-dark";
+    initialized = true;
   }
 }
 #end

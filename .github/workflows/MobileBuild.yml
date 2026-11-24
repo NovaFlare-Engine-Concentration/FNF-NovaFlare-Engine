@@ -44,7 +44,7 @@ jobs:
         uses: nttld/setup-ndk@main
         id: setup-ndk
         with:
-          ndk-version: r28c
+          ndk-version: r29
 
       - name: Setup Java JDK
         uses: actions/setup-java@main
@@ -130,6 +130,17 @@ jobs:
           CURRENT_VERSION=$(sed -n 's/.*build-number="\([^"]*\)".*/\1/p' Project.xml)
           echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
 
+      - name: Prepare Origin editor layouts
+        shell: pwsh
+        run: ./tools/setup-origin-editor-layouts.ps1 -AssetsRoot "$env:GITHUB_WORKSPACE/_build/origin-editor-build-assets"
+
+      - name: Prepare render thread and Immix runtime
+        shell: pwsh
+        run: |
+          ./tools/setup-novaflare-render-dependencies.ps1 -Component GenerationalGC,ImmixReclaim,ImmixMark,RenderThreadRepair,ImageCoordinates
+          haxelib run lime rebuild android
+          if ($LASTEXITCODE -ne 0) { throw 'Lime native rebuild failed' }
+
       - name: Compile Android
         run: |
           COMMIT_SHA=$(git rev-parse --short HEAD)
@@ -137,9 +148,9 @@ jobs:
     
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             NEW_VERSION="${CURRENT_VERSION/-dev/-$COMMIT_SHA}"
-            haxelib run lime build android -Dcommit_sha=$COMMIT_SHA -Dbuild_number=$NEW_VERSION
+            haxelib run lime build android -Dcommit_sha=$COMMIT_SHA -Dbuild_number=$NEW_VERSION "-DORIGIN_ASSETS_PATH=$GITHUB_WORKSPACE/_build/origin-editor-build-assets"
           else
-            haxelib run lime build android -Dcommit_sha=$COMMIT_SHA -Dbuild_number=$CURRENT_VERSION
+            haxelib run lime build android -Dcommit_sha=$COMMIT_SHA -Dbuild_number=$CURRENT_VERSION "-DORIGIN_ASSETS_PATH=$GITHUB_WORKSPACE/_build/origin-editor-build-assets"
           fi
 
       - name: Create Android zip package
@@ -281,6 +292,13 @@ jobs:
 
           echo "lime revision: $(git -C .haxelib/lime/git rev-parse HEAD)"
           echo "openfl revision: $(git -C .haxelib/openfl/git rev-parse HEAD)"
+
+      - name: Prepare render thread and Immix runtime
+        shell: pwsh
+        run: |
+          ./tools/setup-novaflare-render-dependencies.ps1 -Component ImmixReclaim,RenderThreadRepair,ImageCoordinates
+          haxelib run lime rebuild ios -release
+          if ($LASTEXITCODE -ne 0) { throw 'Lime native rebuild failed' }
 
       - name: Compile iOS
         run: haxelib run lime build ios -arm64 -nosign -Dcommit_sha=$(git rev-parse --short HEAD)

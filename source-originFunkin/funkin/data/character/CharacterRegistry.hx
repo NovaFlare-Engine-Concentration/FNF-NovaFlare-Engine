@@ -915,14 +915,19 @@ class CharacterRegistry extends BaseRegistry<BaseCharacter, CharacterData, Chara
           }
           catch (_:Dynamic) {} // Let the normal parser report invalid data.
         }
-        var data = parseEntryDataRaw(contents, fileName,
+        var data = parseCharacterDataRaw(contents, fileName,
           !originfunkin.compat.LegacyRuntime.isLegacyOrigin('hscriptClass($fileName)'));
         data == null ? null : CharacterData.validateCharacterData(id, data);
       default: null;
     };
   }
 
-  public function parseEntryDataRaw(contents:String, ?fileName:String, ignoreUnknownVariables:Bool = false):Null<CharacterData>
+  public function parseEntryDataRaw(contents:String, ?fileName:String):Null<CharacterData>
+  {
+    return parseCharacterDataRaw(contents, fileName, false);
+  }
+
+  function parseCharacterDataRaw(contents:String, ?fileName:String, ignoreUnknownVariables:Bool = false):Null<CharacterData>
   {
     var parser = new json2object.JsonParser<CharacterData>({ignoreUnknownVariables: ignoreUnknownVariables});
     parser.fromJson(funkin.util.SerializerUtil.sanitizeJSON(contents), fileName);

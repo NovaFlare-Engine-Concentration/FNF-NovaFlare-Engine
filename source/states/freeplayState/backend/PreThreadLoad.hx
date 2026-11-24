@@ -33,7 +33,6 @@ class PreThreadLoad {
     var rectPool:FixedThreadPool = null;
     var iconPool:FixedThreadPool = null;
     
-    var threadCount = 0;
     var countMutex:Mutex;
 
     ///////////////////////////////////////////////////////
@@ -59,7 +58,6 @@ class PreThreadLoad {
                     iconPre.push(id);
             }
             maxCount = Std.int(Lambda.count(rectPre) + iconPre.length);
-            threadCount = CoolUtil.getCPUThreadsCount() - 1;
             if (devTrace) trace('load count: ' + maxCount);
 
             for (key => value in rectPre) {
@@ -87,22 +85,28 @@ class PreThreadLoad {
     }
 
     function load() {
+        if (maxCount == 0) {
+            loadFinish = true;
+            return;
+        }
+        final threadCount = CoolUtil.loadingThreadCount(ClientPrefs.data.loadThreads);
         Sys.sleep(0.005); //先释放下线程
 
         lineShape = null;
         var light = new Rect(0, 0, 560, SongRect.fixHeight, SongRect.fixHeight / 2, SongRect.fixHeight / 2, FlxColor.WHITE, 1, 1, EngineSet.mainColor);
         drawLine(light.pixels); //lineShape此时赋予数据
 
-        var rectThread:Int = Math.ceil(threadCount * 0.75);
-        var iconThread:Int = Std.int(Math.max(1, threadCount - rectThread));
+        final sharedPool = threadCount == 1 || loadRect.length == 0 || loadIcon.length == 0;
+        final rectThread = sharedPool ? threadCount : Math.floor(Math.min(threadCount - 1, Math.ceil(threadCount * 0.75)));
+        final iconThread = threadCount - rectThread;
         if (devTrace) trace('thread count: ' + threadCount + ' rect: ' + rectThread + ' icon: ' + iconThread);
 
         rectPool = new FixedThreadPool(rectThread);
-        iconPool = new FixedThreadPool(iconThread);
+        iconPool = sharedPool ? rectPool : new FixedThreadPool(iconThread);
 
         for (i in 0...loadRect.length) {
             var memData:DataPrepare = loadRect[i];
-            rectPool.run(() -> {
+            runPreload(rectPool, () -> {
                 var file:String = memData.bgPath;
                 try
 				{	
@@ -160,18 +164,7 @@ class PreThreadLoad {
     
                     newGraphic = FlxGraphic.fromBitmapData(resizedBitmapData);
                     
-                    countMutex.acquire();
-                        count++;
-                        if (count >= maxCount) {
-                            loadFinish = true;
-                            rectPool.shutdown();
-                            rectPool = null;
-                            iconPool.shutdown();
-                            iconPool = null;
-                        }
-                        
-                        Cache.setFrame(file + ' r:' + memData.color[0] + ' g:' + memData.color[1] + ' b:' + memData.color[2], {graphic:newGraphic, frame:null});
-                    countMutex.release();
+                    storeGraphic(file + ' r:' + memData.color[0] + ' g:' + memData.color[1] + ' b:' + memData.color[2], newGraphic);
                     if (devTrace) trace('RECT: load ' + file + ' color r:' + memData.color[0] + ' g:' + memData.color[1] + ' b:' + memData.color[2] + ' finish');
                 }
 				catch (e:Dynamic)
@@ -183,7 +176,7 @@ class PreThreadLoad {
         }
 
         for (i in 0...loadIcon.length) {
-            iconPool.run(() -> {
+            runPreload(iconPool, () -> {
                 var file:String = loadIcon[i];
                 try
                 {	
@@ -214,19 +207,7 @@ class PreThreadLoad {
                         return;
                     }
                     
-                    countMutex.acquire();
-                        count++;
-                        
-                        if (count >= maxCount) {
-                            loadFinish = true;
-                            rectPool.shutdown();
-                            rectPool = null;
-                            iconPool.shutdown();
-                            iconPool = null;
-                        }
-                        
-                        Cache.setFrame(file, {graphic:newGraphic, frame:null});
-                    countMutex.release();
+                    storeGraphic(file, newGraphic);
                     if (devTrace) trace('ICON: load ' + file + ' finish');
                 }
                 catch (e:Dynamic)
@@ -236,6 +217,32 @@ class PreThreadLoad {
                 }
             });
         }
+    }
+
+    function runPreload(pool:FixedThreadPool, work:Void->Void):Void {
+        pool.run(() -> {
+            work();
+            countMutex.acquire();
+            count++;
+            if (count == maxCount) {
+                rectPool.shutdown();
+                if (iconPool != rectPool) iconPool.shutdown();
+                rectPool = null;
+                iconPool = null;
+                loadFinish = true;
+            }
+            countMutex.release();
+        });
+    }
+
+    function storeGraphic(key:String, graphic:FlxGraphic):Void {
+        countMutex.acquire();
+        try Cache.setFrame(key, {graphic: graphic, frame: null})
+        catch (error:haxe.Exception) {
+            countMutex.release();
+            throw error;
+        }
+        countMutex.release();
     }
 
     static var lineShape:Shape = null;

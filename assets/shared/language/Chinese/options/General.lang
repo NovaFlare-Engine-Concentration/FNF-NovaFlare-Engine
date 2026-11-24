@@ -1,11 +1,15 @@
 General => 常规设置
 
-framerate => 帧数上限
-drawFramerate => 绘制帧数上限
+framerate => 更新上限
+scriptUpdateRate => 脚本帧率上限
+scriptUpdateFrameLimit => 脚本随绘制更新
+drawFramerate => 绘制上限
 language => 切换语言
-lockRender => 帧数提升
+lockRender => 独立绘制
 renderThread => 渲染独立
-gameQuality => 画面质量
+vsync => 垂直同步
+generationalGC => 分代回收
+androidPerformanceHints => 性能提示
 lowQuality => 低质量模式
 resolution => 分辨率
 colorblindMode => 色盲滤镜

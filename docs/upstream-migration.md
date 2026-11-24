@@ -116,6 +116,8 @@ lime test windows
 
 只做源码编译时，可先运行 `./tools/setup-origin-editor-layouts.ps1`，再运行 `lime build windows -DORIGIN_ASSETS_PATH=D:/path/to/repository/_build/origin-editor-build-assets`。脚本仅下载固定 assets 提交的95份 XML/CSS，并逐个核对 Git blob SHA 和大小，保留不同内容的本地文件；不下载完整游戏资源，不把这些文件复制进发行目录。Windows CI 使用同一流程。本机构建81已用该独立布局根目录完成编译；远程 CI 尚未在本轮运行。
 
+Android 构建同样启用 Origin 的谱面、摄像机、动画和舞台编辑器。使用相同的布局目录运行 `lime build android -DORIGIN_ASSETS_PATH=D:/path/to/repository/_build/origin-editor-build-assets`。手机运行时仍从引擎存储目录下的 `Funkin/OriginFunkin/assets` 读取 Origin 外置资源，编辑器样式位于 `exclude/ui/editors/style`。
+
 最新角色与文本缓存修复后，普通 `lime test windows` 再次运行并实际显示 NF 标题画面，关闭后命令退出0（`_build/ordinary-lime-test-195.log`、`.exit`）；`chain.json` 和两个 Origin 存档字节未变，NF 存档重序列化但逐字段内容不变。此检查不代表完整游玩验收。
 
 图片、音频和图集缓存调整后的整批构建再次运行 `lime test windows`（`_build/batched-lime-test-204.log`），实际显示 NF 主菜单并退出0；同一构建的三项临时模组资源检查均通过（`_build/origin-reload-batch-204.json`）。构建中的图标替换警告再次出现；已对生成程序重试并核对32像素图标，首次失败原因尚未确定。三个存档逐字段内容与测试前一致，`chain.json` 字节未变。

@@ -58,7 +58,7 @@ class OriginFunkinBootState extends FlxState
       funkin.play.notes.notekind.NoteKindManager.initialize();
       funkin.data.character.CharacterRegistry.instance.loadEntries();
       #if FEATURE_HAXEUI
-      OriginFunkinEditors.initialize();
+      OriginFunkinEditors.initialize(#if android false #else true #end);
       #end
       FlxG.switchState(() -> new funkin.InitState());
     }

@@ -1,6 +1,7 @@
 ﻿package developer.editors;
 
 import flash.net.FileFilter;
+import haxe.io.Path;
 
 import openfl.display.Sprite;
 import openfl.net.FileReference;
@@ -1696,8 +1697,8 @@ class StageEditorState extends MusicBeatState implements PsychUIEventHandler.Psy
 			return;
 
 		_makeNewSprite = onNewSprite;
-		_file = new FileReference();
-		_file.addEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
+		_file = new EditorFileReference();
+		_file.addEventListener(#if (desktop || android) Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
 		_file.addEventListener(Event.CANCEL, onLoadCancel);
 		_file.addEventListener(IOErrorEvent.IO_ERROR, onLoadError);
 
@@ -1714,7 +1715,7 @@ class StageEditorState extends MusicBeatState implements PsychUIEventHandler.Psy
 	{
 		if (_file == null)
 			return;
-		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
+		_file.removeEventListener(#if (desktop || android) Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
 		_file.removeEventListener(Event.CANCEL, onLoadCancel);
 		_file.removeEventListener(IOErrorEvent.IO_ERROR, onLoadError);
 
@@ -1727,11 +1728,14 @@ class StageEditorState extends MusicBeatState implements PsychUIEventHandler.Psy
 		if (fullPath != null)
 		{
 			fullPath = fullPath.replace('\\', '/');
-			var exePath = Sys.getCwd().replace('\\', '/');
-			if (fullPath.startsWith(exePath + 'assets/images/') #if MODS_ALLOWED
+			var exePath = Path.addTrailingSlash(Sys.getCwd().replace('\\', '/'));
+			if (fullPath.startsWith(exePath + 'assets/images/')
+				#if android || fullPath.startsWith(exePath + 'assets/shared/images/') #end
+				#if MODS_ALLOWED
 				|| (fullPath.startsWith(exePath + 'mods/') && fullPath.contains('/images/')) #end)
 			{
-				var imageToLoad:String = fullPath.substring(fullPath.indexOf('/images/') + '/images/'.length, fullPath.indexOf('.'));
+				var relativePath = fullPath.substr(exePath.length);
+				var imageToLoad = Path.withoutExtension(relativePath.substr(relativePath.indexOf('/images/') + '/images/'.length));
 				if (_makeNewSprite != null)
 				{
 					if (_makeNewSprite == 'animatedSprite'
@@ -1786,7 +1790,7 @@ class StageEditorState extends MusicBeatState implements PsychUIEventHandler.Psy
 	{
 		if (_file == null)
 			return;
-		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
+		_file.removeEventListener(#if (desktop || android) Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
 		_file.removeEventListener(Event.CANCEL, onLoadCancel);
 		_file.removeEventListener(IOErrorEvent.IO_ERROR, onLoadError);
 		_file = null;
@@ -1806,7 +1810,7 @@ class StageEditorState extends MusicBeatState implements PsychUIEventHandler.Psy
 	{
 		if (_file == null)
 			return;
-		_file.removeEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
+		_file.removeEventListener(#if (desktop || android) Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
 		_file.removeEventListener(Event.CANCEL, onLoadCancel);
 		_file.removeEventListener(IOErrorEvent.IO_ERROR, onLoadError);
 		_file = null;

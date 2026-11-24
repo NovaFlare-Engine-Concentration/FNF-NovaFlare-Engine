@@ -1,13 +1,17 @@
 General => General
 
 framerate => Límite de frecuencia de actualización (TPS)
+scriptUpdateRate => Límite de actualización de scripts
+scriptUpdateFrameLimit => Los scripts siguen el renderizado
 drawFramerate => Límite de fotogramas dibujados (FPS)
 lockRender => Renderizado independiente
 language => Idioma del motor
-gameQuality => Calidad del juego
 lowQuality => Baja calidad
 resolution => Resolución
 renderThread => Hilo de renderizado
+vsync => Sincronización vertical
+generationalGC => GC generacional
+androidPerformanceHints => Sugerencias de rendimiento
 colorblindMode => Filtro para daltonismo
 antialiasing => Suavizado de bordes
 flashing => Luces intermitentes

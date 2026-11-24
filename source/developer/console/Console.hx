@@ -1,7 +1,8 @@
 package developer.console;
 
 import general.backend.ClientPrefs;
-import general.backend.Paths;
+import developer.console.ConsoleTheme.ConsoleMode;
+import developer.console.ConsoleTheme.ConsoleThemes;
 import haxe.Timer;
 import lime.system.Clipboard;
 import openfl.Lib;
@@ -27,9 +28,13 @@ private typedef ConsoleLogLine = {
 
 class Console extends Sprite {
 	public static var consoleInstance(get, null):Console;
+	public static var mode(default, null):ConsoleMode = NovaFlare;
+	public static var theme(default, null):ConsoleTheme;
+	private static var available:Bool = false;
 
 	private static inline var HEADER_HEIGHT:Float = 34;
 	private static inline var TOOLBAR_HEIGHT:Float = 36;
+	private static inline var TOOLBAR_GAP:Float = 6;
 	private static inline var STATUS_HEIGHT:Float = 24;
 	private static inline var PADDING:Float = 10;
 	private static inline var SCROLLBAR_WIDTH:Float = 9;
@@ -70,6 +75,7 @@ class Console extends Sprite {
 	private var shownLines:Int = 0;
 	private var currentWidth:Float = 720;
 	private var currentHeight:Float = 390;
+	private var requestedScale:Float = 1;
 	private var normalBounds:Rectangle = new Rectangle();
 	private var captureEnabled:Bool = true;
 	private var autoScroll:Bool = true;
@@ -109,8 +115,27 @@ class Console extends Sprite {
 		queueLine(level, message, color);
 	}
 
+	public static function configure(mode:ConsoleMode):Void {
+		Console.mode = mode;
+		theme = ConsoleThemes.forMode(mode);
+	}
+
+	public static function isAvailable():Bool {
+		#if CODENAME_ENGINE_COMPAT
+		if (mode == CodeName) return codename.funkin.options.Options.devMode;
+		#end
+		return mode == NovaFlare ? ClientPrefs.data.developerMode : available;
+	}
+
+	public static function setAvailability(mode:ConsoleMode, enabled:Bool):Void {
+		if (Console.mode != mode || mode == NovaFlare || available == enabled) return;
+		available = enabled;
+		if (enabled) ConsoleToggleButton.show();
+		else hide();
+	}
+
 	public static function show():Void {
-		if (!ClientPrefs.data.developerMode) return;
+		if (!isAvailable()) return;
 
 		var console = consoleInstance;
 		console.visible = true;
@@ -129,12 +154,8 @@ class Console extends Sprite {
 	}
 
 	public static function hide():Void {
-		if (_consoleInstance != null) {
-			_consoleInstance.visible = false;
-			if (ClientPrefs.data.developerMode) {
-				ConsoleToggleButton.show();
-			}
-		}
+		if (_consoleInstance != null) _consoleInstance.visible = false;
+		ConsoleToggleButton.show();
 	}
 
 	public static function isVisible():Bool {
@@ -149,7 +170,8 @@ class Console extends Sprite {
 	public function new() {
 		super();
 
-		scaleX = scaleY = normalizeScale(resolveDevConScale());
+		requestedScale = normalizeScale(resolveDevConScale());
+		fitScaleToStage();
 		pickInitialSize();
 		createUI();
 		redraw();
@@ -160,17 +182,17 @@ class Console extends Sprite {
 	}
 
 	public function updateScale(newScale:Float):Void {
-		newScale = normalizeScale(newScale);
 		var actualWidth = currentWidth * scaleX;
 		var actualHeight = currentHeight * scaleY;
 
-		scaleX = scaleY = newScale;
+		requestedScale = normalizeScale(newScale);
 
 		if (isMaximized) {
 			fillStage();
 		} else {
-			currentWidth = Math.max(MIN_WIDTH, actualWidth / newScale);
-			currentHeight = Math.max(MIN_HEIGHT, actualHeight / newScale);
+			fitScaleToStage();
+			currentWidth = Math.max(MIN_WIDTH, actualWidth / scaleX);
+			currentHeight = Math.max(MIN_HEIGHT, actualHeight / scaleY);
 			clampSizeToStage();
 			clampToStage();
 			redraw();
@@ -246,7 +268,7 @@ class Console extends Sprite {
 
 	private static function resolveDevConScale():Float {
 		var fallbackScale:Float = #if mobile 1.8 #else 1.5 #end;
-		if (ClientPrefs.data == null) return fallbackScale;
+		if (mode != NovaFlare || ClientPrefs.data == null) return fallbackScale;
 
 		var raw:Dynamic = Reflect.field(ClientPrefs.data, "devConScale");
 		var parsed = Std.parseFloat(Std.string(raw));
@@ -337,7 +359,7 @@ class Console extends Sprite {
 
 	private function makeTextField(size:Int, color:Int, bold:Bool):TextField {
 		var field = new TextField();
-		field.defaultTextFormat = new TextFormat(Paths.font("Lang-ZH.ttf"), size, color, bold);
+		field.defaultTextFormat = new TextFormat(theme.font, size, color, bold);
 		field.embedFonts = false;
 		field.selectable = false;
 		return field;
@@ -347,8 +369,7 @@ class Console extends Sprite {
 		stage.addEventListener(Event.RESIZE, onStageResize);
 		stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
 		addEventListener(Event.ENTER_FRAME, onEnterFrame);
-		clampToStage();
-		redraw();
+		onStageResize(null);
 	}
 
 	private function onRemovedFromStage(_:Event):Void {
@@ -366,6 +387,9 @@ class Console extends Sprite {
 	}
 
 	private function onEnterFrame(_:Event):Void {
+		#if CODENAME_ENGINE_COMPAT
+		if (mode == CodeName) setAvailability(CodeName, codename.funkin.options.Options.devMode);
+		#end
 		// The console remains on the display list while hidden. Polling its
 		// pending queue took two mutexes plus a native timer call on every game
 		// frame even when there was no log traffic. Hidden logs tolerate a short
@@ -496,17 +520,17 @@ class Console extends Sprite {
 
 	private function redraw():Void {
 		graphics.clear();
-		graphics.beginFill(0x111820, 0.94);
+		graphics.beginFill(theme.panel, 0.94);
 		graphics.drawRoundRect(0, 0, currentWidth, currentHeight, 8, 8);
 		graphics.endFill();
-		graphics.lineStyle(1, 0x40505F, 0.95);
+		graphics.lineStyle(1, theme.border, 0.95);
 		graphics.drawRoundRect(0, 0, currentWidth, currentHeight, 8, 8);
 
 		titleBar.graphics.clear();
-		titleBar.graphics.beginFill(0x1D2A35, 0.98);
+		titleBar.graphics.beginFill(theme.header, 0.98);
 		titleBar.graphics.drawRoundRect(0, 0, currentWidth, HEADER_HEIGHT, 8, 8);
 		titleBar.graphics.endFill();
-		titleBar.graphics.beginFill(0x1D2A35, 0.98);
+		titleBar.graphics.beginFill(theme.header, 0.98);
 		titleBar.graphics.drawRect(0, HEADER_HEIGHT - 8, currentWidth, 8);
 		titleBar.graphics.endFill();
 
@@ -536,16 +560,16 @@ class Console extends Sprite {
 		pauseButton.y = yPos;
 		pauseButton.setLabel(captureEnabled ? "Pause" : "Resume");
 		pauseButton.setActive(!captureEnabled);
-		xPos += pauseButton.buttonWidth + 6;
+		xPos += pauseButton.buttonWidth + TOOLBAR_GAP;
 
 		autoButton.x = xPos;
 		autoButton.y = yPos;
 		autoButton.setActive(autoScroll);
-		xPos += autoButton.buttonWidth + 6;
+		xPos += autoButton.buttonWidth + TOOLBAR_GAP;
 
 		clearButton.x = xPos;
 		clearButton.y = yPos;
-		xPos += clearButton.buttonWidth + 6;
+		xPos += clearButton.buttonWidth + TOOLBAR_GAP;
 
 		copyButton.x = xPos;
 		copyButton.y = yPos;
@@ -555,24 +579,26 @@ class Console extends Sprite {
 		var outputX = PADDING;
 		var outputY = HEADER_HEIGHT + TOOLBAR_HEIGHT + PADDING;
 		var outputW = currentWidth - PADDING * 2 - SCROLLBAR_WIDTH - 7;
-		var outputH = currentHeight - outputY - STATUS_HEIGHT - PADDING;
+		var statusY = currentHeight - STATUS_HEIGHT;
+		var outputH = statusY - outputY - PADDING;
 
 		output.x = outputX;
 		output.y = outputY;
 		output.width = Math.max(80, outputW);
-		output.height = Math.max(80, outputH);
+		output.height = Math.max(0, outputH);
 
 		scrollTrack.x = output.x + output.width + 6;
 		scrollTrack.y = output.y;
 		drawScrollTrack(output.height);
 
 		statusLabel.x = PADDING;
-		statusLabel.y = currentHeight - STATUS_HEIGHT + 1;
+		statusLabel.y = statusY + 1;
 		statusLabel.width = currentWidth - PADDING * 2 - 28;
 		statusLabel.height = STATUS_HEIGHT;
 
 		resizeHandle.x = currentWidth - 28;
 		resizeHandle.y = currentHeight - 28;
+		resizeHandle.visible = resizeHandle.mouseEnabled = !isMaximized;
 	}
 
 	private function drawScrollTrack(height:Float):Void {
@@ -600,11 +626,11 @@ class Console extends Sprite {
 		var numLines = Math.max(1, output.numLines);
 		var visibleLines = Math.max(1, output.bottomScrollV - output.scrollV + 1);
 		var ratio = Math.min(1, visibleLines / numLines);
-		var thumbH = maxScroll <= 1 ? trackH : Math.max(24, trackH * ratio);
+		var thumbH = maxScroll <= 1 ? trackH : Math.min(trackH, Math.max(24, trackH * ratio));
 		var scrollRatio = maxScroll <= 1 ? 0 : (output.scrollV - 1) / (maxScroll - 1);
 		var thumbY = scrollTrack.y + (trackH - thumbH) * scrollRatio;
 
-		scrollThumb.visible = maxScroll > 1;
+		scrollThumb.visible = maxScroll > 1 && thumbH > 0;
 		scrollThumb.x = scrollTrack.x;
 		scrollThumb.y = thumbY;
 		scrollThumb.graphics.clear();
@@ -778,6 +804,7 @@ class Console extends Sprite {
 			y = normalBounds.y;
 			currentWidth = normalBounds.width;
 			currentHeight = normalBounds.height;
+			fitScaleToStage();
 			clampSizeToStage();
 			clampToStage();
 			redraw();
@@ -790,6 +817,7 @@ class Console extends Sprite {
 	}
 
 	private function fillStage():Void {
+		fitScaleToStage();
 		x = 0;
 		y = 0;
 		currentWidth = stageWidth() / scaleX;
@@ -804,6 +832,7 @@ class Console extends Sprite {
 			return;
 		}
 
+		fitScaleToStage();
 		clampSizeToStage();
 		clampToStage();
 		redraw();
@@ -811,7 +840,7 @@ class Console extends Sprite {
 	}
 
 	private function onKeyDown(event:KeyboardEvent):Void {
-		if (!ClientPrefs.data.developerMode) return;
+		if (!isAvailable()) return;
 
 		if ((event.ctrlKey && event.keyCode == KEY_GRAVE) || event.keyCode == KEY_F10) {
 			toggle();
@@ -826,6 +855,18 @@ class Console extends Sprite {
 			event.stopImmediatePropagation();
 			return;
 		}
+	}
+
+	private function fitScaleToStage():Void {
+		var minimumWidth = MIN_WIDTH;
+		var minimumHeight = MIN_HEIGHT;
+		if (isMaximized) {
+			minimumWidth = PADDING * 2 + TOOLBAR_GAP * 3 + pauseButton.buttonWidth + autoButton.buttonWidth
+				+ clearButton.buttonWidth + copyButton.buttonWidth;
+			minimumHeight = HEADER_HEIGHT + TOOLBAR_HEIGHT + STATUS_HEIGHT + PADDING * 2;
+		}
+		var fitScale = Math.min(stageWidth() / minimumWidth, stageHeight() / minimumHeight);
+		scaleX = scaleY = fitScale > 0 ? Math.min(requestedScale, fitScale) : requestedScale;
 	}
 
 	private function clampSizeToStage():Void {
@@ -871,15 +912,15 @@ private class ConsoleButton extends Sprite {
 
 		buttonWidth = width;
 		buttonHeight = height;
-		baseColor = color;
-		activeColor = brighten(color, 34);
+		baseColor = Console.theme.control ?? color;
+		activeColor = brighten(baseColor, 34);
 
 		buttonMode = true;
 		useHandCursor = true;
 		mouseChildren = false;
 
 		label = new TextField();
-		labelFormat = new TextFormat(Paths.font("Lang-ZH.ttf"), 11, 0xF4F7FA, true);
+		labelFormat = new TextFormat(Console.theme.font, 11, 0xF4F7FA, true);
 		labelFormat.align = TextFormatAlign.CENTER;
 		label.defaultTextFormat = labelFormat;
 		label.selectable = false;

@@ -9,6 +9,9 @@ import haxe.io.Path;
 import openfl.net.FileReference;
 import openfl.events.Event;
 import openfl.events.IOErrorEvent;
+#if (android && !macro)
+import mobile.ui.MobileFileDialog;
+#end
 
 using StringTools;
 
@@ -145,7 +148,15 @@ class FileUtil
    */
   public static function browseForDirectory(dialogTitle:String, onSelect:(String) -> Void, ?onCancel:() -> Void, ?defaultPath:String):Void
   {
-    #if html5
+    #if (android && !macro)
+    MobileFileDialog.choose({
+      title: dialogTitle,
+      mode: DIRECTORY,
+      defaultPath: defaultPath,
+      extensions: [],
+      onComplete: (paths) -> if (paths.length > 0) onSelect(paths[0]); else if (onCancel != null) onCancel()
+    });
+    #elseif html5
     trace('WARNING: browseForDirectory not implemented for this platform');
 
     if (onCancel != null)
@@ -189,7 +200,15 @@ class FileUtil
     ?onCancel:() -> Void,
     ?defaultPath:String):Void
   {
-    #if html5
+    #if (android && !macro)
+    MobileFileDialog.choose({
+      title: dialogTitle,
+      mode: OPEN,
+      defaultPath: defaultPath,
+      extensions: mobileExtensions(typeFilter),
+      onComplete: (paths) -> if (paths.length > 0) onSelect(SelectedFileData.fromPath(paths[0])); else if (onCancel != null) onCancel()
+    });
+    #elseif html5
     trace('WARNING: browseForFile not implemented for this platform');
 
     if (onCancel != null)
@@ -233,7 +252,15 @@ class FileUtil
     ?onCancel:() -> Void,
     ?defaultPath:String):Void
   {
-    #if html5
+    #if (android && !macro)
+    MobileFileDialog.choose({
+      title: dialogTitle,
+      mode: OPEN_MULTIPLE,
+      defaultPath: defaultPath,
+      extensions: mobileExtensions(typeFilter),
+      onComplete: (paths) -> if (paths.length > 0) onSelect(paths); else if (onCancel != null) onCancel()
+    });
+    #elseif html5
     trace('WARNING: browseForMultipleFiles not implemented for this platform');
 
     if (onCancel != null)
@@ -277,7 +304,15 @@ class FileUtil
     ?onCancel:() -> Void,
     ?defaultPath:String):Void
   {
-    #if html5
+    #if (android && !macro)
+    MobileFileDialog.choose({
+      title: dialogTitle,
+      mode: SAVE,
+      defaultPath: defaultPath,
+      extensions: mobileExtensions(typeFilter),
+      onComplete: (paths) -> if (paths.length > 0) onSelect(paths[0]); else if (onCancel != null) onCancel()
+    });
+    #elseif html5
     trace('WARNING: browseForSaveFile not implemented for this platform');
 
     if (onCancel != null)
@@ -323,7 +358,22 @@ class FileUtil
     ?onCancel:() -> Void,
     ?defaultPath:String):Void
   {
-    #if html5
+    #if (android && !macro)
+    browseForSaveFile(dialogTitle, typeFilter, (path) ->
+    {
+      try
+      {
+        if (data != null) sys.io.File.saveBytes(path, data);
+      }
+      catch (error:haxe.Exception)
+      {
+        WindowUtil.showError('Cannot save file', error.message);
+        if (onCancel != null) onCancel();
+        return;
+      }
+      if (onSave != null) onSave(path);
+    }, onCancel, defaultPath);
+    #elseif html5
     trace('WARNING: saveFile not implemented for this platform');
 
     if (onCancel != null)
@@ -520,6 +570,29 @@ class FileUtil
   public static function browseFileReference(callback:(FileReference) -> Void):Void
   {
     var file = new FileReference();
+    #if (android && !macro)
+    MobileFileDialog.choose({
+      title: 'Open File',
+      mode: OPEN,
+      defaultPath: null,
+      extensions: [],
+      onComplete: (paths) ->
+      {
+        if (paths.length == 0) return;
+        try
+        {
+          @:privateAccess file.openFileDialog_onSelect(paths[0]);
+          file.load();
+        }
+        catch (error:haxe.Exception)
+        {
+          WindowUtil.showError('Cannot open file', error.message);
+          return;
+        }
+        if (file.data != null) callback(file);
+      }
+    });
+    #else
     file.addEventListener(Event.SELECT, (e) ->
     {
       var selectedFileRef:FileReference = e.target;
@@ -537,6 +610,7 @@ class FileUtil
     });
 
     file.browse();
+    #end
   }
 
   /**
@@ -548,6 +622,23 @@ class FileUtil
    */
   public static function writeFileReference(path:String, data:String, callback:String->Void):Void
   {
+    #if (android && !macro)
+    final extension = Path.extension(path);
+    browseForSaveFile('Save File', extension.length > 0 ? [new FileFilter(extension, '*.' + extension)] : [], (selectedPath) ->
+    {
+      try
+      {
+        sys.io.File.saveContent(selectedPath, data);
+      }
+      catch (error:haxe.Exception)
+      {
+        WindowUtil.showError('Cannot save file', error.message);
+        callback('error');
+        return;
+      }
+      callback('success');
+    }, () -> callback('info'), path);
+    #else
     var file = new FileReference();
 
     file.addEventListener(Event.COMPLETE, (e:Event) ->
@@ -569,7 +660,15 @@ class FileUtil
     });
 
     file.save(data, path);
+    #end
   }
+
+  #if (android && !macro)
+  static function mobileExtensions(filters:Null<Array<FileFilter>>):Array<String>
+  {
+    return @:privateAccess [for (filter in (filters ?? [])) filter.extension];
+  }
+  #end
 
   /**
    * Read JSON file contents directly from a given path.

@@ -33,7 +33,6 @@ NoteOffsetState => 音画偏移
 
 Gameplaybackend => 游戏后端设置
 
-gameplayGC => GameplayGC 接管
 fixLNL => 缩短长键
 saveScoreBase => 回放记录保存基础
 replayQuality => 回放画质

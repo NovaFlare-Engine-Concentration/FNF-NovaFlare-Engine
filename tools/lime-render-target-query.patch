@@ -1,0 +1,77 @@
+--- a/project/src/graphics/opengl/OpenGLBindings.cpp
++++ b/project/src/graphics/opengl/OpenGLBindings.cpp
+@@ -9,6 +9,7 @@
+ #include <map>
+ #include <string>
+ #include <vector>
++#include <cstdio>
+ 
+ #ifdef NEED_EXTENSIONS
+ #define DEFINE_EXTENSION
+@@ -4827,6 +4828,37 @@
+ 
+ 		glGetTexParameterfv (target, pname, (GLfloat*)(uintptr_t)params);
+ 
++	}
++
++
++	int lime_gl_get_tex_level_parameteri(int target, int level, int pname) {
++#if defined(LIME_SDL)
++		auto query = [=]() {
++#if defined(LIME_GLES) || defined(NATIVE_TOOLKIT_SDL_ANGLE)
++			const char* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
++			int major = 0;
++			int minor = 0;
++			if (!version || std::sscanf(version, "OpenGL ES %d.%d", &major, &minor) != 2 ||
++				major < 3 || (major == 3 && minor == 0)) return 0;
++#endif
++#if defined(HX_WINDOWS)
++			using Procedure = void (APIENTRY*)(GLenum, GLint, GLenum, GLint*);
++#else
++			using Procedure = void (*)(GLenum, GLint, GLenum, GLint*);
++#endif
++			const auto getLevel = reinterpret_cast<Procedure>(SDL_GL_GetProcAddress("glGetTexLevelParameteriv"));
++			if (!getLevel) return 0;
++			GLint result = 0;
++			getLevel(target, level, pname, &result);
++			return static_cast<int>(result);
++		};
++
++		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded)
++			return OpenGLBindings::renderThread->RunCommandAndWait<int>(__func__, query);
++		return query();
++#else
++		return 0;
++#endif
+ 	}
+ 
+ 
+@@ -8702,6 +8734,7 @@
+ 	DEFINE_PRIME3v (lime_gl_get_sync_parameteriv);
+ 	DEFINE_PRIME2 (lime_gl_get_tex_parameterf);
+ 	DEFINE_PRIME3v (lime_gl_get_tex_parameterfv);
++	DEFINE_PRIME3 (lime_gl_get_tex_level_parameteri);
+ 	DEFINE_PRIME2 (lime_gl_get_tex_parameteri);
+ 	DEFINE_PRIME3v (lime_gl_get_tex_parameteriv);
+ 	DEFINE_PRIME2 (lime_gl_get_transform_feedback_varying);
+diff --git a/src/lime/_internal/backend/native/NativeCFFI.hx b/src/lime/_internal/backend/native/NativeCFFI.hx
+index aa619dc8..186312c7 100644
+--- a/src/lime/_internal/backend/native/NativeCFFI.hx
++++ b/src/lime/_internal/backend/native/NativeCFFI.hx
+@@ -4095,6 +4095,8 @@ private static var lime_alc_capture_close_device = CFFI.load("lime", "lime_alc_c
+ 
+ 	@:cffi private static function lime_gl_get_tex_parameterfv(target:Int, pname:Int, params:DataPointer):Void;
+ 
++	@:cffi private static function lime_gl_get_tex_level_parameteri(target:Int, level:Int, pname:Int):Int;
++
+ 	@:cffi private static function lime_gl_get_tex_parameteri(target:Int, pname:Int):Int;
+ 
+ 	@:cffi private static function lime_gl_get_tex_parameteriv(target:Int, pname:Int, params:DataPointer):Void;
+@@ -4578,6 +4580,7 @@ private static var lime_alc_capture_close_device = CFFI.load("lime", "lime_alc_c
+ 		false));
+ 	private static var lime_gl_get_tex_parameterfv = new cpp.Callable<Int->Int->lime.utils.DataPointer->cpp.Void>(cpp.Prime._loadPrime("lime",
+ 		"lime_gl_get_tex_parameterfv", "iidv", false));
++	private static var lime_gl_get_tex_level_parameteri = new cpp.Callable<Int->Int->Int->Int>(cpp.Prime._loadPrime("lime", "lime_gl_get_tex_level_parameteri", "iiii", true));
+ 	private static var lime_gl_get_tex_parameteri = new cpp.Callable<Int->Int->Int>(cpp.Prime._loadPrime("lime", "lime_gl_get_tex_parameteri", "iii", false));
+ 	private static var lime_gl_get_tex_parameteriv = new cpp.Callable<Int->Int->lime.utils.DataPointer->cpp.Void>(cpp.Prime._loadPrime("lime",
+ 		"lime_gl_get_tex_parameteriv", "iidv", false));

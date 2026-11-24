@@ -17,15 +17,16 @@ class NumButton extends FlxSpriteGroup {
     public var moveDis:Rect;
     public var rod:Rect;
 	
-    var max:Float;
-    var min:Float;
+    var max(get, never):Float;
+    var min(get, never):Float;
+
+    inline function get_max():Float return follow.maxValue;
+    inline function get_min():Float return follow.minValue;
 
     public function new(X:Float, Y:Float, width:Float, height:Float, follow:Option) {
         super(X, Y);
 
         this.follow = follow;
-        this.min = follow.minValue;
-        this.max = follow.maxValue;
         innerX = X;
         innerY = Y;
 
@@ -82,7 +83,7 @@ class NumButton extends FlxSpriteGroup {
     }
 
     public function initData() {
-        var percent = (follow.defaultValue - min) / (max - min);
+        var percent = max > min ? (follow.defaultValue - min) / (max - min) : 0;
         rectUpdate(percent);
     }
 
@@ -98,7 +99,7 @@ class NumButton extends FlxSpriteGroup {
 	{
 		super.update(elapsed);
 
-        if (!follow.allowUpdate) return;
+        if (max <= min || !follow.allowUpdate) return;
 
         if (OptionsState.instance.mouseEvent.overlaps(OptionsState.instance.specBG) || OptionsState.instance.mouseEvent.overlaps(OptionsState.instance.downBG)) return;
 

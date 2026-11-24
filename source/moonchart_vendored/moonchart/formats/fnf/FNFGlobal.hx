@@ -150,6 +150,17 @@ class FNFNoteTypeResolver extends Resolver<FNFLegacyNoteType, BasicFNFNoteType>
 {
 	public var keepIfUnknown:Bool = true;
 
+	public function fromBasicKeepingCustomType(type:BasicFNFNoteType):FNFLegacyNoteType
+	{
+		var name:String = type;
+		if (name == null || name.length == 0 || name == BasicNoteType.DEFAULT || _from.exists(name))
+			return fromBasic(type);
+
+		// A source format can pass an unrecognized integer ID through the basic chart as a string.
+		var index = Std.parseInt(name);
+		return (index != null && Std.string(index) == name) ? fromBasic(type) : name;
+	}
+
 	override function toBasic(?ID:FNFLegacyNoteType):BasicFNFNoteType
 	{
 		if (ID == null)

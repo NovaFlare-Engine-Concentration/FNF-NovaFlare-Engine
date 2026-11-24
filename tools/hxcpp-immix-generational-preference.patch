@@ -1,0 +1,74 @@
+diff --git a/include/hx/GC.h b/include/hx/GC.h
+--- a/include/hx/GC.h
++++ b/include/hx/GC.h
+@@ -32,6 +32,9 @@
+ HXCPP_EXTERN_CLASS_ATTRIBUTES void  __hxcpp_reachable(hx::Object *inKeep);
+ HXCPP_EXTERN_CLASS_ATTRIBUTES void  __hxcpp_enable(bool inEnable);
+ HXCPP_EXTERN_CLASS_ATTRIBUTES void  __hxcpp_collect(bool inMajor=true);
++#ifdef NOVAFLARE_GC_GENERATIONAL_PREFERENCE
++HXCPP_EXTERN_CLASS_ATTRIBUTES void  __hxcpp_novaflare_configure_generational_gc(bool inEnabled);
++#endif
+ HXCPP_EXTERN_CLASS_ATTRIBUTES void   __hxcpp_gc_compact();
+ HXCPP_EXTERN_CLASS_ATTRIBUTES int   __hxcpp_gc_trace(hx::Class inClass, bool inPrint);
+ HXCPP_EXTERN_CLASS_ATTRIBUTES int   __hxcpp_gc_used_bytes();
+diff --git a/src/hx/gc/Immix.cpp b/src/hx/gc/Immix.cpp
+--- a/src/hx/gc/Immix.cpp
++++ b/src/hx/gc/Immix.cpp
+@@ -277,6 +277,14 @@
+ 
+ // Start with full gc - since all objects will be new
+ static GcMode sGcMode = gcmFull;
++
++#ifdef NOVAFLARE_GC_GENERATIONAL_PREFERENCE
++#ifndef HXCPP_GC_GENERATIONAL
++#error NOVAFLARE_GC_GENERATIONAL_PREFERENCE requires HXCPP_GC_GENERATIONAL
++#endif
++enum GenerationalPreference { gpUnconfigured, gpDisabled, gpEnabled };
++static volatile int sgGenerationalPreference = gpUnconfigured;
++#endif
+ 
+ 
+ 
+@@ -5505,11 +5513,12 @@
+       double filled_ratio = (double)mRowsInUse/(double)(mAllBlocksCount*IMMIX_USEFUL_LINES);
+       double after_gen = filled_ratio + (1.0-filled_ratio)*mGenerationalRetainEstimate;
+ 
+-      if (sgGameplayGcMode)
+-      {
+-         sGcMode = gcmGenerational;
+-      }
+-      else if (after_gen<0.75)
++      #ifdef NOVAFLARE_GC_GENERATIONAL_PREFERENCE
++      const bool generationalAllowed = _hx_atomic_load(&sgGenerationalPreference) == gpEnabled;
++      #else
++      const bool generationalAllowed = true;
++      #endif
++      if (generationalAllowed && (sgGameplayGcMode || after_gen<0.75))
+       {
+          sGcMode = gcmGenerational;
+       }
+@@ -7170,6 +7179,13 @@
+ } // end namespace hx
+ 
+ 
++#ifdef NOVAFLARE_GC_GENERATIONAL_PREFERENCE
++void __hxcpp_novaflare_configure_generational_gc(bool inEnabled)
++{
++   _hx_atomic_compare_exchange(&sgGenerationalPreference, gpUnconfigured, inEnabled ? gpEnabled : gpDisabled);
++}
++#endif
++
+ void __hxcpp_gc_enter_gameplay(int inReserveBytes, int inMaxHeadroomBytes)
+ {
+    if (!sgAllocInit)
+diff --git a/toolchain/common-defines.xml b/toolchain/common-defines.xml
+--- a/toolchain/common-defines.xml
++++ b/toolchain/common-defines.xml
+@@ -27,6 +27,7 @@
+  <flag value="-DHXCPP_GC_GENERATIONAL" if="HXCPP_GC_GENERATIONAL" tag="haxe" />
+  <flag value="-DHXCPP_ALIGN_ALLOC" if="HXCPP_ALIGN_ALLOC" tag="haxe" />
+  <flag value="-DHXCPP_GC_NURSERY" if="HXCPP_GC_NURSERY" tag="haxe" />
++ <flag value="-DNOVAFLARE_GC_GENERATIONAL_PREFERENCE" if="NOVAFLARE_GC_GENERATIONAL_PREFERENCE" tag="haxe" />
+  <flag value="-DHXCPP_DLL_IMPORT" if="dll_import" tag="haxe" />
+  <flag value="-I${dll_import_include}" if="dll_import_include" tag="haxe" />
+  <flag value="-DHXCPP_DLL_EXPORT" if="dll_export||dll_link" tag="haxe" />

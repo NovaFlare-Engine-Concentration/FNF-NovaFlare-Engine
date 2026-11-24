@@ -1,0 +1,77 @@
+diff --git a/src/hx/gc/Immix.cpp b/src/hx/gc/Immix.cpp
+index d977776..0190586 100644
+--- a/src/hx/gc/Immix.cpp
++++ b/src/hx/gc/Immix.cpp
+@@ -94,6 +94,41 @@ enum { gAlwaysMove = false };
+ #define __has_builtin(x) 0
+ #endif
+ namespace {
++#ifdef HX_WINDOWS
++FILE* OpenGcPauseTimeline()
++{
++   wchar_t path[32768];
++   DWORD length = GetEnvironmentVariableW(L"NOVAFLARE_GC_PAUSE_TIMELINE", path, 32768);
++   if (!length || length >= 32768) return nullptr;
++   FILE* file = _wfopen(path, L"wb");
++   if (file)
++   {
++      fputs("begin_qpc,end_qpc,qpc_frequency,thread_id,major,force_compact\n", file);
++      fflush(file);
++   }
++   return file;
++}
++
++std::uint64_t GcPauseCounter()
++{
++   LARGE_INTEGER counter;
++   QueryPerformanceCounter(&counter);
++   return static_cast<std::uint64_t>(counter.QuadPart);
++}
++
++void WriteGcPause(FILE* file, std::uint64_t begin, bool major, bool forceCompact)
++{
++   const auto end = GcPauseCounter();
++   LARGE_INTEGER frequency;
++   QueryPerformanceFrequency(&frequency);
++   fprintf(file, "%llu,%llu,%llu,%lu,%d,%d\n",
++      static_cast<unsigned long long>(begin), static_cast<unsigned long long>(end),
++      static_cast<unsigned long long>(frequency.QuadPart), GetCurrentThreadId(),
++      major ? 1 : 0, forceCompact ? 1 : 0);
++   fflush(file);
++}
++#endif
++
+ void DebuggerTrap()
+ {
+    static bool triggeredOnce = false;
+@@ -5036,6 +5071,9 @@ public:
+ 
+    void Collect(bool inMajor, bool inForceCompact, bool inLocked,bool inFreeIsFragged)
+    {
++      #ifdef HX_WINDOWS
++      static FILE* pauseTimeline = OpenGcPauseTimeline();
++      #endif
+       double gameplayPauseStart = __hxcpp_time_stamp();
+       bool protectGameplayPause = sgGameplayGcMode && !sgGameplayGcPreparing;
+       if (protectGameplayPause && inMajor && !inForceCompact)
+@@ -5069,6 +5107,9 @@ public:
+       }
+       #endif
+ 
++      #ifdef HX_WINDOWS
++      const auto pauseStarted = pauseTimeline ? GcPauseCounter() : 0;
++      #endif
+       STAMP(t0)
+ 
+       // We are the collector - all must wait for us
+@@ -5626,6 +5667,10 @@ public:
+       #endif
+ 
+ 
++      #ifdef HX_WINDOWS
++      if (pauseTimeline)
++         WriteGcPause(pauseTimeline, pauseStarted, inMajor, inForceCompact);
++      #endif
+       PROFILE_COLLECT_SUMMARY_END;
+    }
+ 

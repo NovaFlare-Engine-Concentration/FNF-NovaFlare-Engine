@@ -543,7 +543,7 @@ class FreeplayState extends MusicBeatState
 			case 'editor':
 				return function() { 
 				stopAll = true; 
-				MusicBeatState.switchState(new ChartingState()); 
+				MusicBeatState.switchState(new developer.editors.psych104.Psych104ChartingState()); 
 			};
 			case 'reset':
 				return function() { 
@@ -1361,6 +1361,12 @@ class FreeplayState extends MusicBeatState
 		}
 		if (replaySortText != null)
 			replaySortText.text = label;
+	}
+
+	public function jumpSongs(up:Bool):Void
+	{
+		if (songGroup != null && songGroup.length > 0)
+			changeSelection(up ? -10 : 10);
 	}
 
 	public function changeSelection(change:Int = 0, playSound:Bool = true)

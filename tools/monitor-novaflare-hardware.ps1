@@ -10,7 +10,9 @@ param(
     [int]$MaximumSeconds = 480,
 
     [ValidateRange(1, 10)]
-    [int]$IntervalSeconds = 1
+    [int]$IntervalSeconds = 1,
+
+    [switch]$StopOnProcessExit
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,6 +24,9 @@ $sample = 0
 $maximumSamples =
     [Math]::Ceiling($MaximumSeconds / $IntervalSeconds) + 5
 $pidPrefix = "pid_$($TargetProcessId)_"
+$targetProcess = if ($StopOnProcessExit) {
+    [Diagnostics.Process]::GetProcessById($TargetProcessId)
+}
 
 $counters = @(
     '\Processor Information(_Total)\Processor Frequency',
@@ -108,7 +113,8 @@ try {
         'cpu_utility_percent,cpu_parking_percent,gpu_total_percent,' +
         'gpu_3d_percent,gpu_copy_percent,gpu_compute_percent,' +
         'gpu_video_decode_percent,gpu_video_encode_percent,' +
-        'gpu_dedicated_mb,gpu_shared_mb,gpu_total_committed_mb')
+        'gpu_dedicated_mb,gpu_shared_mb,gpu_total_committed_mb,' +
+        'gpu_engine_counter_samples,gpu_memory_counter_samples')
     $writer.Flush()
 
     Get-Counter -Counter $counters `
@@ -116,8 +122,20 @@ try {
         -MaxSamples $maximumSamples `
         -ErrorAction SilentlyContinue |
         ForEach-Object {
+            if ($targetProcess -and $targetProcess.HasExited) {
+                throw [OperationCanceledException]::new('Target process exited')
+            }
             $sample++
             $counterSamples = @($_.CounterSamples)
+            $gpuCounters = @($counterSamples | Where-Object {
+                $_.InstanceName.StartsWith($pidPrefix, [StringComparison]::OrdinalIgnoreCase)
+            })
+            $engineCounterCount = @($gpuCounters | Where-Object {
+                $_.Path.EndsWith('\utilization percentage', [StringComparison]::OrdinalIgnoreCase)
+            }).Count
+            $memoryCounterCount = @($gpuCounters | Where-Object {
+                $_.Path.EndsWith('\total committed', [StringComparison]::OrdinalIgnoreCase)
+            }).Count
             $gpu3d =
                 Get-GpuEngineValue $counterSamples '3d'
             $gpuCopy =
@@ -161,14 +179,20 @@ try {
                             '\shared usage') / 1MB, 2),
                 [Math]::Round((
                         Get-GpuMemoryValue $counterSamples `
-                            '\total committed') / 1MB, 2)
+                            '\total committed') / 1MB, 2),
+                $engineCounterCount,
+                $memoryCounterCount
             )
             $writer.WriteLine(($row -join ','))
             $writer.Flush()
         }
 }
+catch [OperationCanceledException] {
+    if (!$targetProcess -or !$targetProcess.HasExited) { throw }
+}
 finally {
     $writer.Dispose()
+    if ($targetProcess) { $targetProcess.Dispose() }
     [IO.File]::WriteAllText(
         $statusPath,
         "state=stopped`r`nsamples=$sample`r`n",

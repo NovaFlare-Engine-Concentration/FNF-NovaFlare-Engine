@@ -1038,10 +1038,18 @@ class Shader
 				shaderBuffer.paramDataBuffer = gl.createBuffer();
 			}
 
-			// Log.verbose ("bind param data buffer (length: " + shaderBuffer.paramData.length + ") (" + shaderBuffer.paramCount + ")");
-
 			__context.__bindGLArrayBuffer(shaderBuffer.paramDataBuffer);
+			#if (lime && sys && lime_cffi && (lime_opengl || lime_opengles) && !doc_gen)
+			var dataView:lime.utils.ArrayBufferView = shaderBuffer.paramData;
+			__context.__context.gles2.bufferData(gl.ARRAY_BUFFER, shaderBuffer.paramDataLength * Float32Array.BYTES_PER_ELEMENT,
+				dataView, gl.DYNAMIC_DRAW);
+			#elseif lime
+			var data = shaderBuffer.paramData;
+			if (data.length != shaderBuffer.paramDataLength) data = data.subarray(0, shaderBuffer.paramDataLength);
+			gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+			#else
 			gl.bufferData(gl.ARRAY_BUFFER, shaderBuffer.paramData, gl.DYNAMIC_DRAW);
+			#end
 		}
 		else
 		{

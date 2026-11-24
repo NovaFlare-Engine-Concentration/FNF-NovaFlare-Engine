@@ -70,7 +70,7 @@ class HScript extends Script {
 		try {
 			code = normalizeCodeNameImports(code);
 			if (code != null && code.length > 0)
-				expr = parser.parseString(code, fileName);
+				expr = registerAbstractImports(parser.parseString(code, fileName));
 		} catch(e:Error) {
 			_errorHandler(e);
 		} catch(e) {
@@ -89,6 +89,73 @@ class HScript extends Script {
 			});
 		}
 		return LegacySyntaxCompat.normalizeUntypedCatch(code);
+	}
+
+	/** Resolve generated HScript abstract wrappers without per-type aliases. */
+	function registerAbstractImports(expression:Expr):Expr {
+		if (expression == null || interp == null) return expression;
+		switch (hscript.Tools.expr(expression)) {
+			case EImport(path, alias, isUsing):
+				var resolved = resolveAbstractImport(path, isUsing == true);
+				#if hscriptPos
+				expression.e = EImport(resolved, alias, isUsing);
+				#else
+				return EImport(resolved, alias, isUsing);
+				#end
+			#if hscriptPos
+			case ECast(value, _):
+				registerAbstractImports(value);
+			case EFunction(arguments, body, _, _):
+				for (argument in arguments)
+					if (argument.value != null) registerAbstractImports(argument.value);
+				registerAbstractImports(body);
+			#end
+			default:
+				#if hscriptPos
+				hscript.Tools.iter(expression, function(child:Expr) registerAbstractImports(child));
+				#else
+				switch (hscript.Tools.expr(expression)) {
+					case EBlock(expressions):
+						for (index in 0...expressions.length) expressions[index] = registerAbstractImports(expressions[index]);
+					default:
+				}
+				#end
+		}
+		return expression;
+	}
+
+	function resolveAbstractImport(originalPath:String, isUsing:Bool):String {
+		var path = interp.getLocalImportRedirect(originalPath);
+		if (interp.importBlocklist.contains(originalPath) || interp.importBlocklist.contains(path)) return originalPath;
+		var wrapper = resolveAbstractWrapper(path);
+		if (wrapper != null) {
+			interp.localImportRedirects.set(path, Type.getClassName(wrapper));
+			return originalPath;
+		}
+		if (isUsing) return originalPath;
+		var separator = path.lastIndexOf(".");
+		if (separator < 0) return originalPath;
+		var parent = path.substr(0, separator);
+		var originalParent = originalPath.substr(0, originalPath.lastIndexOf("."));
+		var resolvedParent = interp.getLocalImportRedirect(parent);
+		if (interp.importBlocklist.contains(originalParent) || interp.importBlocklist.contains(parent)
+			|| interp.importBlocklist.contains(resolvedParent)) return originalPath;
+		wrapper = resolveAbstractWrapper(resolvedParent);
+		if (wrapper == null) return originalPath;
+		var field = path.substr(separator + 1);
+		var wrapperPath = Type.getClassName(wrapper);
+		if (interp.importBlocklist.contains(wrapperPath) || interp.importBlocklist.contains(wrapperPath + "." + field)) return originalPath;
+		var fields = Type.getClassFields(wrapper);
+		return fields.contains(field) || fields.contains("get_" + field) ? wrapperPath + "." + field : originalPath;
+	}
+
+	static function resolveAbstractWrapper(path:String):Class<Dynamic> {
+		var wrapper = Type.resolveClass(path + "_HSC");
+		if (wrapper != null) return wrapper;
+		var parts = path.split(".");
+		if (parts.length < 2) return null;
+		parts.splice(parts.length - 2, 1);
+		return Type.resolveClass(parts.join(".") + "_HSC");
 	}
 
 	private function importFailedCallback(cl:Array<String>, ?asName:String):Bool {
@@ -110,7 +177,7 @@ class HScript extends Script {
 					if (code != null && code.length > 0) {
 						code = normalizeCodeNameImports(code);
 						parser.line = 1; // fun fact: this is all you need to reuse a parser without issues. all the other vars get reset on parse.
-						expr = parser.parseString(code, cl.join("/") + "." + hxExt);
+						expr = registerAbstractImports(parser.parseString(code, cl.join("/") + "." + hxExt));
 					}
 				} catch(e:Error) {
 					_errorHandler(e);
