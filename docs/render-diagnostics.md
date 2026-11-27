@@ -6,16 +6,6 @@
 
 OpenFL 的紧密排列 32 位 RGBA 或 BGRA 图像在确认缓冲区范围后复制像素，由渲染线程按提交顺序上传。其他格式和裸指针上传继续使用同步接口。需要查询 GL 结果的操作也继续同步等待。
 
-原生 OpenGL 着色器实例共享同一个已链接的程序时，会复用查询成功的参数位置。首次查询仍由当前 OpenGL 上下文的持有线程执行。缓存按程序对象区分，程序被回收后缓存随之释放，每个着色器实例继续保留自己的参数值。可从 `gl_sync` 记录比较 `lime_gl_get_uniform_location` 和 `lime_gl_get_attrib_location` 的查询次数。
-
-原生 OpenGL 可在渲染线程把着色器的逐顶点 Float 属性转换成 Float32，再上传到参数缓冲区。`beginShaderFill()` 在记录绘制时复制这些数组，游戏线程立即保存需要同步读取的 uniform 和常量属性。重新录制时，同一个 `ShaderBuffer` 复用参数列表和原生句柄，每条已排队的命令仍持有自己的数据副本。重复绘制同一份数据时，渲染线程直接上传已转换的结果。普通数组形式的 2×2、3×3、4×4 矩阵也由渲染线程转换并提交。两项工作沿同一 OpenGL 队列在绘制前执行。原生库缺少入口或队列拒绝时，OpenFL 按原布局生成并上传数据。
-
-几何测试会复用并修改着色器的属性数组，核对已记录的绘制是否保留各自的值。`shader_attribute_pack` 的 `value` 是移交转换的 Float 数量。`shader_attribute_upload` 记录使用已转换数据的上传，`value` 是参数缓冲区的 Float 总数。两种事件的 `auxiliary` 都是上传字节数。`uniform_matrix_pack` 的两个字段分别是矩阵元素和上传字节数。设置 `NOVAFLARE_SHADER_INPUTS=0` 可让这两项工作在游戏线程处理，同时保留几何展开和其他 OpenGL 命令的渲染线程路径。
-
-普通 Flixel 四边形可以每个只提交一份透明度和颜色。Lime 在渲染线程按顶点展开，再上传同一个着色器参数缓冲区。`shader_quad_attribute_expand` 的 `value` 是提交的 Float 数量，`auxiliary` 是展开后的 Float 数量。需要独立顶点颜色的批次仍以逐顶点值提交。
-
-OpenFL 的内部绘制可以提交二维对象变换、渲染器变换、投影比例和像素取整方式。Lime 在渲染线程合成变换，计算投影矩阵并更新已绑定程序的 `openfl_Matrix`。`getMatrix()` 同步计算并返回矩阵，`applyMatrix()` 接收调用方准备的矩阵。原生入口不可用或拒绝提交时，OpenFL 在应用线程计算。启用渲染线程时，`projection_matrix_build` 记录矩阵构建与上传，`value` 为 16 个元素，`auxiliary` 为 64 字节。使用 `NOVAFLARE_SHADER_INPUTS=0` 可对照应用线程计算路径。
-
 同步 GL 日志仍可用于定位前一帧交换缓冲区传给主线程的等待。渲染批次使用固定数量的命令容器，`pool_wait` 记录等待空闲容器的时间，分析脚本仍可读取旧版日志中的 `submit_wait`。
 
 上下文交接超时后，前台应用循环定期检查渲染线程是否已释放上下文。确认释放后，应用线程可接回上下文并恢复绘制。设备重置时，应用先派发丢失通知，再等待上下文可用后通知资源重建。
@@ -24,23 +14,15 @@ OpenFL 的内部绘制可以提交二维对象变换、渲染器变换、投影�
 
 Windows、Linux、macOS 和 Android 在 SDL 确认开启 VSync 且使用 OpenGL 渲染线程时，上一批绘制完成后才开始下一次绘制派发。iOS 的 UIKit 后端通过屏幕刷新回调安排绘制，OpenGL 渲染线程采用同一条单批规则。游戏更新继续按原截止时间调度。独立绘制错过截止时间时保留一次绘制请求，渲染线程完成上一批后再派发。OpenGL 同步查询和渲染命令保持原提交顺序。
 
-在 Android 上，上一批 VSync 绘制阻塞了独立绘制时，应用线程保留一次补绘请求。上一批结束或到达下一个更新、绘制截止时间时，应用线程会重新检查队列和上下文。补绘开始时，下一次绘制截止时间按这次实际派发的起点加一个完整周期计算，避免两次派发紧挨着。窗口曝光和尺寸变化使用单独的重绘请求。
-
-Android 独立绘制遇到其他延迟时，会跳过已错过的时刻，沿原来的绘制周期继续排期。移动端 FPS 使用高精度时钟统计至少 500 毫秒内的 OpenFL 绘制次数。最长单帧间隔仍每秒记录一次，可用于查看短时卡顿。屏幕实际呈现节奏由设备合成器记录。
-
 应用仅在当前 OpenGL 上下文成功设置交换间隔后记录新的 VSync 值。修改渲染帧率不会重新开启独立绘制。核对锁帧时同时查看 `swap_interval`、`split_render`、更新与绘制周期，以及窗口焦点。 [Windows 渲染线程回归测试](../tools/tests/render-thread/README.md) [Windows 绘制节奏回归测试](../tools/tests/render-cadence/README.md)
 
-原生 OpenGL 启用渲染线程时，OpenFL 提交四边形、三角形和 Tilemap 的数值数据，Lime 在提交时复制输入。渲染线程展开顶点，并在对应绘制前上传实际使用的范围。
+OpenFL 的原生四边形绘制会复用 CPU 顶点容量，只上传本帧实际使用的顶点前缀。三角形、Tilemap 和浏览器继续通过各自的上传入口。
 
-`Graphics.drawTriangles()` 的 UV 顶点和带透视参数的 UVT 顶点分别使用原有的缓冲区。需要九宫格变形或包含生成路径图形时，仍由 OpenFL 准备该图形的三角形数据。`Tilemap` 继续在游戏线程遍历 Tile、合成变换和选择纹理，渲染线程展开每个可见 Tile 的位置、纹理坐标、透明度和颜色变换。关闭渲染线程、原生接口不可用或提交失败时，由 OpenFL 生成同样的顶点。
-
-在 Windows 上重建 Lime 后，运行几何测试检查上传字节、缓冲区复用、透视纹理、Tilemap 属性及像素结果。`quad_buffer_upload`、`triangle_buffer_upload` 和 `tile_buffer_upload` 只在渲染线程实际展开并上传时记录。`value` 分别是四边形数、三角形顶点数和 Tile 数，`auxiliary` 是上传字节数。设置 `NOVAFLARE_QUAD_UPLOAD=0` 可改用游戏线程展开四边形，设置 `NOVAFLARE_MESH_UPLOAD=0` 可改用游戏线程展开三角形和 Tilemap。两项诊断设置都保留渲染线程的其他工作。
+在 Windows 上重建 Lime 后，运行以下命令检查图形缩小后的上传字节数、缓冲区复用和像素结果。测试会额外执行一次完整容量上传，打印两种上传方式的字节数。
 
 ```powershell
 $env:SHOW_CONSOLE = '1'
 haxelib run lime build tools/tests/render-geometry/Project.xml windows -64
-$env:NOVAFLARE_RENDER_THREAD = '1'
-$env:NOVAFLARE_FRAME_TIMELINE = "$PWD/_build/quad-worker-timeline.csv"
 & ./_build/render-geometry-test/windows/bin/NovaFlareRenderGeometryTest.exe
 ```
 
@@ -91,15 +73,9 @@ Lime 在首次交换缓冲区和窗口尺寸或显示器变化时记录 `window_
 
 # 分辨率选项调整 OpenGL 缓冲区的像素尺寸。
 
-常规 Windows 和 Android 构建安装 `Resolution` 组件并重建 Lime。本地构建时，运行 `tools/setup-novaflare-render-dependencies.ps1 -Component Resolution` 后重新构建 Lime 和应用。OpenFL 通过 `nova_stage_render_target` 启用渲染缓冲区实现。Windows 保持 1280×720 的逻辑尺寸基准，移动端优先使用有效的主显示器逻辑尺寸。视口和裁剪框根据缓冲区尺寸缩放，指针和触控继续使用舞台坐标。
+运行 `tools/setup-novaflare-render-dependencies.ps1 -Component Resolution` 后重新构建 Lime 和应用。OpenFL 依赖启用 `nova_stage_render_target`，应用才会切换到渲染缓冲区实现。Windows 保持 1280×720 的逻辑尺寸基准。移动端优先使用有效的主显示器逻辑尺寸。视口和裁剪框根据缓冲区尺寸缩放，指针和触控继续使用舞台坐标。
 
-固定档位给出宽高上限，渲染缓冲区按窗口可绘制区域的宽高比等比缩小。以 1920×1080 的窗口为例，360P 使用 640×360 的缓冲区，1080P 或更高档位直接绘制到窗口。Native、分配失败及非 OpenGL 路径也直接绘制到窗口。
-
-OpenGL 显示树的滤镜缓存使用当前舞台缓冲区的实际缩放比例。调整档位或窗口可绘制尺寸时，滤镜会重新分配缓存，并按这一比例换算内置模糊、发光和投影的采样范围。显式调用 `BitmapData.draw` 或 `BitmapData.applyFilter` 时，输出尺寸继续由调用方传入的位图决定。
-
-绘制频率由设置中的绘制帧率和独立绘制选项决定。分辨率切换只调整渲染尺寸。开启 VSync 时，持有 OpenGL 上下文的线程按 SDL 确认的交换间隔提交画面。
-
-`NOVAFLARE_RENDER_RESOLUTION=640x360` 或 `native` 可覆盖测试分辨率。`NOVAFLARE_RENDER_TARGET_TRACE=1` 记录 OpenGL 颜色附件和视口尺寸。OpenGL ES 低于 3.1 时，日志可能只能记录通过完整性检查的目标分配尺寸与实际视口。核对档位切换时的绘制设置时，清除 `NOVAFLARE_DRAW_RATE` 和 `NOVAFLARE_SPLIT_RENDER`，在采样窗口内比较 `render_period_ns`、`split_render` 与 `swap_interval`。
+固定档位给出宽高上限，缓冲区按窗口可绘制像素区域的宽高比等比缩放。1600P 档位上限为 2560×1600。16:9 窗口使用 2560×1440，21:9 窗口使用 2560×1097，4:3 窗口使用 2133×1600。Native、同尺寸档位、分配失败及非 OpenGL 路径直接绘制到窗口。`NOVAFLARE_RENDER_RESOLUTION=640x360` 或 `native` 可单独覆盖测试分辨率。`NOVAFLARE_RENDER_TARGET_TRACE=1` 记录 OpenGL 颜色附件和视口尺寸。OpenGL ES 低于 3.1 时，日志可能只能记录通过完整性检查的目标分配尺寸与实际视口。
 
 窗口尺寸已变化但 SDL 调整尺寸事件尚未送达时，OpenGL 固定档位会在绘制前更新舞台变换、窗口缓冲区和渲染器尺寸。`Event.RENDER` 监听器执行后也会检查窗口尺寸。动态窗口测试可用 `viewport_origin` 检查首个和稳定视口的原点，并用 `viewport` 核对实际颜色附件尺寸。
 
