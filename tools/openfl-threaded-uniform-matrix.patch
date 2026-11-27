@@ -1,0 +1,83 @@
+diff --git a/src/openfl/display/ShaderParameter.hx b/src/openfl/display/ShaderParameter.hx
+index 480b456..d683e44 100644
+--- a/src/openfl/display/ShaderParameter.hx
++++ b/src/openfl/display/ShaderParameter.hx
+@@ -3,6 +3,9 @@ package openfl.display;
+ #if !flash
+ import openfl.utils._internal.Float32Array;
+ import openfl.display3D.Context3D;
++#if (cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !macro && (lime_opengl || lime_opengles) && !lime_webgl)
++import lime._internal.backend.native.NativeCFFI;
++#end
+ 
+ /**
+ 	TODO: Document GLSL Shaders
+@@ -220,33 +223,21 @@ import openfl.display3D.Context3D;
+ 						gl.uniform4f(index, floatValue[0], floatValue[1], floatValue[2], floatValue[3]);
+ 
+ 					case MATRIX2X2:
+-						for (i in 0...4)
+-						{
+-							__uniformMatrix[i] = floatValue[i];
+-						}
+-						gl.uniformMatrix2fv(index, false, __uniformMatrix);
++						__updateUniformMatrix(context, floatValue, 2);
+ 
+ 					// case MATRIX2X3:
+ 					// case MATRIX2X4:
+ 					// case MATRIX3X2:
+ 
+ 					case MATRIX3X3:
+-						for (i in 0...9)
+-						{
+-							__uniformMatrix[i] = floatValue[i];
+-						}
+-						gl.uniformMatrix3fv(index, false, __uniformMatrix);
++						__updateUniformMatrix(context, floatValue, 3);
+ 
+ 					// case MATRIX3X4:
+ 					// case MATRIX4X2:
+ 					// case MATRIX4X3:
+ 
+ 					case MATRIX4X4:
+-						for (i in 0...16)
+-						{
+-							__uniformMatrix[i] = floatValue[i];
+-						}
+-						gl.uniformMatrix4fv(index, false, __uniformMatrix);
++						__updateUniformMatrix(context, floatValue, 4);
+ 
+ 					case INT:
+ 						gl.uniform1i(index, intValue[0]);
+@@ -419,6 +410,31 @@ import openfl.display3D.Context3D;
+ 		#end
+ 	}
+ 
++	#if lime
++	private inline function __updateUniformMatrix(context:Context3D, values:Array<Float>, dimension:Int):Void
++	{
++		final queued = #if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !macro && (lime_opengl || lime_opengles) && !lime_webgl)
++			NativeCFFI.tryQueueUniformMatrix(index, dimension, values);
++		#else
++			false;
++		#end
++		if (!queued)
++		{
++			for (offset in 0...(dimension * dimension))
++				__uniformMatrix[offset] = values[offset];
++
++			var gl = context.gl;
++			switch (dimension)
++			{
++				case 2: gl.uniformMatrix2fv(index, false, __uniformMatrix);
++				case 3: gl.uniformMatrix3fv(index, false, __uniformMatrix);
++				case 4: gl.uniformMatrix4fv(index, false, __uniformMatrix);
++				default:
++			}
++		}
++	}
++	#end
++
+ 	@:noCompletion private function __updateGLFromBuffer(context:Context3D, buffer:Float32Array, position:Int, length:Int, bufferOffset:Int):Void
+ 	{
+ 		if (index < 0) return;

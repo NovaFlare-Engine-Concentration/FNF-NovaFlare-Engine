@@ -55,46 +55,66 @@ class RenderResolution
 		#end
 	}
 
-	public static function apply(stage:Stage, savedPreset:String):Void
+	public static function apply(stage:Stage):Void
 	{
-		var selected = findPreset(savedPreset);
+		final selected = selectedBounds();
 		#if nova_stage_render_target
-		#if sys
-		var overrideValue = Sys.getEnv('NOVAFLARE_RENDER_RESOLUTION');
-		if (overrideValue != null)
-		{
-			var dimensions = ~/^([1-9][0-9]{0,3})[xX]([1-9][0-9]{0,3})$/;
-			if (dimensions.match(overrideValue))
-				selected = {label: overrideValue, width: Std.parseInt(dimensions.matched(1)), height: Std.parseInt(dimensions.matched(2))};
-			else if (overrideValue.toLowerCase() == 'native')
-				selected = nativeBounds;
-			else
-			{
-				var overridePreset = findPreset(overrideValue);
-				if (overridePreset != nativeBounds) selected = overridePreset;
-			}
-		}
-		#end
-		var trace = #if (android && novaflare_render_target_trace)
+		final traceTarget = #if (android && novaflare_render_target_trace)
 			true;
 		#elseif sys
 			Sys.getEnv('NOVAFLARE_FRAME_TIMELINE') != null || Sys.getEnv('NOVAFLARE_RENDER_TARGET_TRACE') == '1';
 		#else
 			false;
 		#end
-		stage.setRenderResolution(selected.width, selected.height, trace);
+		stage.setRenderResolution(selected.width, selected.height, traceTarget);
 		#else
 		if (selected != nativeBounds)
-		{
 			stage.setLogicalSize(selected.width, selected.height);
-			return;
-		}
-		var display = System.getDisplay(0);
-		if (display != null && display.bounds.width > 0 && display.bounds.height > 0)
-			stage.setLogicalSize(Std.int(display.bounds.width), Std.int(display.bounds.height));
 		else
-			stage.setLogicalSize(1280, 720);
+		{
+			var display = System.getDisplay(0);
+			if (display != null && display.bounds.width > 0 && display.bounds.height > 0)
+				stage.setLogicalSize(Std.int(display.bounds.width), Std.int(display.bounds.height));
+			else
+				stage.setLogicalSize(1280, 720);
+		}
 		#end
+		applyDrawRate(stage);
+	}
+
+	public static function applyDrawRate(stage:Stage):Void
+	{
+		final window = stage.window;
+		if (window == null) return;
+
+		final rate = ClientPrefs.data.drawFramerate;
+		if (FlxG.drawFramerate != rate || window.drawFrameRate != rate)
+			FlxG.drawFramerate = rate;
+
+		final independentDraw = ClientPrefs.data.lockRender;
+		if (window.lockRender != independentDraw)
+			window.lockRender = independentDraw;
+		#if ios
+		ClientPrefs.data.lockRender = window.lockRender;
+		#end
+	}
+
+	static function selectedBounds():ResolutionBounds
+	{
+		final saved = findPreset(ClientPrefs.data.resolution);
+		#if (sys && nova_stage_render_target)
+		final overrideValue = Sys.getEnv('NOVAFLARE_RENDER_RESOLUTION');
+		if (overrideValue == null) return saved;
+		if (overrideValue.toLowerCase() == 'native') return nativeBounds;
+
+		final dimensions = ~/^([1-9][0-9]{0,3})[xX]([1-9][0-9]{0,3})$/;
+		if (dimensions.match(overrideValue))
+			return {label: overrideValue, width: Std.parseInt(dimensions.matched(1)), height: Std.parseInt(dimensions.matched(2))};
+
+		final overridePreset = findPreset(overrideValue);
+		if (overridePreset != nativeBounds) return overridePreset;
+		#end
+		return saved;
 	}
 
 	static function findPreset(value:String):ResolutionBounds

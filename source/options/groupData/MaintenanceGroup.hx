@@ -34,6 +34,15 @@ class MaintenanceGroup extends OptionCata
 		var option:Option = new Option(this, 'moreLuaErrors', BOOL);
 		option.experMode = true;
 		addOption(option);
+
+		#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
+		var option:Option = new Option(this, 'hideLuaDebugText', BOOL);
+		option.onChange = () -> {
+			if (PlayState.instance != null)
+				PlayState.instance.refreshLuaDebugDisplay();
+		};
+		addOption(option);
+		#end
         
         var option:Option = new Option(this, 'devConScale', FLOAT, [0.5, 3, 1]);
 		addOption(option);

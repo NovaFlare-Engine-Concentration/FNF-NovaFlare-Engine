@@ -353,9 +353,16 @@ class CharacterEditorState extends MusicBeatState
 						Paths.loadAnimateAtlas(animateGhost, character.imageFile);
 
 					if (myAnim.indices != null && myAnim.indices.length > 0)
-						animateGhost.anim.addBySymbolIndices('anim', myAnim.name, myAnim.indices, 0, false);
+					{
+						if (!animateGhost.addFrameSequence({anim: 'anim', name: myAnim.name, indices: myAnim.indices, fps: 0, loop: false})) return;
+					}
 					else
+					{
+						final previousGhost = animateGhost.anim.getByName('anim');
 						animateGhost.anim.addBySymbol('anim', myAnim.name, 0, false);
+						if (animateGhost.anim.getByName('anim') == previousGhost) return;
+						animateGhost.discardFrameSequence('anim');
+					}
 
 					animateGhost.anim.play('anim', true, false, character.atlas.anim.curFrame);
 					animateGhost.anim.pause();
@@ -554,56 +561,46 @@ class CharacterEditorState extends MusicBeatState
 
 		animationDropDown = new FlxUIDropDownMenu(15, animationInputText.y - 55, FlxUIDropDownMenu.makeStrIdLabelArray([''], true), function(pressed:String)
 		{
-			var selectedAnimation:Int = Std.parseInt(pressed);
+			var selectedAnimation = Std.parseInt(pressed);
+			if (selectedAnimation == null) return;
 			var anim:AnimArray = character.animationsArray[selectedAnimation];
+			if (anim == null) return;
 			animationInputText.text = anim.anim;
 			animationNameInputText.text = anim.name;
 			animationLoopCheckBox.checked = anim.loop;
 			animationFramerate.value = anim.fps;
 
-			var indicesStr:String = anim.indices.toString();
-			animationIndicesInputText.text = indicesStr.substr(1, indicesStr.length - 2);
+			animationIndicesInputText.text = AnimationFrameIndices.format(anim.indices);
 		});
 
 		var addUpdateButton:FlxButton = new FlxButton(70, animationIndicesInputText.y + 60, "Add/Update", function()
 		{
-			var indices:Array<Int> = [];
-			var indicesStr:Array<String> = animationIndicesInputText.text.trim().split(',');
-			if (indicesStr.length > 1)
+			var indices = AnimationFrameIndices.parse(animationIndicesInputText.text);
+			if (indices == null)
 			{
-				for (i in 0...indicesStr.length)
-				{
-					var index:Int = Std.parseInt(indicesStr[i]);
-					if (indicesStr[i] != null && indicesStr[i] != '' && !Math.isNaN(index) && index > -1)
-					{
-						indices.push(index);
-					}
-				}
+				FlxG.log.warn('Animation indices must be non-negative whole numbers.');
+				return;
 			}
 
-			var lastAnim:String = (character.animationsArray[curAnim] != null) ? character.animationsArray[curAnim].anim : '';
-			var lastOffsets:Array<Int> = [0, 0];
+			var previous:AnimArray = null;
 			for (anim in character.animationsArray)
 				if (animationInputText.text == anim.anim)
 				{
-					lastOffsets = anim.offsets;
-					if (character.animOffsets.exists(animationInputText.text))
-					{
-						if (!character.isAnimateAtlas)
-							character.animation.remove(animationInputText.text);
-						#if flxanimate
-						else
-							@:privateAccess character.atlas.anim.animsMap.remove(animationInputText.text); #end
-					}
-					character.animationsArray.remove(anim);
+					previous = anim;
+					break;
 				}
 
 			var addedAnim:AnimArray = newAnim(animationInputText.text, animationNameInputText.text);
 			addedAnim.fps = Math.round(animationFramerate.value);
 			addedAnim.loop = animationLoopCheckBox.checked;
 			addedAnim.indices = indices;
-			addedAnim.offsets = lastOffsets;
-			addAnimation(addedAnim.anim, addedAnim.name, addedAnim.fps, addedAnim.loop, addedAnim.indices);
+			if (previous != null && previous.offsets != null) addedAnim.offsets = previous.offsets;
+			if (!addAnimation(addedAnim))
+			{
+				FlxG.log.warn('No frames found for animation ${addedAnim.anim}: ${addedAnim.name}');
+				return;
+			}
+			if (previous != null) character.animationsArray.remove(previous);
 			character.animationsArray.push(addedAnim);
 
 			reloadAnimList();
@@ -626,7 +623,11 @@ class CharacterEditorState extends MusicBeatState
 							character.animation.remove(anim.anim);
 						#if flxanimate
 						else
-							@:privateAccess character.atlas.anim.animsMap.remove(anim.anim); #end
+						{
+							@:privateAccess character.atlas.anim.animsMap.remove(anim.anim);
+							character.atlas.discardFrameSequence(anim.anim);
+						}
+						#end
 						character.animOffsets.remove(anim.anim);
 						character.animationsArray.remove(anim);
 					}
@@ -883,15 +884,7 @@ class CharacterEditorState extends MusicBeatState
 	else
 			character.frames = Paths.getSparrowAtlas(character.imageFile);
 
-		for (anim in anims)
-		{
-			var animAnim:String = '' + anim.anim;
-			var animName:String = '' + anim.name;
-			var animFps:Int = anim.fps;
-			var animLoop:Bool = !!anim.loop; // Bruh
-			var animIndices:Array<Int> = anim.indices;
-			addAnimation(animAnim, animName, animFps, animLoop, animIndices);
-		}
+		for (animation in anims) addAnimation(animation);
 
 		if (anims.length > 0)
 		{
@@ -1334,27 +1327,38 @@ class CharacterEditorState extends MusicBeatState
 			|| name == 'gf';
 	}
 
-	function addAnimation(anim:String, name:String, fps:Float, loop:Bool, indices:Array<Int>)
+	function addAnimation(spec:AnimArray):Bool
 	{
+		var indexed = spec.indices != null && spec.indices.length > 0;
 		if (!character.isAnimateAtlas)
 		{
-			if (indices != null && indices.length > 0)
-				character.animation.addByIndices(anim, name, indices, "", fps, loop);
+			final previous = character.animation.getByName(spec.anim);
+			if (indexed)
+				character.animation.addByIndices(spec.anim, spec.name, spec.indices, '', spec.fps, spec.loop);
 			else
-				character.animation.addByPrefix(anim, name, fps, loop);
+				character.animation.addByPrefix(spec.anim, spec.name, spec.fps, spec.loop);
+			if (character.animation.getByName(spec.anim) == previous) return false;
 		}
 		#if flxanimate
 		else
 		{
-			if (indices != null && indices.length > 0)
-				character.atlas.anim.addBySymbolIndices(anim, name, indices, fps, loop);
+			if (indexed)
+			{
+				if (!character.atlas.addFrameSequence({anim: spec.anim, name: spec.name, indices: spec.indices, fps: spec.fps, loop: spec.loop})) return false;
+			}
 			else
-				character.atlas.anim.addBySymbol(anim, name, fps, loop);
+			{
+				final previous = character.atlas.anim.getByName(spec.anim);
+				character.atlas.anim.addBySymbol(spec.anim, spec.name, spec.fps, spec.loop);
+				if (character.atlas.anim.getByName(spec.anim) == previous) return false;
+				character.atlas.discardFrameSequence(spec.anim);
+			}
 		}
 		#end
 
-		if (!character.animOffsets.exists(anim))
-			character.addOffset(anim, 0, 0);
+		if (!character.animOffsets.exists(spec.anim))
+			character.addOffset(spec.anim, 0, 0);
+		return true;
 	}
 
 	inline function newAnim(anim:String, name:String):AnimArray

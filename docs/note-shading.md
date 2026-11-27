@@ -115,6 +115,8 @@ Note System = legacy（强制旧版）
 
 > 旧版 splash 图集如果没有配套的 `.txt`，动画前缀按 `note splash <颜色> <序号>` 自动推断，fps 用 22/26、偏移用 0；位置不对就往 `images/noteSplashes.txt` 补偏移。
 
+溅射会在播放前选定帧率。自定义配置只提供一个正帧率时使用该值，两端都缺失或无效时使用默认的 22–26 FPS。动画结束、已停止或找不到当前方向的动画时，溅射会回收。
+
 ## HSV 调色板
 
 `Skin → Legacy Color Setup`（`options.base.NotesHSVSubState`）。

@@ -48,9 +48,6 @@ class FlxShader extends OriginalFlxShader
 
 	public function initGood(glFragmentSource:String, glVertexSource:String)
 	{
-		@:privateAccess
-		var gl = __context.gl;
-
 		#if mobile
 		var prefix = '';
 		#elseif lime_opengles
@@ -115,68 +112,7 @@ class FlxShader extends OriginalFlxShader
 			@:privateAccess
 			__glProgramDirty = false;
 			#end
-			@:privateAccess
-			glProgram = program.__glProgram;
-
-			for (input in __inputBitmapData)
-			{
-				@:privateAccess
-				if (input.__isUniform)
-				{
-					@:privateAccess
-					input.index = gl.getUniformLocation(glProgram, input.name);
-				}
-				else
-				{
-					@:privateAccess
-					input.index = gl.getAttribLocation(glProgram, input.name);
-				}
-			}
-
-			for (parameter in __paramBool)
-			{
-				@:privateAccess
-				if (parameter.__isUniform)
-				{
-					@:privateAccess
-					parameter.index = gl.getUniformLocation(glProgram, parameter.name);
-				}
-				else
-				{
-					@:privateAccess
-					parameter.index = gl.getAttribLocation(glProgram, parameter.name);
-				}
-			}
-
-			for (parameter in __paramFloat)
-			{
-				@:privateAccess
-				if (parameter.__isUniform)
-				{
-					@:privateAccess
-					parameter.index = gl.getUniformLocation(glProgram, parameter.name);
-				}
-				else
-				{
-					@:privateAccess
-					parameter.index = gl.getAttribLocation(glProgram, parameter.name);
-				}
-			}
-
-			for (parameter in __paramInt)
-			{
-				@:privateAccess
-				if (parameter.__isUniform)
-				{
-					@:privateAccess
-					parameter.index = gl.getUniformLocation(glProgram, parameter.name);
-				}
-				else
-				{
-					@:privateAccess
-					parameter.index = gl.getAttribLocation(glProgram, parameter.name);
-				}
-			}
+			__refreshGLBindingLocations();
 		}
 	}
 }

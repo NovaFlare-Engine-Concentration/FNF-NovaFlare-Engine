@@ -6,3 +6,4 @@ options => 设置
 exit => 退出游玩
 back => 返回
 debug => 测试
+hideLuaDebugText => 关闭调试显示

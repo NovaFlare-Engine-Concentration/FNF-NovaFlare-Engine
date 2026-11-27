@@ -13,21 +13,27 @@ import sys.FileSystem;
 import sys.io.File;
 import lime.utils.Assets;
 import haxe.Json;
+import haxe.ds.StringMap;
 import openfl.utils.AssetType;
 import crowplexus.hscript.Parser;
 import crowplexus.hscript.Expr;
 import crowplexus.hscript.Tools;
-import luahscript.LuaParser;
-import luahscript.exprs.LuaExpr;
 
 using StringTools;
 
 class DataPreload
 {
+	static final scannedScripts = new StringMap<Bool>();
+	static final scannedCharacters = new StringMap<Bool>();
+	static var scriptEventInputs:Array<Array<String>> = [];
+
 	public static function startPrepare()
 	{
 		var song:SwagSong = PlayState.SONG;
 		var folder:String = Paths.formatToSongPath(song.song);
+		scannedScripts.clear();
+		scannedCharacters.clear();
+		var eventNames = collectEvents(song.events, folder);
 		try
 		{
 			var path:String = Paths.json('$folder/preload');
@@ -123,18 +129,21 @@ class DataPreload
 				}
 			}
 		}
-		LoadingState.instance.chartEvents = [];
-		for (event in PlayState.SONG.events) // Event Notes
-			LoadingState.instance.chartEvents.push(event);
+		for (event in scriptEventInputs)
+			if (event[0] == 'Change Character') preloadCharacter(event[2]);
 
 		preloadMisc();
-		preloadScript();
-
-		LoadingState.instance.waitPrepare = false;
+		preloadScript(folder, eventNames);
+		scriptEventInputs = [];
+		scannedScripts.clear();
+		scannedCharacters.clear();
 	}
 
 	public static function preloadCharacter(char:String, ?prefixVocals:String)
 	{
+		if (char == null || char == '') return;
+		if (prefixVocals == null && scannedCharacters.exists(char)) return;
+		scannedCharacters.set(char, true);
 		try
 		{
 			var path:String = Paths.getPath('characters/$char.json', TEXT);
@@ -187,6 +196,7 @@ class DataPreload
 				LoadingState.instance.putPreload(LoadingState.instance.songsToPrepare, prefixVocals + "-" + character.vocals_file);
 			}
 			startLuaNamed('characters/' + char + '.lua');
+			startHscriptNamed('characters/' + char + '.hx');
 		}
 		catch (e:Dynamic)
 		{
@@ -239,37 +249,45 @@ class DataPreload
 		}
 	}
 
-	static function preloadScript()
+	static function collectEvents(chartEvents:Array<Dynamic>, songFolder:String):Array<String>
+	{
+		var names:Array<String> = [];
+		var seen = new StringMap<Bool>();
+		scriptEventInputs = [];
+		addEventInputs(names, seen, chartEvents);
+		try
+		{
+			var sidecar = Song.getChart('events', songFolder, true);
+			if (sidecar != null) addEventInputs(names, seen, sidecar.events);
+		}
+		catch (error:haxe.Exception) {} // A song may have no separate events file.
+		return names;
+	}
+
+	static function addEventInputs(names:Array<String>, seen:StringMap<Bool>, groups:Array<Dynamic>):Void
+	{
+		if (groups == null) return;
+		for (group in groups)
+		{
+			if (!Std.isOfType(group, Array) || !Std.isOfType(group[1], Array)) continue;
+			for (entry in (cast group[1]:Array<Dynamic>))
+			{
+				if (!Std.isOfType(entry, Array) || !Std.isOfType(entry[0], String) || entry[0] == '') continue;
+				var event:Array<String> = [entry[0], entry[1] == null ? '' : Std.string(entry[1]), entry[2] == null ? '' : Std.string(entry[2])];
+				var key = Json.stringify(event);
+				if (seen.exists(key)) continue;
+				seen.set(key, true);
+				if (!names.contains(event[0])) names.push(event[0]);
+				scriptEventInputs.push(event);
+			}
+		}
+	}
+
+	static function preloadScript(songFolder:String, eventNames:Array<String>)
 	{
 		#if ((LUA_ALLOWED || HSCRIPT_ALLOWED) && sys)
-		for (folder in Mods.directoriesWithFile(Paths.getSharedPath(), 'scripts/'))
-			for (file in FileSystem.readDirectory(folder))
-			{
-				#if LUA_ALLOWED
-				if (file.toLowerCase().endsWith('.lua'))
-					luaFilesCheck(folder + file);
-				#end
-
-				#if HSCRIPT_ALLOWED
-				if (file.toLowerCase().endsWith('.hx'))
-					hscriptFilesCheck(folder + file);
-				#end
-			}
-
-		var songName = PlayState.SONG.song;
-		for (folder in Mods.directoriesWithFile(Paths.getSharedPath(), 'data/$songName/'))
-			for (file in FileSystem.readDirectory(folder))
-			{
-				#if LUA_ALLOWED
-				if (file.toLowerCase().endsWith('.lua'))
-					luaFilesCheck(folder + file);
-				#end
-
-				#if HSCRIPT_ALLOWED
-				if (file.toLowerCase().endsWith('.hx'))
-					hscriptFilesCheck(folder + file);
-				#end
-			}
+		scanScriptDirectory('scripts/');
+		scanScriptDirectory('data/$songFolder/');
 
 		startLuaNamed('stages/' + PlayState.SONG.stage + '.lua');
 		startHscriptNamed('stages/' + PlayState.SONG.stage + '.hx');
@@ -280,7 +298,7 @@ class DataPreload
 			startHscriptNamed('custom_notetypes/' + noteType + '.hx');
 		}
 
-		for (event in LoadingState.instance.chartEvents)
+		for (event in eventNames)
 		{
 			startLuaNamed('custom_events/' + event + '.lua');
 			startHscriptNamed('custom_events/' + event + '.hx');
@@ -288,168 +306,179 @@ class DataPreload
 		#end
 	}
 
-	static function startLuaNamed(filePath:String)
+	static function scanScriptDirectory(directory:String):Void
 	{
-		#if MODS_ALLOWED
-		var pathToLoad:String = Paths.modFolders(filePath);
-		if (!FileSystem.exists(pathToLoad))
-			pathToLoad = Paths.getSharedPath(filePath);
-
-		if (FileSystem.exists(pathToLoad))
-		#else
-		var pathToLoad:String = Paths.getSharedPath(filePath);
-		if (Assets.exists(pathToLoad))
-		#end
+		for (folder in Mods.directoriesWithFile(Paths.getSharedPath(), directory))
 		{
-			luaFilesCheck(pathToLoad);
+			if (!FileSystem.exists(folder) || !FileSystem.isDirectory(folder)) continue;
+			for (file in FileSystem.readDirectory(folder))
+			{
+				var name = file.toLowerCase();
+				#if LUA_ALLOWED
+				if (name.endsWith('.lua')) luaFilesCheck(folder + file, scriptEventInputs);
+				#end
+				#if HSCRIPT_ALLOWED
+				if (name.endsWith('.hx')) hscriptFilesCheck(folder + file);
+				#end
+			}
 		}
 	}
 
-	static function luaFilesCheck(path:String)
+	static function startLuaNamed(filePath:String):Void
 	{
-		var input:String = File.getContent(path);	
+		#if (LUA_ALLOWED && sys)
+		luaFilesCheck(namedScriptPath(filePath), scriptEventInputs);
+		#end
+	}
 
-		if (StringTools.fastCodeAt(input, 0) == 0xFEFF) {
-			input = input.substr(1);
-		} //防止BOM字符 <UTF-8 with BOM> <\65279>
+	static function namedScriptPath(filePath:String):String
+	{
+		#if MODS_ALLOWED
+		var modPath = Paths.modFolders(filePath);
+		if (FileSystem.exists(modPath)) return modPath;
+		#end
+		return Paths.getSharedPath(filePath);
+	}
 
-		var parser = new LuaParser();
-		var e:LuaExpr = parser.parseFromString(input);
+	static function readScript(path:String):Null<String>
+	{
+		var onDisk = FileSystem.exists(path) && !FileSystem.isDirectory(path);
+		if (!onDisk && !Assets.exists(path, TEXT)) return null;
+		var canonical = onDisk ? FileSystem.fullPath(path) : path;
+		if (scannedScripts.exists(canonical)) return null;
+		scannedScripts.set(canonical, true);
+		return onDisk ? File.getContent(path) : Assets.getText(path);
+	}
 
-		if (e == null)
-			return;
-	
-		ScriptExprTools.lua_searchCallback(e, function(e:LuaExpr, params:Array<LuaExpr>) {
-			switch(e.expr) {
-				case EIdent('makeLuaSprite'):
-					if (ScriptExprTools.lua_getValue(params[1]) != null && ScriptExprTools.lua_getValue(params[1]) != '')
-						LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.lua_getValue(params[1])));
-				case EIdent('makeAnimatedLuaSprite'):
-					if (ScriptExprTools.lua_getValue(params[1]) != null && ScriptExprTools.lua_getValue(params[1]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.lua_getValue(params[1])));
-				case EIdent('precacheImage'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
-				case EIdent('addCharacterToList'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
+	static function stripScriptBOM(input:String):String
+	{
+		return input.charCodeAt(0) == 0xFEFF ? input.substr(1) : input;
+	}
 
-				////////////////////////////////////////////////////////////////////////////////////////////////////////
+	static function luaFilesCheck(path:String, events:Array<Array<String>>):Void
+	{
+		#if (LUA_ALLOWED && sys)
+		try
+		{
+			var input = readScript(path);
+			if (input == null) return;
+			var root = new LuaPreloadParser().parseFromString(stripScriptBOM(input));
+			if (root != null) LuaPreloadValues.scan(root, events, collectLuaCall);
+		}
+		catch (error:haxe.Exception)
+		{
+			trace('Could not scan Lua preload references in $path: ${error.message}');
+		}
+		#end
+	}
 
-				case EIdent('precacheSound'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.soundsToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
-				case EIdent('precacheMusic'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.musicToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
+	static function collectLuaCall(name:String, params:Array<Dynamic>):Void
+	{
+		var first = assetKey(params[0]);
+		var second = assetKey(params[1]);
+		var loading = LoadingState.instance;
+		switch (name)
+		{
+			case 'makeLuaSprite', 'makeAnimatedLuaSprite', 'loadGraphic', 'loadFrames':
+				if (second != null) loading.putPreload(loading.imagesToPrepare, second);
+			case 'precacheImage':
+				if (first != null) loading.putPreload(loading.imagesToPrepare, first);
+			case 'addCharacterToList':
+				if (first != null) preloadCharacter(first);
+			case 'precacheSound', 'playSound':
+				if (first != null) loading.putPreload(loading.soundsToPrepare, first);
+			case 'precacheMusic', 'playMusic':
+				if (first != null) loading.putPreload(loading.musicToPrepare, first);
+			case 'addLuaScript':
+				if (first != null) startLuaNamed(first.toLowerCase().endsWith('.lua') ? first : first + '.lua');
+			case 'addHScript':
+				if (first != null) startHscriptNamed(first.toLowerCase().endsWith('.hx') ? first : first + '.hx');
+			case 'runHaxeCode':
+				if (first != null) hscriptFilesCheck(first, false);
+			case 'startDialogue':
+				if (PlayState.isStoryMode)
+				{
+					if (first != null) preloadDialogue(first);
+					if (second != null) loading.putPreload(loading.musicToPrepare, second);
+				}
+			default:
+		}
+	}
 
-				case EIdent('playSound'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.soundsToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
-				case EIdent('playMusic'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							LoadingState.instance.putPreload(LoadingState.instance.musicToPrepare, Std.string(ScriptExprTools.lua_getValue(params[0])));
+	static function assetKey(value:Dynamic):Null<String>
+	{
+		if (value == null) return null;
+		if (!Std.isOfType(value, String) && !Std.isOfType(value, Int) && !Std.isOfType(value, Float)) return null;
+		var key = Std.string(value);
+		return key.trim() == '' ? null : key;
+	}
 
-				////////////////////////////////////////////////////////////////////////////////////////////////////////
+	static function preloadDialogue(file:String):Void
+	{
+		var folder = Paths.formatToSongPath(PlayState.SONG.song);
+		var path = Paths.json('$folder/$file');
+		if (!FileSystem.exists(path) && !Assets.exists(path)) return;
+		var dialogue:DialogueFile = DialogueBoxPsych.parseDialogue(path);
+		if (dialogue == null || dialogue.dialogue == null) return;
+		var loading = LoadingState.instance;
+		for (line in dialogue.dialogue)
+		{
+			if (line == null) continue;
+			if (line.portrait != null) loading.putPreload(loading.imagesToPrepare, 'dialogue/' + line.portrait);
+			if (line.sound != null) loading.putPreload(loading.soundsToPrepare, line.sound);
+		}
+	}
 
-				case EIdent('addLuaScript'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							startLuaNamed(Std.string(ScriptExprTools.lua_getValue(params[0])));
+	static function startHscriptNamed(filePath:String):Void
+	{
+		#if (HSCRIPT_ALLOWED && sys)
+		hscriptFilesCheck(namedScriptPath(filePath));
+		#end
+	}
 
-				case EIdent('runHaxeCode'):
-					if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '')
-							hscriptFilesCheck(Std.string(ScriptExprTools.lua_getValue(params[0])), false);
-				case EIdent('startDialogue'):
-					if (PlayState.isStoryMode)  {
-						if (ScriptExprTools.lua_getValue(params[0]) != null && ScriptExprTools.lua_getValue(params[0]) != '') {
-							var dialogueFile = Std.string(ScriptExprTools.lua_getValue(params[0]));
-							var path:String;
-							#if MODS_ALLOWED
-							path = Paths.modsJson(Paths.formatToSongPath(PlayState.SONG.song) + '/' + dialogueFile);
-							if (!FileSystem.exists(path))
-							#end
-							path = Paths.json(Paths.formatToSongPath(PlayState.SONG.song) + '/' + dialogueFile);
+	static function hscriptFilesCheck(file:String, isFile:Bool = true):Void
+	{
+		#if (HSCRIPT_ALLOWED && sys)
+		try
+		{
+			var input = isFile ? readScript(file) : file;
+			if (input == null) return;
+			var parser = new Parser();
+			parser.allowTypes = parser.allowMetadata = parser.allowJSON = true;
+			var root = parser.parseString(stripScriptBOM(input));
+			ScriptExprTools.hx_searchCallback(root, collectHscriptCall);
+		}
+		catch (error:haxe.Exception)
+		{
+			var origin = isFile ? file : 'inline Lua runHaxeCode';
+			trace('Could not scan HScript preload references in $origin: ${error.message}');
+		}
+		#end
+	}
 
-							#if MODS_ALLOWED
-							if (FileSystem.exists(path))
-							#else
-							if (Assets.exists(path))
-							#end
-							{
-								var dialogueList:DialogueFile = DialogueBoxPsych.parseDialogue(path);
-								for (i in 0...dialogueList.dialogue.length)							
-									if (dialogueList.dialogue[i] != null) {							
-										LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, 'dialogue/' + Std.string(dialogueList.dialogue[i].portrait));		
-										LoadingState.instance.putPreload(LoadingState.instance.soundsToPrepare, Std.string(dialogueList.dialogue[i].sound));		
-									}														
-							}
-						}
-						if (ScriptExprTools.lua_getValue(params[1]) != null && ScriptExprTools.lua_getValue(params[1]) != '') {
-							LoadingState.instance.putPreload(LoadingState.instance.musicToPrepare, Std.string(ScriptExprTools.lua_getValue(params[1])));
-						}
+	static function collectHscriptCall(call:Expr, params:Array<Expr>):Void
+	{
+		switch (Tools.expr(call))
+		{
+			case EField(target, name, _):
+				ScriptExprTools.hx_recursion(target, function (target)
+				{
+					if (!Tools.expr(target).match(EIdent('Paths'))) return;
+					var key = assetKey(ScriptExprTools.hx_getValue(params[0]));
+					if (key == null) return;
+					var loading = LoadingState.instance;
+					switch (name)
+					{
+						case 'image', 'cacheBitmap', 'getAtlas', 'getSparrowAtlas', 'getPackerAtlas', 'getAsepriteAtlas':
+							loading.putPreload(loading.imagesToPrepare, key);
+						case 'sound':
+							loading.putPreload(loading.soundsToPrepare, key);
+						case 'music':
+							loading.putPreload(loading.musicToPrepare, key);
+						default:
 					}
-				case _:
-			}
-		});
-	}
-
-	static function startHscriptNamed(filePath:String)
-	{
-		#if MODS_ALLOWED
-		var pathToLoad:String = Paths.modFolders(filePath);
-		if (!FileSystem.exists(pathToLoad))
-			pathToLoad = Paths.getSharedPath(filePath);
-
-		if (FileSystem.exists(pathToLoad))
-		#else
-		var pathToLoad:String = Paths.getSharedPath(filePath);
-		if (Assets.exists(pathToLoad))
-		#end
-		{
-			hscriptFilesCheck(pathToLoad);
+				});
+			default:
 		}
-	}
-
-	static function hscriptFilesCheck(file:String, isFile:Bool = true)
-	{
-		var input:String = '';
-		if (isFile){
-			File.getContent(file);	
-			//trace('Hscript: load Path: ' + file);
-		} else {
-			input = file;
-		}
-
-		if (StringTools.fastCodeAt(input, 0) == 0xFEFF) {
-			input = input.substr(1);
-		} //防止BOM字符 <UTF-8 with BOM> <\65279>
-
-		var parser = new Parser();
-		parser.allowTypes = parser.allowMetadata = parser.allowJSON = true;
-		var e:Expr = parser.parseString(input);
-
-		ScriptExprTools.hx_searchCallback(e, function(e:Expr, params:Array<Expr>) {
-			switch(Tools.expr(e)) {
-				case EField(e, f, _):
-					ScriptExprTools.hx_recursion(e, function(e:Expr) {
-						switch(Tools.expr(e)) {
-							case EIdent("Paths") if(f == "image"):
-								if (ScriptExprTools.hx_getValue(params[0]) != null && ScriptExprTools.hx_getValue(params[0]) != '')
-									LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.hx_getValue(params[0])));
-							case EIdent("Paths") if(f == "cacheBitmap"):
-								if (ScriptExprTools.hx_getValue(params[0]) != null && ScriptExprTools.hx_getValue(params[0]) != '')
-									LoadingState.instance.putPreload(LoadingState.instance.imagesToPrepare, Std.string(ScriptExprTools.hx_getValue(params[0])));
-							case EIdent("Paths") if(f == "sound"):
-								if (ScriptExprTools.hx_getValue(params[0]) != null && ScriptExprTools.hx_getValue(params[0]) != '')
-									LoadingState.instance.putPreload(LoadingState.instance.soundsToPrepare, Std.string(ScriptExprTools.hx_getValue(params[0])));
-							case EIdent("Paths") if(f == "music"):
-								if (ScriptExprTools.hx_getValue(params[0]) != null && ScriptExprTools.hx_getValue(params[0]) != '')
-									LoadingState.instance.putPreload(LoadingState.instance.musicToPrepare, Std.string(ScriptExprTools.hx_getValue(params[0])));
-							case _:
-						}
-					});
-				case _:
-			}
-		});
 	}
 }

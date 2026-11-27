@@ -1,0 +1,56 @@
+diff --git a/project/include/graphics/RenderThread.h b/project/include/graphics/RenderThread.h
+index 3395825..0575889 100644
+--- a/project/include/graphics/RenderThread.h
++++ b/project/include/graphics/RenderThread.h
+@@ -218,6 +218,9 @@ namespace lime {
+ 
+         bool IsRenderThread() const;
+         bool IsRunning() const { return running; }
++#ifdef ANDROID
++        void WaitForPendingFrames(std::chrono::nanoseconds timeout);
++#endif
+         bool MakeCurrent();
+         bool SetSwapInterval(int interval, bool useWorker = false);
+         bool ApplySwapInterval();
+diff --git a/project/src/backend/sdl/SDLApplication.cpp b/project/src/backend/sdl/SDLApplication.cpp
+index b3c8fdc..d6ad215 100644
+--- a/project/src/backend/sdl/SDLApplication.cpp
++++ b/project/src/backend/sdl/SDLApplication.cpp
+@@ -1143,6 +1143,18 @@ void SDLApplication::ProcessTextEvent (SDL_Event* event) {
+ 		if (active && !updateDue && !renderDue) {
+ 			const auto deadline = lockRender && nextRenderCounter < nextUpdateCounter
+ 				? nextRenderCounter : nextUpdateCounter;
++#ifdef ANDROID
++			auto* thread = OpenGLBindings::renderThread;
++			if (windowRedrawRequested && lockRender && !inBackground &&
++				OpenGLBindings::CanRender() && OpenGLBindings::isMultiThreaded &&
++				thread && thread->IsRunning() && thread->CurrentSwapInterval() != 0) {
++				const auto waitStart = SDL_GetPerformanceCounter();
++				if (deadline > waitStart) {
++					const auto nanoseconds = (deadline - waitStart) * 1000000000ULL / performanceFrequency;
++					thread->WaitForPendingFrames(std::chrono::nanoseconds(nanoseconds));
++				}
++			} else
++#endif
+ 			WaitForFrameDeadline (deadline, performanceFrequency);
+ 		}
+ 		#endif
+diff --git a/project/src/graphics/RenderThread.cpp b/project/src/graphics/RenderThread.cpp
+index b02ca7a..aeabdca 100644
+--- a/project/src/graphics/RenderThread.cpp
++++ b/project/src/graphics/RenderThread.cpp
+@@ -344,6 +344,14 @@ namespace lime {
+         return nullptr;
+     }
+ 
++#ifdef ANDROID
++    void RenderThread::WaitForPendingFrames(std::chrono::nanoseconds timeout) {
++        std::unique_lock<std::mutex> lock(mutex);
++        condition.wait_for(lock, timeout, [this] {
++            return !running || activePendingFrames.load(std::memory_order_acquire) == 0;
++        });
++    }
++#endif
+     void RenderThread::ReturnFrame(Frame* frame) {
+         frame->commands.clear();
+         std::lock_guard<std::mutex> lock(mutex);

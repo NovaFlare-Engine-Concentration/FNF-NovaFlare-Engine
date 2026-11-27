@@ -12,6 +12,7 @@ import flixel.util.FlxStringUtil;
 import lime.utils.Float32Array;
 #end
 import openfl.display.BitmapData;
+import openfl.display.Shader;
 import openfl.display.ShaderInput;
 import openfl.display.ShaderParameter;
 import openfl.display.ShaderParameterType;
@@ -323,16 +324,9 @@ class FlxRuntimeShader extends FlxGraphicsShader
 	@:noCompletion
 	private override function __processGLData(source:String, storageType:String):Void
 	{
-		var lastMatch = 0, position, regex, name, type;
-
-		if (storageType == "uniform")
-		{
-			regex = ~/uniform[ \t]+(?:(?:lowp|mediump|highp)[ \t]+)?([A-Za-z0-9]+)[ \t]+([A-Za-z0-9_]+)/;
-		}
-		else
-		{
-			regex = ~/(?:^|[;\r\n])[ \t]*(?:layout[ \t]*\([^\r\n)]*\)[ \t]*)?(?:attribute|in)[ \t]+(?:(?:lowp|mediump|highp)[ \t]+)?([A-Za-z0-9]+)[ \t]+([A-Za-z0-9_]+)(?:[ \t]*\[[^;\r\n]*\])?[ \t]*;/;
-		}
+		var lastMatch = 0, position, name, type;
+		final isUniform = storageType == "uniform";
+		final regex = @:privateAccess Shader.__acquireGLDeclarationPattern(isUniform);
 
 		@:privateAccess
 		while (regex.matchSub(source, lastMatch))
@@ -344,8 +338,6 @@ class FlxRuntimeShader extends FlxGraphicsShader
 
 			if (StringTools.startsWith(name, "gl_"))
 				continue;
-
-			var isUniform = (storageType == "uniform");
 
 			if (StringTools.startsWith(type, "sampler"))
 			{
@@ -504,6 +496,7 @@ class FlxRuntimeShader extends FlxGraphicsShader
 			}
 
 		}
+		@:privateAccess Shader.__releaseGLDeclarationPattern(isUniform, regex);
 	}
 
 	@:noCompletion

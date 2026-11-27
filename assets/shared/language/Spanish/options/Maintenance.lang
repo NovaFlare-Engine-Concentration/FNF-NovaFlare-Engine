@@ -3,6 +3,7 @@ Maintenance => Mantenimiento
 developerMode => Modo desarrollador
 deepDebug => Depuración avanzada
 moreLuaErrors => Sintaxis estricta de Lua
+hideLuaDebugText => Ocultar texto de depuración
 devConScale => Tamaño de la consola
 
 oldHscriptVersion => Versión antigua de Hscript

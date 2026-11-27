@@ -388,7 +388,7 @@ index 0000000..8a27ff4
 +		drawableWidth = outputWidth;
 +		drawableHeight = outputHeight;
 +
-+		var ratio = Math.min(boundsWidth / outputWidth, boundsHeight / outputHeight);
++		var ratio = Math.min(1, Math.min(boundsWidth / outputWidth, boundsHeight / outputHeight));
 +		var targetWidth = Std.int(Math.max(1, Math.round(outputWidth * ratio)));
 +		var targetHeight = Std.int(Math.max(1, Math.round(outputHeight * ratio)));
 +		if (boundsWidth <= 0 || boundsHeight <= 0 || (targetWidth == outputWidth && targetHeight == outputHeight))
@@ -592,3 +592,19 @@ index 0000000..8a27ff4
 +	}
 +}
 +#end
+diff --git a/src/openfl/display3D/textures/TextureBase.hx b/src/openfl/display3D/textures/TextureBase.hx
+--- a/src/openfl/display3D/textures/TextureBase.hx
++++ b/src/openfl/display3D/textures/TextureBase.hx
+@@ -218,6 +218,12 @@ class TextureBase extends EventDispatcher
+ 
+ 				gl.bindRenderbuffer(gl.RENDERBUFFER, __glDepthRenderbuffer);
+ 				gl.renderbufferStorage(gl.RENDERBUFFER, Context3D.__glDepthStencil, __width, __height);
++				#if (android && nova_stage_render_target)
++				// OpenGL ES 2 only accepts separate depth and stencil attachment points.
++				gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, __glDepthRenderbuffer);
++				gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.STENCIL_ATTACHMENT, gl.RENDERBUFFER, __glDepthRenderbuffer);
++				#else
+ 				gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, __glDepthRenderbuffer);
++				#end
+ 			}
+ 			else

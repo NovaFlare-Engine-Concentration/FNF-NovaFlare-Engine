@@ -13,13 +13,6 @@ import openfl.utils.Assets as OpenFlAssets;
 import openfl.display.BitmapData;
 import openfl.display.Shape;
 
-import luahscript.exprs.LuaExpr;
-import luahscript.LuaParser;
-
-import crowplexus.hscript.Expr;
-import crowplexus.hscript.Tools;
-import crowplexus.hscript.Parser;
-
 import flixel.graphics.FlxGraphic;
 import flixel.graphics.frames.FlxFilterFrames;
 
@@ -28,7 +21,6 @@ import general.backend.DeepDebugTracker;
 import states.loadingState.backend.*;
 
 import states.freeplayState.FreeplayState;
-import states.loadingState.backend.ScriptExprTools;
 
 import games.backend.Song;
 import games.backend.StageData;
@@ -38,7 +30,7 @@ import games.cutscenes.DialogueBoxPsych;
 class LoadingState extends MusicBeatState
 {
 	public static var instance:LoadingState = null;
-	public var waitPrepare:Bool = false;
+	public var waitPrepare(default, null):Bool = true;
 	var _loaded:Int = 0;
 	public var loaded(get, set):Int;
 	public var loadMax:Int = 0;
@@ -78,7 +70,6 @@ class LoadingState extends MusicBeatState
 	{
 		this.target = target;
 		this.stopMusic = stopMusic;
-		loaded = 0;
 		super();
 	}
 
@@ -264,8 +255,14 @@ class LoadingState extends MusicBeatState
 		{
 			prepareEvent = ThreadEvent.create(function() {
 				prepareMutex.acquire();
-				waitPrepare = true;
-				DataPreload.startPrepare();
+				try
+				{
+					DataPreload.startPrepare();
+				}
+				catch (error:haxe.Exception)
+				{
+					trace('Could not finish preparing the song preload queue: ${error.message}');
+				}
 				prepareMutex.release();
 			}, startThreads);
 		});
@@ -276,7 +273,6 @@ class LoadingState extends MusicBeatState
 	public var musicToPrepare:Array<String> = [];
 	public var songsToPrepare:Array<String> = [];
 
-	public var chartEvents:Array<Array<Dynamic>> = [];
 	public var chartNoteTypes:Array<String> = [];
 
 	public function prepare(images:Array<String> = null, sounds:Array<String> = null, music:Array<String> = null)
@@ -363,6 +359,7 @@ class LoadingState extends MusicBeatState
 
 	function checkLoaded():Bool
 	{
+		if (waitPrepare) return false;
 		for (key => bitmap in requestedBitmaps)
 		{
 			if (bitmap != null && Paths.cacheBitmap(key, bitmap, false) != null) {
@@ -442,6 +439,7 @@ class LoadingState extends MusicBeatState
 				return {type:'image', path: realPath, file: bitmap, alreadyLoaded: false, error: null};
 			});
 		};
+		waitPrepare = false;
 	}
 
 	function threadInit():Void {

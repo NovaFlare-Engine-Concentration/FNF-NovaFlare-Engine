@@ -82,6 +82,13 @@ class SaveSystem
 
   function hasSaveDataAtSlot(slot:Int):Bool
   {
-    return flixel.util.FlxSave.exists(Constants.SAVE_NAME + slot, Constants.SAVE_PATH);
+    var name:String = Constants.SAVE_NAME + slot;
+    #if (android || ios)
+    // FlxSave.exists() always returns true on mobile. Check the file SharedObject would open.
+    var path:String = @:privateAccess openfl.net.SharedObject.__getPath(Constants.SAVE_PATH, name);
+    return sys.FileSystem.exists(path);
+    #else
+    return FlxSave.exists(name, Constants.SAVE_PATH);
+    #end
   }
 }

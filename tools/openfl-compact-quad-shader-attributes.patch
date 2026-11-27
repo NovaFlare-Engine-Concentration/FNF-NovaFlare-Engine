@@ -1,0 +1,236 @@
+diff --git a/include.xml b/include.xml
+index 59fffff..4b59ec1 100644
+--- a/include.xml
++++ b/include.xml
+@@ -64,6 +64,7 @@
+ 
+ 	<section unless="custom-backend">
+ 
++		<haxedef name="novaflare_compact_quad_shader_attributes" if="cpp" />
+ 		<define name="openfl-disable-handle-error" if="debug" />
+ 
+ 		<section if="native">
+diff --git a/src/openfl/display/Graphics.hx b/src/openfl/display/Graphics.hx
+index a06f141..59c73c1 100644
+--- a/src/openfl/display/Graphics.hx
++++ b/src/openfl/display/Graphics.hx
+@@ -408,6 +408,30 @@ import js.html.CanvasRenderingContext2D;
+ 		}
+ 	}
+ 
++	#if novaflare_compact_quad_shader_attributes
++	@:noCompletion public function __beginCompactQuadShaderFill(shader:GraphicsShader, alphas:Array<Float>, colorMultipliers:Array<Float>,
++			colorOffsets:Array<Float>):Bool
++	{
++		#if (cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++		final stage = __owner == null ? null : __owner.stage;
++		if (shader == null || alphas == null || stage == null || stage.context3D == null) return false;
++
++		final shaderBuffer = __shaderBufferPool.get();
++		__usedShaderBuffers.push(shaderBuffer);
++		if (!shaderBuffer.update(shader, alphas, colorMultipliers, colorOffsets))
++		{
++			if (__usedShaderBuffers.remove(shaderBuffer)) __shaderBufferPool.release(shaderBuffer);
++			return false;
++		}
++		__commands.beginShaderFill(shaderBuffer);
++		return true;
++		#else
++		return false;
++		#end
++	}
++	#end
++
++
+ 	/**
+ 		Clears the graphics that were drawn to this Graphics object, and resets
+ 		fill and line style settings.
+diff --git a/src/openfl/display/_internal/ShaderBuffer.hx b/src/openfl/display/_internal/ShaderBuffer.hx
+index b5c2d14..a89bd84 100644
+--- a/src/openfl/display/_internal/ShaderBuffer.hx
++++ b/src/openfl/display/_internal/ShaderBuffer.hx
+@@ -18,6 +18,8 @@ import lime._internal.backend.native.NativeCFFI;
+ private typedef ShaderAttributeSegment = {
+ 	var offset:Int;
+ 	var values:Array<Float>;
++	var repeat:Int;
++	var components:Int;
+ }
+ #end
+ 
+@@ -64,6 +66,7 @@ class ShaderBuffer
+ 	public var paramTypes:Array<Int>;
+ 	public var shader:GraphicsShader;
+ 	#if (cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++	private static inline var QUAD_VERTEX_COUNT = 4;
+ 	private var shaderParamTicket:Dynamic;
+ 	private var shaderParamCaptureActive:Bool = false;
+ 	private var shaderAttributeSlots:Array<ShaderAttributeSegment>;
+@@ -162,7 +165,7 @@ class ShaderBuffer
+ 		gl.bufferData(gl.ARRAY_BUFFER, paramData, gl.DYNAMIC_DRAW);
+ 	}
+ 
+-	public function update(shader:GraphicsShader):Void
++	public function update(shader:GraphicsShader, ?compactAlphas:Array<Float>, ?compactMultipliers:Array<Float>, ?compactOffsets:Array<Float>):Bool
+ 	{
+ 		#if lime
+ 		#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
+@@ -185,10 +188,16 @@ class ShaderBuffer
+ 			#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
+ 			shaderParamTicket = null;
+ 			#end
+-			return;
++			return false;
+ 		}
+ 
+ 		shader.__init();
++		#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++		if (compactAlphas != null && (!NativeCFFI.supportsShaderAttributeRepetition()
++			|| !validateCompactQuadAttributes(shader, compactAlphas, compactMultipliers, compactOffsets))) return false;
++		#else
++		if (compactAlphas != null) return false;
++		#end
+ 
+ 		inputCount = shader.__inputBitmapData.length;
+ 		var input:ShaderInput<BitmapData>;
+@@ -236,6 +245,18 @@ class ShaderBuffer
+ 
+ 			paramPositions[p] = paramDataLength;
+ 			length = (param.value != null ? param.value.length : 0);
++			#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++			if (compactAlphas != null)
++			{
++				switch (param.name)
++				{
++					case "alpha": length = compactAlphas.length * QUAD_VERTEX_COUNT;
++					case "colorMultiplier": length = compactMultipliers == null ? 0 : compactMultipliers.length * QUAD_VERTEX_COUNT;
++					case "colorOffset": length = compactOffsets == null ? 0 : compactOffsets.length * QUAD_VERTEX_COUNT;
++					default:
++				}
++			}
++			#end
+ 			paramLengths[p] = length;
+ 			paramDataLength += length;
+ 			paramTypes[p] = 1;
+@@ -305,6 +326,22 @@ class ShaderBuffer
+ 				floatIndex++;
+ 
+ 				#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++				if (compactAlphas != null && length > 0)
++				{
++					final values = switch (floatParam.name)
++					{
++						case "alpha": compactAlphas;
++						case "colorMultiplier": compactMultipliers;
++						case "colorOffset": compactOffsets;
++						default: null;
++					}
++					if (values != null)
++					{
++						deferShaderAttribute(paramPosition, values, QUAD_VERTEX_COUNT, floatParam.__length);
++						paramPosition += length;
++						continue;
++					}
++				}
+ 				// Uniforms and constant attributes are still read from the CPU array.
+ 				if (!floatParam.__isUniform && length > floatParam.__length)
+ 				{
+@@ -337,11 +374,42 @@ class ShaderBuffer
+ 		#end
+ 
+ 		this.shader = shader;
++		return true;
++		#else
++		return false;
+ 		#end
+ 	}
+ 
+ 	#if (cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
+-	private function deferShaderAttribute(offset:Int, values:Array<Float>):Void
++	private static function validateCompactQuadAttributes(shader:GraphicsShader, alphas:Array<Float>, multipliers:Array<Float>, offsets:Array<Float>):Bool
++	{
++		if (alphas.length == 0 || alphas.length > 0x7FFFFFFF / (9 * QUAD_VERTEX_COUNT * Float32Array.BYTES_PER_ELEMENT)) return false;
++		if ((multipliers == null) != (offsets == null)) return false;
++		if (multipliers != null && (multipliers.length != alphas.length * 4 || offsets.length != multipliers.length)) return false;
++
++		var hasAlpha = false;
++		var hasMultiplier = false;
++		var hasOffset = false;
++		for (parameter in shader.__paramFloat)
++		{
++			switch (parameter.name)
++			{
++				case "alpha":
++					if (hasAlpha || parameter.__isUniform || parameter.type != FLOAT) return false;
++					hasAlpha = true;
++				case "colorMultiplier":
++					if (hasMultiplier || parameter.__isUniform || parameter.type != FLOAT4) return false;
++					hasMultiplier = true;
++				case "colorOffset":
++					if (hasOffset || parameter.__isUniform || parameter.type != FLOAT4) return false;
++					hasOffset = true;
++				default:
++			}
++		}
++		return hasAlpha && (multipliers == null || (hasMultiplier && hasOffset));
++	}
++
++	private function deferShaderAttribute(offset:Int, values:Array<Float>, repeat:Int = 1, components:Int = 1):Void
+ 	{
+ 		if (deferredAttributes == null)
+ 		{
+@@ -351,12 +419,14 @@ class ShaderBuffer
+ 
+ 		final index = deferredAttributes.length;
+ 		if (index == shaderAttributeSlots.length)
+-			shaderAttributeSlots.push({offset: offset, values: values});
++			shaderAttributeSlots.push({offset: offset, values: values, repeat: repeat, components: components});
+ 		else
+ 		{
+ 			final segment = shaderAttributeSlots[index];
+ 			segment.offset = offset;
+ 			segment.values = values;
++			segment.repeat = repeat;
++			segment.components = components;
+ 		}
+ 		deferredAttributes.push(shaderAttributeSlots[index]);
+ 	}
+@@ -378,15 +448,33 @@ class ShaderBuffer
+ 
+ 		for (segment in deferredAttributes)
+ 		{
+-			if (!shaderParamCaptureActive)
+-			{
+-				for (valueIndex in 0...segment.values.length)
+-					paramData[segment.offset + valueIndex] = segment.values[valueIndex];
+-			}
++			if (!shaderParamCaptureActive) materializeDeferredAttribute(segment);
+ 			segment.values = null;
+ 		}
+ 		deferredAttributes.resize(0);
+ 	}
++
++	private function materializeDeferredAttribute(segment:ShaderAttributeSegment):Void
++	{
++		final values = segment.values;
++		if (segment.repeat == 1)
++		{
++			for (index in 0...values.length)
++				paramData[segment.offset + index] = values[index];
++			return;
++		}
++
++		var position = segment.offset;
++		for (attribute in 0...Std.int(values.length / segment.components))
++		{
++			final source = attribute * segment.components;
++			for (copy in 0...segment.repeat)
++			{
++				for (component in 0...segment.components)
++					paramData[position++] = values[source + component];
++			}
++		}
++	}
+ 	#end
+ }
+ #end

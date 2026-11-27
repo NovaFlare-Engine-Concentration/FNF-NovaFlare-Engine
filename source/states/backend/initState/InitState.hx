@@ -76,7 +76,7 @@ class InitState extends MusicBeatState
 
 		ClientPrefs.loadPrefs();
 		var maxTextureSize:Int = GL.getParameter(GL.MAX_TEXTURE_SIZE);
-		ImageCompression.configure(maxTextureSize, ClientPrefs.data.maxImageSize, ClientPrefs.data.imageCompressionRatio,
+		ImageCompression.configure(maxTextureSize, 0, ClientPrefs.data.imageCompressionRatio,
 			ClientPrefs.data.minImageCompressionSize);
 
 		#if ACHIEVEMENTS_ALLOWED Achievements.load(); #end

@@ -242,17 +242,11 @@ class Main extends Sprite
 		Controls.instance = new Controls();
 
 		#if android
-			if (AppData.getVersionName() != Application.current.meta.get('version')
-				|| AppData.getAppName() != Application.current.meta.get('file')                                                                                                                                                                                                                                                                                                                                                                                                                         || !AppData.verifySignature()
-				|| (AppData.getPackageName() != Application.current.meta.get('packageName')
-					&& AppData.getPackageName() != Application.current.meta.get('packageName') + 'Backup1' // 共存
-					&& AppData.getPackageName() != Application.current.meta.get('packageName') + 'Backup2' // 共存
-					&& AppData.getPackageName() != 'com.antutu.ABenchMark' // 超频测试 安兔
-					&& AppData.getPackageName() != 'com.ludashi.benchmark' // 超频测试 鲁大
-				)) {
-					FlxG.switchState(new PirateState());
-					return;
-				}
+		if (!hasValidAndroidPackage())
+		{
+			addChild(createGame(PirateState));
+			return;
+		}
 		#end
 
 		///////////////////////////////////////////   --包含有读取文件的别在这个的上面运
@@ -260,8 +254,7 @@ class Main extends Sprite
 		ExtraKeysHandler.instance = new ExtraKeysHandler();
 		ClientPrefs.loadDefaultKeys();
 
-		var flxGame:FlxGame = new general.backend.NovaFlareGame(#if (openfl >= "9.2.0") 1280, 720 #else gameConfig.width, gameConfig.height #end,gameConfig.initialState, #if (flixel < "5.0.0") gameConfig.zoom, #end gameConfig.framerate, gameConfig.framerate, gameConfig.skipSplash, gameConfig.startFullscreen);
-		addChild(flxGame);
+		addChild(createGame(gameConfig.initialState));
 
 		fpsVar = new FPSViewer(0, 0);
 		FlxG.addChildBelowMouse(fpsVar);
@@ -322,6 +315,26 @@ class Main extends Sprite
 			//cpp.NativeGc.enterGCFreeZone();
 		#end
 	}
+
+	private function createGame(initialState:Class<FlxState>):FlxGame
+	{
+		return new general.backend.NovaFlareGame(#if (openfl >= "9.2.0") 1280, 720 #else gameConfig.width, gameConfig.height #end, initialState,
+			#if (flixel < "5.0.0") gameConfig.zoom, #end gameConfig.framerate, gameConfig.framerate, gameConfig.skipSplash, gameConfig.startFullscreen);
+	}
+
+	#if android
+	private function hasValidAndroidPackage():Bool
+	{
+		final metadata = Application.current.meta;
+		if (AppData.getVersionName() != metadata.get('version') || AppData.getAppName() != metadata.get('file') || !AppData.verifySignature())
+			return false;
+
+		final packageName = AppData.getPackageName();
+		final expectedPackage = metadata.get('packageName');
+		return packageName == expectedPackage || packageName == expectedPackage + 'Backup1' || packageName == expectedPackage + 'Backup2'
+			|| packageName == 'com.antutu.ABenchMark' || packageName == 'com.ludashi.benchmark';
+	}
+	#end
 
 	#if mobile
 	private function setupMobileStorage():Void
@@ -494,8 +507,6 @@ class Main extends Sprite
 		{
 			if (overlaySave.bind('funkin', CoolUtil.getSavePath()))
 			{
-				var maxImageSize = Std.parseInt(Std.string(Reflect.field(overlaySave.data, 'maxImageSize')));
-				if (maxImageSize != null) ClientPrefs.data.maxImageSize = maxImageSize;
 				var compressionStart = Std.parseInt(Std.string(Reflect.field(overlaySave.data, 'minImageCompressionSize')));
 				if (compressionStart != null) ClientPrefs.data.minImageCompressionSize = compressionStart;
 				var imageRatio = Std.parseFloat(Std.string(Reflect.field(overlaySave.data, 'imageCompressionRatio')));
@@ -526,7 +537,7 @@ class Main extends Sprite
 		}
 		overlaySave.destroy();
 		var deviceLimit:Int = GL.context == null ? 0 : GL.getParameter(GL.MAX_TEXTURE_SIZE);
-		ImageCompression.configure(deviceLimit, ClientPrefs.data.maxImageSize, ClientPrefs.data.imageCompressionRatio,
+		ImageCompression.configure(deviceLimit, 0, ClientPrefs.data.imageCompressionRatio,
 			ClientPrefs.data.minImageCompressionSize);
 	}
 

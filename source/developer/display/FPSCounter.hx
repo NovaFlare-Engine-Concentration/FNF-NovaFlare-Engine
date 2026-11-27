@@ -50,7 +50,7 @@ class FPSCounter extends Sprite
 		{
 			if (ClientPrefs.data.rainbowFPS)
 			{
-				label.textColor = ColorReturn.transfer(DataCalc.drawFPS, ClientPrefs.data.drawFramerate);
+				label.textColor = ColorReturn.transfer(DataCalc.drawFPS, DataCalc.drawRateLimit);
 			}
 			else
 			{
@@ -70,7 +70,7 @@ class FPSCounter extends Sprite
 		}
 		else
 		{
-			this.title.text = "FPS \n " + "/ " + ClientPrefs.data.drawFramerate + ' \n';
+			this.title.text = "FPS \n " + "/ " + DataCalc.drawRateLimit + ' \n';
 			this.data.text = Std.string(DataCalc.drawFPS) + " ";
 		}
 	}

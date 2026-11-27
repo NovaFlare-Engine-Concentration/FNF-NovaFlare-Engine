@@ -1,0 +1,162 @@
+diff --git a/src/openfl/display/_internal/ShaderBuffer.hx b/src/openfl/display/_internal/ShaderBuffer.hx
+index bed5ff6..b5c2d14 100644
+--- a/src/openfl/display/_internal/ShaderBuffer.hx
++++ b/src/openfl/display/_internal/ShaderBuffer.hx
+@@ -16,8 +16,8 @@ import openfl.display.ShaderParameter;
+ import lime._internal.backend.native.NativeCFFI;
+ 
+ private typedef ShaderAttributeSegment = {
+-	final offset:Int;
+-	final values:Array<Float>;
++	var offset:Int;
++	var values:Array<Float>;
+ }
+ #end
+ 
+@@ -64,7 +64,10 @@ class ShaderBuffer
+ 	public var paramTypes:Array<Int>;
+ 	public var shader:GraphicsShader;
+ 	#if (cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
+-	private var shaderParamSnapshot:Dynamic;
++	private var shaderParamTicket:Dynamic;
++	private var shaderParamCaptureActive:Bool = false;
++	private var shaderAttributeSlots:Array<ShaderAttributeSegment>;
++	private var deferredAttributes:Array<ShaderAttributeSegment>;
+ 	#end
+ 
+ 	public function new()
+@@ -133,14 +136,14 @@ class ShaderBuffer
+ 		context.__bindGLArrayBuffer(paramDataBuffer);
+ 
+ 		#if (cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
+-		if (shaderParamSnapshot != null)
++		if (shaderParamCaptureActive)
+ 		{
+-			if (NativeCFFI.tryQueueShaderParams(shaderParamSnapshot, gl.DYNAMIC_DRAW)) return;
++			if (NativeCFFI.tryQueueShaderParams(shaderParamTicket, gl.DYNAMIC_DRAW)) return;
+ 
+ 			final dataView:lime.utils.ArrayBufferView = paramData;
+-			if (!NativeCFFI.materializeShaderParams(shaderParamSnapshot, dataView.buffer, dataView.byteOffset, paramDataLength))
++			if (!NativeCFFI.materializeShaderParams(shaderParamTicket, dataView.buffer, dataView.byteOffset, paramDataLength))
+ 				throw new haxe.Exception("Could not restore shader attribute data");
+-			shaderParamSnapshot = null;
++			shaderParamCaptureActive = false;
+ 		}
+ 		#end
+ 
+@@ -163,7 +166,7 @@ class ShaderBuffer
+ 	{
+ 		#if lime
+ 		#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
+-		shaderParamSnapshot = null;
++		shaderParamCaptureActive = false;
+ 		#end
+ 		inputCount = 0;
+ 		// overrideCount = 0;
+@@ -177,7 +180,13 @@ class ShaderBuffer
+ 		paramIntCount = 0;
+ 		this.shader = null;
+ 
+-		if (shader == null) return;
++		if (shader == null)
++		{
++			#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++			shaderParamTicket = null;
++			#end
++			return;
++		}
+ 
+ 		shader.__init();
+ 
+@@ -274,9 +283,6 @@ class ShaderBuffer
+ 		var floatParam:ShaderParameter<Float>;
+ 		var intParam:ShaderParameter<Int>;
+ 		var length:Int;
+-		#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
+-		var segments:Array<ShaderAttributeSegment> = null;
+-		#end
+ 
+ 		for (i in 0...paramCount)
+ 		{
+@@ -302,8 +308,7 @@ class ShaderBuffer
+ 				// Uniforms and constant attributes are still read from the CPU array.
+ 				if (!floatParam.__isUniform && length > floatParam.__length)
+ 				{
+-					if (segments == null) segments = [];
+-					segments.push({offset: paramPosition, values: floatParam.value});
++					deferShaderAttribute(paramPosition, floatParam.value);
+ 					paramPosition += length;
+ 					continue;
+ 				}
+@@ -328,21 +333,60 @@ class ShaderBuffer
+ 		}
+ 
+ 		#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
+-		if (segments != null)
+-		{
+-			final dataView:lime.utils.ArrayBufferView = paramData;
+-			shaderParamSnapshot = NativeCFFI.trySnapshotShaderParams(segments, dataView.buffer, dataView.byteOffset, paramDataLength);
+-			if (shaderParamSnapshot == null)
+-			{
+-				for (segment in segments)
+-					for (valueIndex in 0...segment.values.length)
+-						paramData[segment.offset + valueIndex] = segment.values[valueIndex];
+-			}
+-		}
++		finishShaderAttributeCapture();
+ 		#end
+ 
+ 		this.shader = shader;
+ 		#end
+ 	}
++
++	#if (cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++	private function deferShaderAttribute(offset:Int, values:Array<Float>):Void
++	{
++		if (deferredAttributes == null)
++		{
++			deferredAttributes = [];
++			shaderAttributeSlots = [];
++		}
++
++		final index = deferredAttributes.length;
++		if (index == shaderAttributeSlots.length)
++			shaderAttributeSlots.push({offset: offset, values: values});
++		else
++		{
++			final segment = shaderAttributeSlots[index];
++			segment.offset = offset;
++			segment.values = values;
++		}
++		deferredAttributes.push(shaderAttributeSlots[index]);
++	}
++
++	private function finishShaderAttributeCapture():Void
++	{
++		if (deferredAttributes == null || deferredAttributes.length == 0)
++		{
++			shaderParamTicket = null;
++			return;
++		}
++
++		final view:lime.utils.ArrayBufferView = paramData;
++		if (shaderParamTicket == null || !NativeCFFI.tryRecaptureShaderParams(shaderParamTicket, deferredAttributes, view, paramDataLength))
++		{
++			shaderParamTicket = NativeCFFI.trySnapshotShaderParams(deferredAttributes, view.buffer, view.byteOffset, paramDataLength);
++		}
++		shaderParamCaptureActive = shaderParamTicket != null;
++
++		for (segment in deferredAttributes)
++		{
++			if (!shaderParamCaptureActive)
++			{
++				for (valueIndex in 0...segment.values.length)
++					paramData[segment.offset + valueIndex] = segment.values[valueIndex];
++			}
++			segment.values = null;
++		}
++		deferredAttributes.resize(0);
++	}
++	#end
+ }
+ #end

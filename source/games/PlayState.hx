@@ -299,6 +299,8 @@ class PlayState extends MusicBeatState
 	public var judgementCounter_S:JudgementCounter; // add _S is make sure nobody make a new one broken this
 
 	var timeTxt:FlxText;
+	var formattedTimeSeconds:Int = -1;
+	var formattedTime:String;
 	var scoreTxtTween:FlxTween;
 
 	public var pauseButton_menu:TouchSpriteButton;
@@ -575,6 +577,7 @@ class PlayState extends MusicBeatState
 		#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
 		luaDebugGroup = new FlxTypedGroup<DebugLuaText>();
 		luaDebugGroup.cameras = [camOther];
+		refreshLuaDebugDisplay();
 		add(luaDebugGroup);
 		#end
 
@@ -956,24 +959,34 @@ class PlayState extends MusicBeatState
     }
 
 	#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
+	public function refreshLuaDebugDisplay():Void
+	{
+		if (luaDebugGroup == null) return;
+		luaDebugGroup.visible = !ClientPrefs.data.hideLuaDebugText;
+		if (!luaDebugGroup.visible)
+			luaDebugGroup.forEachAlive(line -> line.kill());
+	}
+
 	public function addTextToDebug(text:String, color:FlxColor, echo:Bool = true)
 	{
-		//if (!ClientPrefs.data.developerMode) return;
-		var newText:DebugLuaText = luaDebugGroup.recycle(DebugLuaText);
-		newText.text = text;
-		#if android
-		newText.text = StringTools.replace(text, "/storage/emulated/0/.NovaFlare Engine/", ""); // delete stupid path
-		#end
-		newText.color = color;
-		newText.disableTime = 6;
-		newText.alpha = 1;
-		newText.setPosition(10, 8 - newText.height);
-
-		luaDebugGroup.forEachAlive(function(spr:DebugLuaText)
+		if (!ClientPrefs.data.hideLuaDebugText && luaDebugGroup != null)
 		{
-			spr.y += newText.height + 2;
-		});
-		luaDebugGroup.add(newText);
+			var newText:DebugLuaText = luaDebugGroup.recycle(DebugLuaText);
+			newText.text = text;
+			#if android
+			newText.text = StringTools.replace(text, "/storage/emulated/0/.NovaFlare Engine/", "");
+			#end
+			newText.color = color;
+			newText.disableTime = 6;
+			newText.alpha = 1;
+			newText.setPosition(10, 8 - newText.height);
+
+			luaDebugGroup.forEachAlive(function(spr:DebugLuaText)
+			{
+				spr.y += newText.height + 2;
+			});
+			luaDebugGroup.add(newText);
+		}
 		if (!echo) return;
 		#if sys
 		Sys.println(text);
@@ -2602,7 +2615,14 @@ class PlayState extends MusicBeatState
 				secondsTotal = 0;
 
 			if (ClientPrefs.data.timeBarType != 'Song Name')
-				timeTxt.text = FlxStringUtil.formatTime(secondsTotal, false);
+			{
+				if (formattedTimeSeconds != secondsTotal)
+				{
+					formattedTime = FlxStringUtil.formatTime(secondsTotal, false);
+					formattedTimeSeconds = secondsTotal;
+				}
+				timeTxt.text = formattedTime;
+			}
 		}
 
 		FlxG.watch.addQuick("secShit", curSection);

@@ -46,7 +46,7 @@ jobs:
       - name: Prepare render thread and Immix runtime
         shell: pwsh
         run: |
-          ./tools/setup-novaflare-render-dependencies.ps1 -Component GenerationalGC,ImmixReclaim,RenderThreadRepair,ImageCoordinates
+          ./tools/setup-novaflare-render-dependencies.ps1 -Component GenerationalGC,ImmixReclaim,RenderThreadRepair,ImageCoordinates,Resolution
           haxelib run lime rebuild windows -64
           if ($LASTEXITCODE -ne 0) { throw 'Lime native rebuild failed' }
 

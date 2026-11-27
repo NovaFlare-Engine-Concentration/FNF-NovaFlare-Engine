@@ -10,8 +10,24 @@ import openfl.display3D.Context3D;
 import openfl.display3D.Program3D;
 import openfl.utils.ByteArray;
 
+#if cpp
+import sys.thread.Tls;
+#end
+
+#if (cpp && lime_cffi && (lime_opengl || lime_opengles) && !lime_webgl && !disable_cffi)
+import haxe.ds.WeakMap;
+import lime.graphics.opengl.GL.GLObject;
+#end
+
 #if mobile
 import general.shaders.MobileShaderConverter;
+#end
+
+#if (cpp && lime_cffi && (lime_opengl || lime_opengles) && !lime_webgl && !disable_cffi)
+private typedef ShaderBindingLocations = {
+	final uniforms:Map<String, Int>;
+	final attributes:Map<String, Int>;
+}
 #end
 
 /**
@@ -126,6 +142,10 @@ import general.shaders.MobileShaderConverter;
 #end
 class Shader
 {
+	#if (cpp && lime_cffi && (lime_opengl || lime_opengles) && !lime_webgl && !disable_cffi)
+	static final __glBindingLocations = new WeakMap<GLObject, ShaderBindingLocations>();
+	#end
+
 	/**
 		The raw shader bytecode for this Shader instance.
 	**/
@@ -232,6 +252,9 @@ class Shader
 	@:noCompletion private var __inputBitmapData:Array<ShaderInput<BitmapData>>;
 	@:noCompletion private var __isGenerated:Bool;
 	@:noCompletion private var __matrix:ShaderParameter<Float>;
+	#if novaflare_threaded_projection_matrix
+	private var __activeProjectionMatrix:ShaderParameter<Float>;
+	#end
 	@:noCompletion private var __numPasses:Int;
 	@:noCompletion private var __paramBool:Array<ShaderParameter<Bool>>;
 	@:noCompletion private var __paramFloat:Array<ShaderParameter<Float>>;
@@ -698,8 +721,6 @@ class Shader
 
 		if (__context != null && program == null)
 		{
-			var gl = __context.gl;
-
 			#if (js && html5)
 			var prefix = (precisionHint == FULL ? "precision mediump float;\n" : "precision lowp float;\n");
 			#else
@@ -746,74 +767,102 @@ class Shader
 				__glTransformRevision = MobileShaderConverter.revision;
 				__glProgramDirty = false;
 				#end
-				glProgram = program.__glProgram;
-
-				for (input in __inputBitmapData)
-				{
-					if (input.__isUniform)
-					{
-						input.index = gl.getUniformLocation(glProgram, input.name);
-					}
-					else
-					{
-						input.index = gl.getAttribLocation(glProgram, input.name);
-					}
-				}
-
-				for (parameter in __paramBool)
-				{
-					if (parameter.__isUniform)
-					{
-						parameter.index = gl.getUniformLocation(glProgram, parameter.name);
-					}
-					else
-					{
-						parameter.index = gl.getAttribLocation(glProgram, parameter.name);
-					}
-				}
-
-				for (parameter in __paramFloat)
-				{
-					if (parameter.__isUniform)
-					{
-						parameter.index = gl.getUniformLocation(glProgram, parameter.name);
-					}
-					else
-					{
-						parameter.index = gl.getAttribLocation(glProgram, parameter.name);
-					}
-				}
-
-				for (parameter in __paramInt)
-				{
-					if (parameter.__isUniform)
-					{
-						parameter.index = gl.getUniformLocation(glProgram, parameter.name);
-					}
-					else
-					{
-						parameter.index = gl.getAttribLocation(glProgram, parameter.name);
-					}
-				}
+				__refreshGLBindingLocations();
 			}
 		}
 	}
 
-	@:noCompletion private function __processGLData(source:String, storageType:String):Void
+	@:noCompletion private function __refreshGLBindingLocations():Void
 	{
-		var lastMatch = 0, position, regex, name, type;
+		glProgram = program.__glProgram;
+		for (input in __inputBitmapData)
+			input.index = __getGLBindingLocation(__context, glProgram, input.name, input.__isUniform);
 
-		if (storageType == "uniform")
+		for (parameter in __paramBool)
+			parameter.index = __getGLBindingLocation(__context, glProgram, parameter.name, parameter.__isUniform);
+
+		for (parameter in __paramFloat)
+			parameter.index = __getGLBindingLocation(__context, glProgram, parameter.name, parameter.__isUniform);
+
+		for (parameter in __paramInt)
+			parameter.index = __getGLBindingLocation(__context, glProgram, parameter.name, parameter.__isUniform);
+	}
+
+	@:noCompletion private static function __getGLBindingLocation(context:Context3D, glProgram:GLProgram, name:String, uniform:Bool):Dynamic
+	{
+		final gl = context.gl;
+		#if (cpp && lime_cffi && (lime_opengl || lime_opengles) && !lime_webgl && !disable_cffi)
+		final key:GLObject = glProgram;
+		if (key != null)
 		{
-			regex = ~/uniform[ \t]+(?:(?:lowp|mediump|highp)[ \t]+)?([A-Za-z0-9]+)[ \t]+([A-Za-z0-9_]+)/;
+			var locations = __glBindingLocations.get(key);
+			if (locations == null)
+			{
+				locations = {uniforms: [], attributes: []};
+				__glBindingLocations.set(key, locations);
+			}
+			final bindings = uniform ? locations.uniforms : locations.attributes;
+			final cached = bindings.get(name);
+			if (cached != null) return cached;
+
+			final index = uniform ? gl.getUniformLocation(glProgram, name) : gl.getAttribLocation(glProgram, name);
+			// Lime also returns -1 when the render thread cannot execute a query.
+			if (index >= 0) bindings.set(name, index);
+			return index;
+		}
+		#end
+		if (uniform) return gl.getUniformLocation(glProgram, name);
+		return gl.getAttribLocation(glProgram, name);
+	}
+
+	#if cpp
+	private static final __uniformDeclarationPattern = new Tls<EReg>();
+	private static final __attributeDeclarationPattern = new Tls<EReg>();
+	#end
+
+	@:noCompletion private static function __acquireGLDeclarationPattern(isUniform:Bool):EReg
+	{
+		#if cpp
+		final threadPattern = isUniform ? __uniformDeclarationPattern : __attributeDeclarationPattern;
+		var pattern = threadPattern.value;
+		if (pattern != null)
+		{
+			// A finalizer can reenter during capture or parameter allocation.
+			threadPattern.value = null;
+			return pattern;
+		}
+		#else
+		var pattern:EReg;
+		#end
+
+		if (isUniform)
+		{
+			pattern = ~/uniform[ \t]+(?:(?:lowp|mediump|highp)[ \t]+)?([A-Za-z0-9]+)[ \t]+([A-Za-z0-9_]+)/;
 		}
 		else
 		{
 			// Accept OpenFL's legacy `attribute` and desktop GLSL's top-level
 			// `layout(...) in` without mistaking function `in` parameters for
 			// vertex buffers.
-			regex = ~/(?:^|[;\r\n])[ \t]*(?:layout[ \t]*\([^\r\n)]*\)[ \t]*)?(?:attribute|in)[ \t]+(?:(?:lowp|mediump|highp)[ \t]+)?([A-Za-z0-9]+)[ \t]+([A-Za-z0-9_]+)(?:[ \t]*\[[^;\r\n]*\])?[ \t]*;/;
+			pattern = ~/(?:^|[;\r\n])[ \t]*(?:layout[ \t]*\([^\r\n)]*\)[ \t]*)?(?:attribute|in)[ \t]+(?:(?:lowp|mediump|highp)[ \t]+)?([A-Za-z0-9]+)[ \t]+([A-Za-z0-9_]+)(?:[ \t]*\[[^;\r\n]*\])?[ \t]*;/;
 		}
+
+		return pattern;
+	}
+
+	@:noCompletion private static function __releaseGLDeclarationPattern(isUniform:Bool, pattern:EReg):Void
+	{
+		#if cpp
+		final threadPattern = isUniform ? __uniformDeclarationPattern : __attributeDeclarationPattern;
+		threadPattern.value = pattern;
+		#end
+	}
+
+	@:noCompletion private function __processGLData(source:String, storageType:String):Void
+	{
+		var lastMatch = 0, position, name, type;
+		final isUniform = storageType == "uniform";
+		final regex = __acquireGLDeclarationPattern(isUniform);
 
 		while (regex.matchSub(source, lastMatch))
 		{
@@ -826,8 +875,6 @@ class Shader
 			{
 				continue;
 			}
-
-			var isUniform = (storageType == "uniform");
 
 			if (StringTools.startsWith(type, "sampler"))
 			{
@@ -965,7 +1012,27 @@ class Shader
 			}
 
 		}
+		__releaseGLDeclarationPattern(isUniform, regex);
 	}
+
+	#if novaflare_threaded_projection_matrix
+	@:noCompletion private function __updateWithProjectionMatrix(matrix:ShaderParameter<Float>, ?shaderBuffer:ShaderBuffer, bufferOffset:Int = 0):Void
+	{
+		final previous = __activeProjectionMatrix;
+		__activeProjectionMatrix = matrix;
+		try
+		{
+			if (shaderBuffer == null) __update();
+			else __updateFromBuffer(shaderBuffer, bufferOffset);
+		}
+		catch (error:Dynamic)
+		{
+			__activeProjectionMatrix = previous;
+			throw error;
+		}
+		__activeProjectionMatrix = previous;
+	}
+	#end
 
 	@:noCompletion private function __update():Void
 	{
@@ -1000,6 +1067,9 @@ class Shader
 
 		for (parameter in __paramFloat)
 		{
+			#if novaflare_threaded_projection_matrix
+			if (parameter == __activeProjectionMatrix) continue;
+			#end
 			parameter.__updateGL(__context);
 		}
 
@@ -1029,6 +1099,9 @@ class Shader
 			}
 		}
 
+		#if novaflare_threaded_shader_inputs
+		shaderBuffer.bindAndUpload(__context, true);
+		#else
 		var gl = __context.gl;
 
 		if (shaderBuffer.paramDataLength > 0)
@@ -1057,6 +1130,7 @@ class Shader
 
 			__context.__bindGLArrayBuffer(null);
 		}
+		#end
 
 		var boolIndex = 0;
 		var floatIndex = 0;
@@ -1102,7 +1176,10 @@ class Shader
 			}
 			else if (i < boolCount + floatCount)
 			{
-				floatRef = shaderBuffer.paramRefs_Float[floatIndex];
+				floatRef = shaderBuffer.paramRefs_Float[floatIndex++];
+				#if novaflare_threaded_projection_matrix
+				if (floatRef == __activeProjectionMatrix) continue;
+				#end
 
 				for (j in 0...shaderBuffer.overrideFloatCount)
 				{
@@ -1123,7 +1200,6 @@ class Shader
 					floatRef.__updateGLFromBuffer(__context, paramData, shaderBuffer.paramPositions[i], shaderBuffer.paramLengths[i], bufferOffset);
 				}
 
-				floatIndex++;
 			}
 			else
 			{

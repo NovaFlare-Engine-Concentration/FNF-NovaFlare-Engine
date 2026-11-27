@@ -96,21 +96,30 @@ Starting from NovaFlare 1.2.0, Hscript has been upgraded to Hscript--iris-improv
 - The first TPS frame count has exceeded 1000.
 - Thread separation for rendering has been implemented for the first time.
 - Immix GC optimization reduces lag during gameplay.
+- The song timer reuses its formatted text until the displayed second changes.
+
+## Android builds
+
+For a local Android build, use NDK r27c or newer. After installing the haxelibs, run `./tools/setup-novaflare-render-dependencies.ps1 -Component Android16K,CairoGC` in PowerShell, then `haxelib run lime rebuild android` and `haxelib run lime build android`. Release workflows apply the same changes. Run `python3 tools/check-android-16k.py <apk>` to verify the 64-bit ELF load segments, RELRO page boundaries, and ZIP offsets of any uncompressed native libraries.
 
 ## Image compression
 
-In Graphics settings, **Maximum Image Side** limits the longest side of a texture in pixels. The value `0` uses the device limit. **Compression Threshold** is the minimum original longest side eligible for ratio compression. Its range is `0` to the device texture limit. The value `0` makes every size eligible. **Image Compression Ratio** retains a fraction of the total pixel count, from `0.1` to `1.0`. The engine multiplies both dimensions by the square root of that fraction, then rounds to whole pixels and applies the side limit. For example, `0.25` halves each side. The maximum side still applies below the threshold. Changes apply during play and refresh loaded textures from their source images.
+In Graphics settings, **Compression Threshold** is the minimum original longest side eligible for ratio compression. Its range is `0` to the device texture limit. The value `0` makes every size eligible. **Image Compression Ratio** retains a fraction of the total pixel count, from `0.1` to `1.0`. The engine multiplies both dimensions by the square root of that fraction, then rounds to whole pixels. For example, `0.25` halves each side. The device's maximum texture size also applies to images below the compression threshold. Changes apply during play and refresh loaded textures from their source images.
 
-Sprite sheets keep their original frame coordinates, dimensions and offsets after compression. Very low ratios can make neighboring frames share texture pixels.
+Sprite sheets keep their original frame coordinates, dimensions and offsets after compression. Very low ratios can make neighboring frames share texture pixels. When the ratio changes, replaced textures are released after pending uploads finish and any GPU-only clones or `BitmapData.fromTexture()` borrowers detach.
 
-Native scaled decoding builds reduced non-interlaced PNG textures with a small set of source rows and the output buffer. RGB and grayscale JPEG can also use scaled decoding and scanline resampling. Synchronous and asynchronous display loads share these decoders. Local async loads decode directly from the file, and remote loads decode the downloaded bytes on a worker. Interlaced PNG and CMYK JPEG use the full-image resampling fallback. Color sampling and separately supplied alpha keep the original pixels.
+Native scaled decoding builds reduced non-interlaced PNG textures with a small set of source rows and the output buffer. RGB and grayscale JPEG can also use scaled decoding and scanline resampling. Synchronous and asynchronous display loads, including Freeplay's background preparation, can use these decoders. With native scaled decoding available, Lime retains encoded image data for preloaded and bundled assets and decodes it at the requested size when used for display. Interlaced PNG and CMYK JPEG use the full-image resampling fallback. Color sampling and separately supplied alpha keep the original pixels.
 
-After installing haxelibs for a local build, run `pwsh -File tools/setup-novaflare-render-dependencies.ps1 -Component ImageCoordinates` and rebuild Lime for the target platform to enable native scaled decoding. CI applies the dependency patches as part of its build setup.
+After installing haxelibs for a local build, run `pwsh -File tools/setup-novaflare-render-dependencies.ps1 -Component ImageCoordinates` and rebuild Lime for the target platform to enable native scaled decoding. CI applies the dependency patches as part of its build setup. To check native decoding, image preload and GPU texture replacement on Windows, run `pwsh -File tools/test-image-compression.ps1 -Target windows`.
 
 ## Interface and Underlying Updates
 
 - The freeplay option interface has been rewritten for a better visual experience.
 - The underlying Haxelib has been fully upgraded, with added recording and replay features.
+- Enter one frame index or a comma-separated sequence in the Character, Stage, and Note Splash editors. Frame order and repeated indices are preserved. Clear the field to use the entire animation.
+- Drag a scrollable list in NovaFlare and release while moving to let it coast. Brief, quick flicks also carry momentum.
+- In **Settings → Maintenance**, enable **Hide Debug Text** to hide on-screen messages from Lua `debugPrint`. The same setting is available under **Pause → Debug** in chart tests. Terminal logging continues.
+- The loading screen can find script textures from literal paths and simple Lua expressions that use chart event arguments. It reads the chart and its `events.json` together and queues only assets it can resolve.
 
 ## Miscellaneous
 

@@ -2156,8 +2156,7 @@ class StageEditorAnimationSubstate extends MusicBeatSubstate
 			animationLoopCheckBox.checked = anim.loop;
 			animationFramerate.value = anim.fps;
 
-			var indicesStr:String = anim.indices.toString();
-			animationIndicesInputText.text = indicesStr.substr(1, indicesStr.length - 2);
+			animationIndicesInputText.text = AnimationFrameIndices.format(anim.indices);
 		});
 
 		mainAnimTxt = new FlxText(160, animationDropDown.y - 18, 0, 'Main Anim.: ');
@@ -2178,29 +2177,19 @@ class StageEditorAnimationSubstate extends MusicBeatSubstate
 			if (animationInputText.text == '')
 				return;
 
-			var indices:Array<Int> = [];
-			var indicesStr:Array<String> = animationIndicesInputText.text.trim().split(',');
-			if (indicesStr.length > 1)
+			var indices = AnimationFrameIndices.parse(animationIndicesInputText.text);
+			if (indices == null)
 			{
-				for (i in 0...indicesStr.length)
-				{
-					var index:Int = Std.parseInt(indicesStr[i]);
-					if (indicesStr[i] != null && indicesStr[i] != '' && !Math.isNaN(index) && index > -1)
-					{
-						indices.push(index);
-					}
-				}
+				FlxG.log.warn('Animation indices must be non-negative whole numbers.');
+				return;
 			}
 
-			var lastAnim:String = (target.animations[curAnim] != null) ? target.animations[curAnim].anim : '';
-			var lastOffsets:Array<Int> = null;
+			var previous:AnimArray = null;
 			for (anim in target.animations)
 				if (animationInputText.text == anim.anim)
 				{
-					lastOffsets = anim.offsets;
-					cast(target.sprite, ModchartSprite).animOffsets.remove(animationInputText.text);
-					target.sprite.animation.remove(animationInputText.text);
-					target.animations.remove(anim);
+					previous = anim;
+					break;
 				}
 
 			var addedAnim:AnimArray = {
@@ -2209,14 +2198,21 @@ class StageEditorAnimationSubstate extends MusicBeatSubstate
 				fps: Math.round(animationFramerate.value),
 				loop: animationLoopCheckBox.checked,
 				indices: indices,
-				offsets: lastOffsets
+				offsets: previous == null ? null : previous.offsets
 			};
 
+			var previousPreview = target.sprite.animation.getByName(addedAnim.anim);
 			if (addedAnim.indices != null && addedAnim.indices.length > 0)
 				target.sprite.animation.addByIndices(addedAnim.anim, addedAnim.name, addedAnim.indices, '', addedAnim.fps, addedAnim.loop);
 			else
 				target.sprite.animation.addByPrefix(addedAnim.anim, addedAnim.name, addedAnim.fps, addedAnim.loop);
+			if (target.sprite.animation.getByName(addedAnim.anim) == previousPreview)
+			{
+				FlxG.log.warn('No frames found for ${addedAnim.name}.');
+				return;
+			}
 
+			if (previous != null) target.animations.remove(previous);
 			target.animations.push(addedAnim);
 			reloadAnimList();
 			playAnim(addedAnim.anim, true);

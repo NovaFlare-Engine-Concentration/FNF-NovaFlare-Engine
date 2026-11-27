@@ -1,7 +1,6 @@
 Graphics => Graphics
 
 gameQuality => Change game quality for screen
-maxImageSize => 0 uses the device limit.
 minImageCompressionSize => Applies the ratio when the original longest side reaches this size.
 imageCompressionRatio => Fraction of total pixels retained. 0.1 keeps about 10%.
 

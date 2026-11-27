@@ -1,0 +1,190 @@
+diff --git a/include.xml b/include.xml
+index 9ca5238..421a0c2 100644
+--- a/include.xml
++++ b/include.xml
+@@ -155,5 +155,7 @@
+ 
+ 	<include haxelib="openfl-samples" if="create" />
+ 
++	<haxedef name="novaflare_threaded_shader_inputs" if="cpp" />
++
+ 	<haxeflag name="--macro" value="addMetadata('@:build(openfl.utils._internal.NFShaderCompat.build())', 'openfl.display.Shader')" unless="flash || nme" />
+ </extension>
+diff --git a/src/openfl/display/Shader.hx b/src/openfl/display/Shader.hx
+index 895945f..d03bbaa 100644
+--- a/src/openfl/display/Shader.hx
++++ b/src/openfl/display/Shader.hx
+@@ -804,26 +804,7 @@ class Shader
+ 			}
+ 		}
+ 
+-		var gl = __context.gl;
+-
+-		if (shaderBuffer.paramDataLength > 0)
+-		{
+-			if (shaderBuffer.paramDataBuffer == null)
+-			{
+-				shaderBuffer.paramDataBuffer = gl.createBuffer();
+-			}
+-
+-			// Log.verbose ("bind param data buffer (length: " + shaderBuffer.paramData.length + ") (" + shaderBuffer.paramCount + ")");
+-
+-			__context.__bindGLArrayBuffer(shaderBuffer.paramDataBuffer);
+-			gl.bufferData(gl.ARRAY_BUFFER, shaderBuffer.paramData, gl.DYNAMIC_DRAW);
+-		}
+-		else
+-		{
+-			// Log.verbose ("bind buffer null");
+-
+-			__context.__bindGLArrayBuffer(null);
+-		}
++		shaderBuffer.bindAndUpload(__context);
+ 
+ 		var boolIndex = 0;
+ 		var floatIndex = 0;
+diff --git a/src/openfl/display/_internal/ShaderBuffer.hx b/src/openfl/display/_internal/ShaderBuffer.hx
+index 37c9813..bed5ff6 100644
+--- a/src/openfl/display/_internal/ShaderBuffer.hx
++++ b/src/openfl/display/_internal/ShaderBuffer.hx
+@@ -2,6 +2,7 @@ package openfl.display._internal;
+ 
+ #if !flash
+ import openfl.display3D._internal.GLBuffer;
++import openfl.display3D.Context3D;
+ import openfl.utils._internal.Float32Array;
+ import openfl.display3D.Context3DMipFilter;
+ import openfl.display3D.Context3DTextureFilter;
+@@ -11,11 +12,22 @@ import openfl.display.GraphicsShader;
+ import openfl.display.ShaderInput;
+ import openfl.display.ShaderParameter;
+ 
++#if (cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++import lime._internal.backend.native.NativeCFFI;
++
++private typedef ShaderAttributeSegment = {
++	final offset:Int;
++	final values:Array<Float>;
++}
++#end
++
+ #if !openfl_debug
+ @:fileXml('tags="haxe,release"')
+ @:noDebug
+ #end
+ @:access(openfl.display.Shader)
++@:access(openfl.display.ShaderParameter)
++@:access(openfl.display3D.Context3D)
+ @SuppressWarnings("checkstyle:FieldDocComment")
+ class ShaderBuffer
+ {
+@@ -51,6 +63,9 @@ class ShaderBuffer
+ 	public var paramRefs_Int:Array<ShaderParameter<Int>>;
+ 	public var paramTypes:Array<Int>;
+ 	public var shader:GraphicsShader;
++	#if (cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++	private var shaderParamSnapshot:Dynamic;
++	#end
+ 
+ 	public function new()
+ 	{
+@@ -104,9 +119,52 @@ class ShaderBuffer
+ 		overrideBoolCount = 0;
+ 	}
+ 
++	@:noCompletion public function bindAndUpload(context:Context3D, uploadPrefix:Bool = false):Void
++	{
++		if (paramDataLength == 0)
++		{
++			context.__bindGLArrayBuffer(null);
++			return;
++		}
++
++		final gl = context.gl;
++		if (paramDataBuffer == null)
++			paramDataBuffer = gl.createBuffer();
++		context.__bindGLArrayBuffer(paramDataBuffer);
++
++		#if (cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++		if (shaderParamSnapshot != null)
++		{
++			if (NativeCFFI.tryQueueShaderParams(shaderParamSnapshot, gl.DYNAMIC_DRAW)) return;
++
++			final dataView:lime.utils.ArrayBufferView = paramData;
++			if (!NativeCFFI.materializeShaderParams(shaderParamSnapshot, dataView.buffer, dataView.byteOffset, paramDataLength))
++				throw new haxe.Exception("Could not restore shader attribute data");
++			shaderParamSnapshot = null;
++		}
++		#end
++
++		if (uploadPrefix)
++		{
++			#if (lime && sys && lime_cffi && (lime_opengl || lime_opengles) && !doc_gen)
++			final dataView:lime.utils.ArrayBufferView = paramData;
++			context.__context.gles2.bufferData(gl.ARRAY_BUFFER, paramDataLength * Float32Array.BYTES_PER_ELEMENT, dataView, gl.DYNAMIC_DRAW);
++			return;
++			#elseif lime
++			final data = paramData.length != paramDataLength ? paramData.subarray(0, paramDataLength) : paramData;
++			gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
++			return;
++			#end
++		}
++		gl.bufferData(gl.ARRAY_BUFFER, paramData, gl.DYNAMIC_DRAW);
++	}
++
+ 	public function update(shader:GraphicsShader):Void
+ 	{
+ 		#if lime
++		#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++		shaderParamSnapshot = null;
++		#end
+ 		inputCount = 0;
+ 		// overrideCount = 0;
+ 		overrideIntCount = 0;
+@@ -216,6 +274,9 @@ class ShaderBuffer
+ 		var floatParam:ShaderParameter<Float>;
+ 		var intParam:ShaderParameter<Int>;
+ 		var length:Int;
++		#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++		var segments:Array<ShaderAttributeSegment> = null;
++		#end
+ 
+ 		for (i in 0...paramCount)
+ 		{
+@@ -237,6 +298,16 @@ class ShaderBuffer
+ 				floatParam = paramRefs_Float[floatIndex];
+ 				floatIndex++;
+ 
++				#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++				// Uniforms and constant attributes are still read from the CPU array.
++				if (!floatParam.__isUniform && length > floatParam.__length)
++				{
++					if (segments == null) segments = [];
++					segments.push({offset: paramPosition, values: floatParam.value});
++					paramPosition += length;
++					continue;
++				}
++				#end
+ 				for (j in 0...length)
+ 				{
+ 					paramData[paramPosition] = floatParam.value[j];
+@@ -256,6 +327,20 @@ class ShaderBuffer
+ 			}
+ 		}
+ 
++		#if (cpp && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++		if (segments != null)
++		{
++			final dataView:lime.utils.ArrayBufferView = paramData;
++			shaderParamSnapshot = NativeCFFI.trySnapshotShaderParams(segments, dataView.buffer, dataView.byteOffset, paramDataLength);
++			if (shaderParamSnapshot == null)
++			{
++				for (segment in segments)
++					for (valueIndex in 0...segment.values.length)
++						paramData[segment.offset + valueIndex] = segment.values[valueIndex];
++			}
++		}
++		#end
++
+ 		this.shader = shader;
+ 		#end
+ 	}

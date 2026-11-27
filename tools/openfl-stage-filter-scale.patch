@@ -1,0 +1,322 @@
+diff --git a/src/openfl/display/DisplayObjectRenderer.hx b/src/openfl/display/DisplayObjectRenderer.hx
+index 2fba6bf..499d1f6 100644
+--- a/src/openfl/display/DisplayObjectRenderer.hx
++++ b/src/openfl/display/DisplayObjectRenderer.hx
+@@ -49,6 +49,10 @@ class DisplayObjectRenderer extends EventDispatcher
+ 	@SuppressWarnings("checkstyle:Dynamic") @:noCompletion private var __context:#if lime RenderContext #else Dynamic #end;
+ 	@:noCompletion private var __overrideBlendMode:BlendMode;
+ 	@:noCompletion private var __pixelRatio:Float;
++	#if (cpp && lime)
++	@:noCompletion private var __stageFilterScale:Float = 1;
++	@:allow(openfl.filters) @:noCompletion private var __filterRenderScale:Float = 1;
++	#end
+ 	@:noCompletion private var __roundPixels:Bool;
+ 	@:noCompletion private var __stage:Stage;
+ 	@:noCompletion private var __tempColorTransform:ColorTransform;
+@@ -211,6 +215,19 @@ class DisplayObjectRenderer extends EventDispatcher
+ 		return null;
+ 	}
+ 
++	#if (cpp && lime)
++	private static function __disposeFilterCacheBitmap(bitmap:BitmapData):Void
++	{
++		if (bitmap == null || !bitmap.__isValid) return;
++
++		// These render targets belong to the display cache. Dispose their GL resources before BitmapData drops them.
++		if (bitmap.__texture != null) bitmap.__texture.dispose();
++		if (bitmap.__vertexBuffer != null) bitmap.__vertexBuffer.dispose();
++		if (bitmap.__indexBuffer != null) bitmap.__indexBuffer.dispose();
++		bitmap.dispose();
++	}
++	#end
++
+ 	@:noCompletion private function __updateCacheBitmap(displayObject:DisplayObject, force:Bool):Bool
+ 	{
+ 		if (displayObject == null) return false;
+@@ -260,6 +277,11 @@ class DisplayObjectRenderer extends EventDispatcher
+ 			var needRender = (displayObject.__cacheBitmap == null
+ 				|| (displayObject.__renderDirty && (force || (displayObject.__children != null && displayObject.__children.length > 0)))
+ 				|| displayObject.opaqueBackground != displayObject.__cacheBitmapBackground);
++			#if (cpp && lime)
++			var cacheRenderer = displayObject.__cacheBitmapRenderer;
++			// A cached ancestor must visit its children again even if it has no filters of its own.
++			if (cacheRenderer != null && cacheRenderer.__stageFilterScale != __stageFilterScale) needRender = true;
++			#end
+ 			var softwareDirty = needRender
+ 				|| (displayObject.__graphics != null && displayObject.__graphics.__softwareDirty)
+ 				|| !displayObject.__cacheBitmapColorTransform.__equals(colorTransform, true);
+@@ -286,9 +308,30 @@ class DisplayObjectRenderer extends EventDispatcher
+ 				if (softwareDirty && (renderType == CANVAS || renderType == CAIRO)) needRender = true;
+ 				if (hardwareDirty && renderType == OPENGL) needRender = true;
+ 			}
++			#if (cpp && lime)
++			else if (cacheRenderer != null)
++			{
++				renderType = cacheRenderer.__type;
++			}
++			#end
+ 
+-			var updateTransform = (needRender || !displayObject.__cacheBitmap.__worldTransform.equals(displayObject.__worldTransform));
+ 			var hasFilters = #if !openfl_disable_filters displayObject.__filters != null #else false #end;
++			#if (cpp && lime)
++			var filterRenderScale = hasFilters && renderType == OPENGL ? __stageFilterScale : 1.0;
++			if (cacheRenderer != null && cacheRenderer.__filterRenderScale != filterRenderScale)
++			{
++				// The normal cache growth path retains oversized render targets.
++				__disposeFilterCacheBitmap(displayObject.__cacheBitmapData);
++				__disposeFilterCacheBitmap(displayObject.__cacheBitmapData2);
++				__disposeFilterCacheBitmap(displayObject.__cacheBitmapData3);
++				displayObject.__cacheBitmapData = null;
++				displayObject.__cacheBitmapData2 = null;
++				displayObject.__cacheBitmapData3 = null;
++				displayObject.__cacheBitmapRenderer = null;
++				needRender = true;
++			}
++			#end
++			var updateTransform = (needRender || !displayObject.__cacheBitmap.__worldTransform.equals(displayObject.__worldTransform));
+ 
+ 			#if !openfl_enable_cacheasbitmap
+ 			if (renderer.__type == DOM && !hasFilters)
+@@ -370,10 +413,11 @@ class DisplayObjectRenderer extends EventDispatcher
+ 			var offsetX = 0., offsetY = 0.;
+ 
+ 			#if (openfl_disable_hdpi || openfl_disable_hdpi_cacheasbitmap)
+-			var pixelRatio = 1;
++			var cachePixelRatio = 1.0;
+ 			#else
+-			var pixelRatio = __pixelRatio;
++			var cachePixelRatio = __pixelRatio;
+ 			#end
++			var pixelRatio = cachePixelRatio #if (cpp && lime) * filterRenderScale #end;
+ 
+ 			if (updateTransform || needRender)
+ 			{
+@@ -492,6 +536,10 @@ class DisplayObjectRenderer extends EventDispatcher
+ 					displayObject.__cacheBitmap.__renderTransform.concat(displayObject.__renderTransform);
+ 					displayObject.__cacheBitmap.__renderTransform.a *= 1 / pixelRatio;
+ 					displayObject.__cacheBitmap.__renderTransform.d *= 1 / pixelRatio;
++					#if (cpp && lime)
++					displayObject.__cacheBitmap.__renderTransform.b /= filterRenderScale;
++					displayObject.__cacheBitmap.__renderTransform.c /= filterRenderScale;
++					#end
+ 					displayObject.__cacheBitmap.__renderTransform.tx += offsetX;
+ 					displayObject.__cacheBitmap.__renderTransform.ty += offsetY;
+ 				}
+@@ -557,7 +605,12 @@ class DisplayObjectRenderer extends EventDispatcher
+ 				displayObject.__cacheBitmapRenderer.__worldTransform.ty -= offsetY;
+ 				displayObject.__cacheBitmapRenderer.__worldTransform.scale(pixelRatio, pixelRatio);
+ 
+-				displayObject.__cacheBitmapRenderer.__pixelRatio = pixelRatio;
++				// Scissor conversion still uses the device pixel ratio. Only the cache raster is scaled.
++				displayObject.__cacheBitmapRenderer.__pixelRatio = cachePixelRatio;
++				#if (cpp && lime)
++				displayObject.__cacheBitmapRenderer.__stageFilterScale = __stageFilterScale;
++				displayObject.__cacheBitmapRenderer.__filterRenderScale = filterRenderScale;
++				#end
+ 
+ 				displayObject.__cacheBitmapRenderer.__worldColorTransform.__copyFrom(colorTransform);
+ 				displayObject.__cacheBitmapRenderer.__worldColorTransform.__invert();
+diff --git a/src/openfl/display/Stage.hx b/src/openfl/display/Stage.hx
+index f50579a..f69709d 100644
+--- a/src/openfl/display/Stage.hx
++++ b/src/openfl/display/Stage.hx
+@@ -2449,6 +2449,10 @@ class Stage extends DisplayObjectContainer #if lime implements IModule #end
+ 					__renderer.__clear();
+ 				}
+ 
++				#if (cpp && lime)
++				var stageTarget = scaledTarget ? renderContext3D.__stageRenderTarget : null;
++				__renderer.__stageFilterScale = stageTarget == null ? 1.0 : Math.min(stageTarget.scaleX, stageTarget.scaleY);
++				#end
+ 				__renderer.__render(this);
+ 				#if sys
+ 				if (__novaPerfTrace) __novaAfterRenderer = haxe.Timer.stamp();
+diff --git a/src/openfl/filters/BevelFilter.hx b/src/openfl/filters/BevelFilter.hx
+index 50482c7..aa2d235 100644
+--- a/src/openfl/filters/BevelFilter.hx
++++ b/src/openfl/filters/BevelFilter.hx
+@@ -177,18 +177,21 @@ import lime._internal.graphics.ImageDataUtil;
+ 			if (pass < __horizontalPasses)
+ 			{
+ 				var scale = Math.pow(0.5, pass >> 1);
+-				shader.uRadius.value[0] = blurX * scale;
++				shader.uRadius.value[0] = blurX * scale #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 				shader.uRadius.value[1] = 0;
+ 			}
+ 			else
+ 			{
+ 				var scale = Math.pow(0.5, (pass - __horizontalPasses) >> 1);
+ 				shader.uRadius.value[0] = 0;
+-				shader.uRadius.value[1] = blurY * scale;
++				shader.uRadius.value[1] = blurY * scale #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 			}
+ 			return shader;
+ 		}
+ 
++		#if (cpp && lime)
++		__updateTransform(renderer.__filterRenderScale);
++		#end
+ 		__bevelShader.sourceBitmap.input = sourceBitmapData;
+ 		#end
+ 
+@@ -415,11 +418,11 @@ import lime._internal.graphics.ImageDataUtil;
+ 		return value;
+ 	}
+ 
+-	@:noCompletion private function __updateTransform():Void
++	@:noCompletion private function __updateTransform(renderScale:Float = 1):Void
+ 	{
+ 		var rad:Float = __angle * Math.PI / 180;
+-		__bevelShader.uTransformX.value[0] = (__distance * Math.cos(rad));
+-		__bevelShader.uTransformY.value[0] = (__distance * Math.sin(rad));
++		__bevelShader.uTransformX.value[0] = (__distance * Math.cos(rad) * renderScale);
++		__bevelShader.uTransformY.value[0] = (__distance * Math.sin(rad) * renderScale);
+ 	}
+ 
+ 	@:noCompletion private function __updateColors():Void
+diff --git a/src/openfl/filters/BlurFilter.hx b/src/openfl/filters/BlurFilter.hx
+index f7bab3f..07a12ff 100644
+--- a/src/openfl/filters/BlurFilter.hx
++++ b/src/openfl/filters/BlurFilter.hx
+@@ -198,14 +198,14 @@ import lime._internal.graphics.ImageDataUtil; // TODO
+ 		if (pass < __horizontalPasses)
+ 		{
+ 			var scale = Math.pow(0.5, pass >> 1);
+-			__blurShader.uRadius.value[0] = blurX * scale;
++			__blurShader.uRadius.value[0] = blurX * scale #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 			__blurShader.uRadius.value[1] = 0;
+ 		}
+ 		else
+ 		{
+ 			var scale = Math.pow(0.5, (pass - __horizontalPasses) >> 1);
+ 			__blurShader.uRadius.value[0] = 0;
+-			__blurShader.uRadius.value[1] = blurY * scale;
++			__blurShader.uRadius.value[1] = blurY * scale #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 		}
+ 		#end
+ 
+diff --git a/src/openfl/filters/ConvolutionFilter.hx b/src/openfl/filters/ConvolutionFilter.hx
+index 7747f96..ec19f77 100644
+--- a/src/openfl/filters/ConvolutionFilter.hx
++++ b/src/openfl/filters/ConvolutionFilter.hx
+@@ -246,6 +246,9 @@ class ConvolutionFilter extends BitmapFilter
+ 		__convolutionShader.uDivisor.value[0] = divisor;
+ 		__convolutionShader.uBias.value[0] = bias;
+ 		__convolutionShader.uPreserveAlpha.value[0] = preserveAlpha;
++		#if (cpp && lime)
++		__convolutionShader.uSampleScale.value[0] = renderer.__filterRenderScale;
++		#end
+ 		#end
+ 
+ 		return __convolutionShader;
+@@ -329,10 +332,11 @@ private class ConvolutionShader extends BitmapFilterShader
+ 
+ 		uniform mat4 openfl_Matrix;
+ 		uniform vec2 openfl_TextureSize;
++		uniform float uSampleScale;
+ 
+ 		void main(void) {
+ 
+-			vec2 r = vec2 (1.0, 1.0) / openfl_TextureSize;
++			vec2 r = vec2 (uSampleScale, uSampleScale) / openfl_TextureSize;
+ 			vec2 t = openfl_TextureCoord;
+ 
+ 			vBlurCoords[0] = t + r * vec2 (-1.0, -1.0);
+@@ -358,6 +362,7 @@ private class ConvolutionShader extends BitmapFilterShader
+ 		uDivisor.value = [1];
+ 		uBias.value = [0];
+ 		uPreserveAlpha.value = [true];
++		uSampleScale.value = [1.0];
+ 		#end
+ 	}
+ }
+diff --git a/src/openfl/filters/DropShadowFilter.hx b/src/openfl/filters/DropShadowFilter.hx
+index 1a5225b..f691207 100644
+--- a/src/openfl/filters/DropShadowFilter.hx
++++ b/src/openfl/filters/DropShadowFilter.hx
+@@ -328,14 +328,14 @@ import lime._internal.graphics.ImageDataUtil; // TODO
+ 			if (blurPass < __horizontalPasses)
+ 			{
+ 				var scale = Math.pow(0.5, blurPass >> 1) * 0.5;
+-				shader.uRadius.value[0] = blurX * scale;
++				shader.uRadius.value[0] = blurX * scale #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 				shader.uRadius.value[1] = 0;
+ 			}
+ 			else
+ 			{
+ 				var scale = Math.pow(0.5, (blurPass - __horizontalPasses) >> 1) * 0.5;
+ 				shader.uRadius.value[0] = 0;
+-				shader.uRadius.value[1] = blurY * scale;
++				shader.uRadius.value[1] = blurY * scale #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 			}
+ 			shader.uColor.value[0] = ((color >> 16) & 0xFF) / 255;
+ 			shader.uColor.value[1] = ((color >> 8) & 0xFF) / 255;
+@@ -350,14 +350,14 @@ import lime._internal.graphics.ImageDataUtil; // TODO
+ 			{
+ 				var shader = GlowFilter.__innerCombineKnockoutShader;
+ 				shader.sourceBitmap.input = sourceBitmapData;
+-				shader.offset.value[0] = __offsetX;
+-				shader.offset.value[1] = __offsetY;
++				shader.offset.value[0] = __offsetX #if (cpp && lime) * renderer.__filterRenderScale #end;
++				shader.offset.value[1] = __offsetY #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 				return shader;
+ 			}
+ 			var shader = GlowFilter.__innerCombineShader;
+ 			shader.sourceBitmap.input = sourceBitmapData;
+-			shader.offset.value[0] = __offsetX;
+-			shader.offset.value[1] = __offsetY;
++			shader.offset.value[0] = __offsetX #if (cpp && lime) * renderer.__filterRenderScale #end;
++			shader.offset.value[1] = __offsetY #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 			return shader;
+ 		}
+ 		else
+@@ -366,22 +366,22 @@ import lime._internal.graphics.ImageDataUtil; // TODO
+ 			{
+ 				var shader = GlowFilter.__combineKnockoutShader;
+ 				shader.sourceBitmap.input = sourceBitmapData;
+-				shader.offset.value[0] = __offsetX;
+-				shader.offset.value[1] = __offsetY;
++				shader.offset.value[0] = __offsetX #if (cpp && lime) * renderer.__filterRenderScale #end;
++				shader.offset.value[1] = __offsetY #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 				return shader;
+ 			}
+ 			else if (__hideObject)
+ 			{
+ 				var shader = __hideShader;
+ 				shader.sourceBitmap.input = sourceBitmapData;
+-				shader.offset.value[0] = __offsetX;
+-				shader.offset.value[1] = __offsetY;
++				shader.offset.value[0] = __offsetX #if (cpp && lime) * renderer.__filterRenderScale #end;
++				shader.offset.value[1] = __offsetY #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 				return shader;
+ 			}
+ 			var shader = GlowFilter.__combineShader;
+ 			shader.sourceBitmap.input = sourceBitmapData;
+-			shader.offset.value[0] = __offsetX;
+-			shader.offset.value[1] = __offsetY;
++			shader.offset.value[0] = __offsetX #if (cpp && lime) * renderer.__filterRenderScale #end;
++			shader.offset.value[1] = __offsetY #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 			return shader;
+ 		}
+ 		#else
+diff --git a/src/openfl/filters/GlowFilter.hx b/src/openfl/filters/GlowFilter.hx
+index bb9905e..2b82ab6 100644
+--- a/src/openfl/filters/GlowFilter.hx
++++ b/src/openfl/filters/GlowFilter.hx
+@@ -290,14 +290,14 @@ import lime._internal.graphics.ImageDataUtil; // TODO
+ 			if (blurPass < __horizontalPasses)
+ 			{
+ 				var scale = Math.pow(0.5, blurPass >> 1) * 0.5;
+-				shader.uRadius.value[0] = blurX * scale;
++				shader.uRadius.value[0] = blurX * scale #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 				shader.uRadius.value[1] = 0;
+ 			}
+ 			else
+ 			{
+ 				var scale = Math.pow(0.5, (blurPass - __horizontalPasses) >> 1) * 0.5;
+ 				shader.uRadius.value[0] = 0;
+-				shader.uRadius.value[1] = blurY * scale;
++				shader.uRadius.value[1] = blurY * scale #if (cpp && lime) * renderer.__filterRenderScale #end;
+ 			}
+ 			shader.uColor.value[0] = ((color >> 16) & 0xFF) / 255;
+ 			shader.uColor.value[1] = ((color >> 8) & 0xFF) / 255;

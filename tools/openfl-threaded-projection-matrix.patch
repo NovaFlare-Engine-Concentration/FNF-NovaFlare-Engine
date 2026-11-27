@@ -1,0 +1,355 @@
+diff --git a/include.xml b/include.xml
+index 4b59ec1..f99d9ae 100644
+--- a/include.xml
++++ b/include.xml
+@@ -148,4 +148,6 @@
+ 	<library handler="swf" type="swc" />
+ 
++	<haxedef name="novaflare_threaded_projection_matrix" if="cpp" />
++
+ 	<section if="setup">
+ 
+diff --git a/src/openfl/display/OpenGLRenderer.hx b/src/openfl/display/OpenGLRenderer.hx
+index cc81b6d..778f685 100644
+--- a/src/openfl/display/OpenGLRenderer.hx
++++ b/src/openfl/display/OpenGLRenderer.hx
+@@ -116,4 +116,10 @@ class OpenGLRenderer extends DisplayObjectRenderer
+ 	@:noCompletion private var __upscaled:Bool;
+ 	@:noCompletion private var __values:Array<Float>;
++	#if novaflare_threaded_projection_matrix
++	private var __queuedProjectionMatrix:ShaderParameter<Float>;
++	#end
++	#if (novaflare_threaded_projection_matrix && cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++	private final __projectionInputs:Array<Float> = [];
++	#end
+ 	@:noCompletion private var __width:Int;
+ 
+@@ -318,4 +324,7 @@ class OpenGLRenderer extends DisplayObjectRenderer
+ 	public function applyMatrix(matrix:Array<Float>):Void
+ 	{
++		#if novaflare_threaded_projection_matrix
++		__queuedProjectionMatrix = null;
++		#end
+ 		if (__currentShaderBuffer != null)
+ 		{
+@@ -367,4 +376,7 @@ class OpenGLRenderer extends DisplayObjectRenderer
+ 	public function setShader(shader:Shader):Void
+ 	{
++		#if novaflare_threaded_projection_matrix
++		__queuedProjectionMatrix = null;
++		#end
+ 		__currentShaderBuffer = null;
+ 
+@@ -418,4 +430,11 @@ class OpenGLRenderer extends DisplayObjectRenderer
+ 			__context3D.__flushGLProgram();
+ 			__context3D.__flushGLTextures();
++			#if novaflare_threaded_projection_matrix
++			if (__queuedProjectionMatrix != null)
++			{
++				__currentShader.__updateWithProjectionMatrix(__queuedProjectionMatrix);
++				return;
++			}
++			#end
+ 			__currentShader.__update();
+ 		}
+@@ -479,4 +498,7 @@ class OpenGLRenderer extends DisplayObjectRenderer
+ 	@:noCompletion private function __clearShader():Void
+ 	{
++		#if novaflare_threaded_projection_matrix
++		__queuedProjectionMatrix = null;
++		#end
+ 		if (__currentShader != null)
+ 		{
+@@ -508,4 +530,7 @@ class OpenGLRenderer extends DisplayObjectRenderer
+ 	@:noCompletion private function __copyShader(other:OpenGLRenderer):Void
+ 	{
++		#if novaflare_threaded_projection_matrix
++		__queuedProjectionMatrix = null;
++		#end
+ 		__currentShader = other.__currentShader;
+ 		__currentShaderBuffer = other.__currentShaderBuffer;
+@@ -516,4 +541,57 @@ class OpenGLRenderer extends DisplayObjectRenderer
+ 	}
+ 
++	@:noCompletion private function __applyTransformMatrix(transform:Matrix, pixelSnapping:PixelSnapping):Void
++	{
++		#if (novaflare_threaded_projection_matrix && cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++		if (__tryQueueProjectionMatrix(transform, pixelSnapping)) return;
++		#end
++		applyMatrix(__getMatrix(transform, pixelSnapping));
++	}
++
++	#if (novaflare_threaded_projection_matrix && cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
++	private function __tryQueueProjectionMatrix(transform:Matrix, pixelSnapping:PixelSnapping):Bool
++	{
++		final shader = __currentShader;
++		if (shader == null || shader.__context != __context3D) return false;
++
++		final parameter = shader.__matrix;
++		if (parameter == null || !parameter.__isUniform || parameter.type != MATRIX4X4 || parameter.index == null) return false;
++		final location:Int = parameter.index;
++		if (location < 0) return false;
++
++		// The recorded program bind must precede the GL uniform command in the same queue.
++		final program = shader.program;
++		if (program == null || __context3D.__state.program != program || __context3D.__contextState.program != program) return false;
++
++		final world = __worldTransform;
++		final values = __projectionInputs;
++		values[0] = transform.a;
++		values[1] = transform.b;
++		values[2] = transform.c;
++		values[3] = transform.d;
++		values[4] = transform.tx;
++		values[5] = transform.ty;
++		values[6] = world.a;
++		values[7] = world.b;
++		values[8] = world.c;
++		values[9] = world.d;
++		values[10] = world.tx;
++		values[11] = world.ty;
++		values[12] = 2.0 / (__displayWidth + __offsetX * 2);
++		values[13] = 2.0 / (__displayHeight + __offsetY * 2);
++		final snappingMode = switch (pixelSnapping)
++		{
++			case ALWAYS: 2;
++			case AUTO: 1;
++			default: 0;
++		}
++		final flags = snappingMode | (__flipped ? 4 : 0);
++		if (!lime._internal.backend.native.NativeCFFI.tryQueueProjectionMatrix(location, values, flags)) return false;
++
++		__queuedProjectionMatrix = parameter;
++		return true;
++	}
++	#end
++
+ 	@:noCompletion private function __getMatrix(transform:Matrix, pixelSnapping:PixelSnapping):Array<Float>
+ 	{
+@@ -1042,5 +1120,5 @@ class OpenGLRenderer extends DisplayObjectRenderer
+ 		applyBitmapData(source, smooth);
+ 		applyColorTransform(null);
+-		applyMatrix(__getMatrix(source.__renderTransform, AUTO));
++		__applyTransformMatrix(source.__renderTransform, AUTO);
+ 		updateShader();
+ 
+@@ -1207,4 +1285,11 @@ class OpenGLRenderer extends DisplayObjectRenderer
+ 		if (__currentShader != null && __currentShaderBuffer != null)
+ 		{
++			#if novaflare_threaded_projection_matrix
++			if (__queuedProjectionMatrix != null)
++			{
++				__currentShader.__updateWithProjectionMatrix(__queuedProjectionMatrix, __currentShaderBuffer, bufferOffset);
++				return;
++			}
++			#end
+ 			__currentShader.__updateFromBuffer(__currentShaderBuffer, bufferOffset);
+ 		}
+diff --git a/src/openfl/display/Shader.hx b/src/openfl/display/Shader.hx
+index d03bbaa..da99187 100644
+--- a/src/openfl/display/Shader.hx
++++ b/src/openfl/display/Shader.hx
+@@ -233,4 +233,7 @@ class Shader
+ 	@:noCompletion private var __isGenerated:Bool;
+ 	@:noCompletion private var __matrix:ShaderParameter<Float>;
++	#if novaflare_threaded_projection_matrix
++	private var __activeProjectionMatrix:ShaderParameter<Float>;
++	#end
+ 	@:noCompletion private var __numPasses:Int;
+ 	@:noCompletion private var __paramBool:Array<ShaderParameter<Bool>>;
+@@ -739,4 +742,23 @@ class Shader
+ 	}
+ 
++	#if novaflare_threaded_projection_matrix
++	@:noCompletion private function __updateWithProjectionMatrix(matrix:ShaderParameter<Float>, ?shaderBuffer:ShaderBuffer, bufferOffset:Int = 0):Void
++	{
++		final previous = __activeProjectionMatrix;
++		__activeProjectionMatrix = matrix;
++		try
++		{
++			if (shaderBuffer == null) __update();
++			else __updateFromBuffer(shaderBuffer, bufferOffset);
++		}
++		catch (error:Dynamic)
++		{
++			__activeProjectionMatrix = previous;
++			throw error;
++		}
++		__activeProjectionMatrix = previous;
++	}
++	#end
++
+ 	@:noCompletion private function __update():Void
+ 	{
+@@ -772,4 +794,7 @@ class Shader
+ 		for (parameter in __paramFloat)
+ 		{
++			#if novaflare_threaded_projection_matrix
++			if (parameter == __activeProjectionMatrix) continue;
++			#end
+ 			parameter.__updateGL(__context);
+ 		}
+@@ -854,5 +879,8 @@ class Shader
+ 			else if (i < boolCount + floatCount)
+ 			{
+-				floatRef = shaderBuffer.paramRefs_Float[floatIndex];
++				floatRef = shaderBuffer.paramRefs_Float[floatIndex++];
++				#if novaflare_threaded_projection_matrix
++				if (floatRef == __activeProjectionMatrix) continue;
++				#end
+ 
+ 				for (j in 0...shaderBuffer.overrideFloatCount)
+@@ -875,5 +903,4 @@ class Shader
+ 				}
+ 
+-				floatIndex++;
+ 			}
+ 			else
+diff --git a/src/openfl/display/_internal/Context3DBitmap.hx b/src/openfl/display/_internal/Context3DBitmap.hx
+index a4704a1..176252e 100644
+--- a/src/openfl/display/_internal/Context3DBitmap.hx
++++ b/src/openfl/display/_internal/Context3DBitmap.hx
+@@ -38,5 +38,5 @@ class Context3DBitmap
+ 			renderer.setShader(shader);
+ 			renderer.applyBitmapData(bitmap.__bitmapData, renderer.__allowSmoothing && (bitmap.smoothing || renderer.__upscaled));
+-			renderer.applyMatrix(renderer.__getMatrix(bitmap.__renderTransform, bitmap.pixelSnapping));
++			renderer.__applyTransformMatrix(bitmap.__renderTransform, bitmap.pixelSnapping);
+ 			renderer.applyAlpha(bitmap.__worldAlpha);
+ 			renderer.applyColorTransform(bitmap.__worldColorTransform);
+@@ -96,5 +96,5 @@ class Context3DBitmap
+ 			renderer.setShader(shader);
+ 			renderer.applyBitmapData(Context3DMaskShader.opaqueBitmapData, true);
+-			renderer.applyMatrix(renderer.__getMatrix(bitmap.__renderTransform, bitmap.pixelSnapping));
++			renderer.__applyTransformMatrix(bitmap.__renderTransform, bitmap.pixelSnapping);
+ 			renderer.updateShader();
+ 
+diff --git a/src/openfl/display/_internal/Context3DBitmapData.hx b/src/openfl/display/_internal/Context3DBitmapData.hx
+index 2d77f51..24747f2 100644
+--- a/src/openfl/display/_internal/Context3DBitmapData.hx
++++ b/src/openfl/display/_internal/Context3DBitmapData.hx
+@@ -26,5 +26,5 @@ class Context3DBitmapData
+ 		renderer.setShader(shader);
+ 		renderer.applyBitmapData(bitmapData, renderer.__upscaled);
+-		renderer.applyMatrix(renderer.__getMatrix(bitmapData.__worldTransform, AUTO));
++		renderer.__applyTransformMatrix(bitmapData.__worldTransform, AUTO);
+ 		renderer.applyAlpha(bitmapData.__worldAlpha);
+ 		renderer.applyColorTransform(bitmapData.__worldColorTransform);
+@@ -54,5 +54,5 @@ class Context3DBitmapData
+ 		renderer.setShader(shader);
+ 		renderer.applyBitmapData(bitmapData, renderer.__upscaled);
+-		renderer.applyMatrix(renderer.__getMatrix(bitmapData.__worldTransform, AUTO));
++		renderer.__applyTransformMatrix(bitmapData.__worldTransform, AUTO);
+ 		renderer.updateShader();
+ 
+diff --git a/src/openfl/display/_internal/Context3DGraphics.hx b/src/openfl/display/_internal/Context3DGraphics.hx
+index 56f9f9d..2f7060a 100644
+--- a/src/openfl/display/_internal/Context3DGraphics.hx
++++ b/src/openfl/display/_internal/Context3DGraphics.hx
+@@ -668,5 +668,4 @@ class Context3DGraphics
+ 						var bufferPosition = hasUVTData ? vertexBufferPositionUVT : vertexBufferPosition;
+ 
+-						var uMatrix = renderer.__getMatrix(graphics.__owner.__renderTransform, AUTO);
+ 						var shader:Shader;
+ 
+@@ -676,5 +675,5 @@ class Context3DGraphics
+ 
+ 							renderer.__setShaderBuffer(shaderBuffer);
+-							renderer.applyMatrix(uMatrix);
++							renderer.__applyTransformMatrix(graphics.__owner.__renderTransform, AUTO);
+ 							renderer.applyBitmapData(bitmap, false, repeat);
+ 							renderer.applyAlpha(1);
+@@ -686,5 +685,5 @@ class Context3DGraphics
+ 							shader = maskRender ? renderer.__maskShader : renderer.__initGraphicsShader(null);
+ 							renderer.setShader(shader);
+-							renderer.applyMatrix(uMatrix);
++							renderer.__applyTransformMatrix(graphics.__owner.__renderTransform, AUTO);
+ 							renderer.applyBitmapData(bitmap, smooth, repeat);
+ 							renderer.applyAlpha(graphics.__owner.__worldAlpha);
+@@ -696,5 +695,5 @@ class Context3DGraphics
+ 							shader = maskRender ? renderer.__maskShader : renderer.__initGraphicsShader(null);
+ 							renderer.setShader(shader);
+-							renderer.applyMatrix(uMatrix);
++							renderer.__applyTransformMatrix(graphics.__owner.__renderTransform, AUTO);
+ 							renderer.applyBitmapData(blankBitmapData, true, repeat);
+ 							#if lime
+@@ -829,5 +828,4 @@ class Context3DGraphics
+ 								var length = hasIndices ? indices.length : Math.floor(rects.length / 4);
+ 
+-								var uMatrix = renderer.__getMatrix(graphics.__owner.__renderTransform, AUTO);
+ 								var shader:Shader;
+ 
+@@ -837,5 +835,5 @@ class Context3DGraphics
+ 
+ 									renderer.__setShaderBuffer(shaderBuffer);
+-									renderer.applyMatrix(uMatrix);
++									renderer.__applyTransformMatrix(graphics.__owner.__renderTransform, AUTO);
+ 									renderer.applyBitmapData(bitmap, false /* ignored */, repeat);
+ 									renderer.applyAlpha(graphics.__owner.__worldAlpha);
+@@ -847,5 +845,5 @@ class Context3DGraphics
+ 									shader = maskRender ? renderer.__maskShader : renderer.__initGraphicsShader(null);
+ 									renderer.setShader(shader);
+-									renderer.applyMatrix(uMatrix);
++									renderer.__applyTransformMatrix(graphics.__owner.__renderTransform, AUTO);
+ 									renderer.applyBitmapData(bitmap, smooth, repeat);
+ 									renderer.applyAlpha(graphics.__owner.__worldAlpha);
+@@ -857,5 +855,5 @@ class Context3DGraphics
+ 									shader = maskRender ? renderer.__maskShader : renderer.__initGraphicsShader(null);
+ 									renderer.setShader(shader);
+-									renderer.applyMatrix(uMatrix);
++									renderer.__applyTransformMatrix(graphics.__owner.__renderTransform, AUTO);
+ 									renderer.applyBitmapData(blankBitmapData, true, repeat);
+ 									#if lime
+@@ -972,5 +970,5 @@ class Context3DGraphics
+ 								var shader = maskRender ? renderer.__maskShader : renderer.__initGraphicsShader(null);
+ 								renderer.setShader(shader);
+-								renderer.applyMatrix(renderer.__getMatrix(matrix, AUTO));
++								renderer.__applyTransformMatrix(matrix, AUTO);
+ 								renderer.applyBitmapData(blankBitmapData, true, repeat);
+ 								#if lime
+diff --git a/src/openfl/display/_internal/Context3DShape.hx b/src/openfl/display/_internal/Context3DShape.hx
+index d1dee34..30b619d 100644
+--- a/src/openfl/display/_internal/Context3DShape.hx
++++ b/src/openfl/display/_internal/Context3DShape.hx
+@@ -52,5 +52,5 @@ class Context3DShape
+ 				matrix.concat(graphics.__worldTransform);
+ 
+-				renderer.applyMatrix(renderer.__getMatrix(matrix, AUTO));
++				renderer.__applyTransformMatrix(matrix, AUTO);
+ 
+ 				Matrix.__pool.release(matrix);
+@@ -95,5 +95,5 @@ class Context3DShape
+ 				renderer.setShader(shader);
+ 				renderer.applyBitmapData(graphics.__bitmap, true);
+-				renderer.applyMatrix(renderer.__getMatrix(graphics.__worldTransform, AUTO));
++				renderer.__applyTransformMatrix(graphics.__worldTransform, AUTO);
+ 				renderer.updateShader();
+ 
+diff --git a/src/openfl/display/_internal/Context3DTilemap.hx b/src/openfl/display/_internal/Context3DTilemap.hx
+index bf6beaf..8efc90d 100644
+--- a/src/openfl/display/_internal/Context3DTilemap.hx
++++ b/src/openfl/display/_internal/Context3DTilemap.hx
+@@ -229,5 +229,5 @@ class Context3DTilemap
+ 			renderer.setShader(shader);
+ 			renderer.applyBitmapData(currentBitmapData, tilemap.smoothing);
+-			renderer.applyMatrix(renderer.__getMatrix(tilemap.__renderTransform, AUTO));
++			renderer.__applyTransformMatrix(tilemap.__renderTransform, AUTO);
+ 
+ 			if (tilemap.tileAlphaEnabled)
+diff --git a/src/openfl/display/_internal/Context3DVideo.hx b/src/openfl/display/_internal/Context3DVideo.hx
+index 4d5b799..88c5b42 100644
+--- a/src/openfl/display/_internal/Context3DVideo.hx
++++ b/src/openfl/display/_internal/Context3DVideo.hx
+@@ -48,5 +48,5 @@ class Context3DVideo
+ 			// shader.uImage0.input = bitmap.__bitmapData;
+ 			// shader.uImage0.smoothing = renderer.__allowSmoothing && (bitmap.smoothing || renderer.__upscaled);
+-			renderer.applyMatrix(renderer.__getMatrix(video.__renderTransform, AUTO));
++			renderer.__applyTransformMatrix(video.__renderTransform, AUTO);
+ 			renderer.applyAlpha(video.__worldAlpha);
+ 			renderer.applyColorTransform(video.__worldColorTransform);
+@@ -118,5 +118,5 @@ class Context3DVideo
+ 			renderer.setShader(shader);
+ 			renderer.applyBitmapData(Context3DMaskShader.opaqueBitmapData, true);
+-			renderer.applyMatrix(renderer.__getMatrix(video.__renderTransform, AUTO));
++			renderer.__applyTransformMatrix(video.__renderTransform, AUTO);
+ 			renderer.updateShader();
+ 

@@ -3,6 +3,7 @@ Maintenance => Maintenance
 developerMode => developer mode, which disables some error displays and traces
 deepDebug => Records the scripts, images, audio, and other resources used by each song
 moreLuaErrors => Enabling this will expose more hidden Lua runtime errors, which can be really useful for some tricky issues
+hideLuaDebugText => Hide on-screen Lua debug text.
 devConScale => size of the console used to capture all trace output
 
 oldHscriptVersion => Reduced version to use hscript work for runhaxecode

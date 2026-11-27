@@ -3,6 +3,7 @@ Maintenance => 维护设置
 developerMode => 开发者模式
 deepDebug => 深度调试
 moreLuaErrors => 严格Lua语法
+hideLuaDebugText => 关闭调试显示
 devConScale => 控制台大小
 
 oldHscriptVersion => 兼容旧模组

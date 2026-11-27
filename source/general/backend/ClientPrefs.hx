@@ -34,7 +34,6 @@ import general.shaders.MobileShaderConverter;
 	public var colorblindMode:String = 'None';
 	public var lowQuality:Bool = false;
 	public var gameQuality:Int = #if mobile 0 #else 1 #end;
-	public var maxImageSize:Int = 0;
 	public var minImageCompressionSize:Int = 0;
 	public var imageCompressionRatio:Float = 1.0;
 	public var antialiasing:Bool = true;
@@ -187,6 +186,7 @@ import general.shaders.MobileShaderConverter;
 	public var devConScale:Float = #if mobile 1.8 #else 1.5 #end;
 	public var deepDebug:Bool = false;
 	public var moreLuaErrors:Bool = false;
+	public var hideLuaDebugText:Bool = false;
 
 	//For Extra Keys (maybe)
 	public var showKeybinds:Bool = false;
@@ -769,14 +769,9 @@ class ClientPrefs
 		#end
 
 		FlxG.updateFramerate = data.framerate;
-		FlxG.drawFramerate = data.drawFramerate;
-		var window = FlxG.stage.window;
-		window.lockRender = data.lockRender;
-		data.lockRender = window.lockRender;
-
 		data.resolution = RenderResolution.normalize(data.resolution);
 		RenderResolution.configureStage(openfl.Lib.current.stage);
-		RenderResolution.apply(openfl.Lib.current.stage, data.resolution);
+		RenderResolution.apply(openfl.Lib.current.stage);
 
 		if (FlxG.save.data.gameplaySettings != null)
 		{

@@ -4,6 +4,11 @@ import flixel.FlxBasic;
 
 class MouseMove extends FlxBasic
 {
+    static inline final DRAG_VELOCITY_FALLBACK_MS = 8.0;
+    static inline final DRAG_VELOCITY_SMOOTH_MS = 32.0;
+    static inline final DRAG_RELEASE_HOLD_MS = 32.0;
+    static inline final DRAG_STOP_MS = 90.0;
+
     public var allowUpdate:Bool = true;
     public var enableMouseWheel:Bool = true;
     
@@ -15,7 +20,7 @@ class MouseMove extends FlxBasic
     public var mouseLimit:Array<Array<Float>> = [];   //[ X[min, max], Y[min, max] ]
 
     public var mouseWheelSensitivity:Float = 1000.0; // 鼠标滚轮更改量的控制变量
-    public var tweenData(default, set):Float = 0; //用于tween/lerp到指定数据的
+    public var tweenData(get, set):Float; //用于tween/lerp到指定数据的
     public var tweenTime:Float = 0.3; //tween时间
     public var tweenType:String = 'linear'; //tween类型
     public var useLerp:Bool = true; //是否使用lerp而不是tween
@@ -31,14 +36,13 @@ class MouseMove extends FlxBasic
     private var isDragging:Bool = false;
     private var lastMouseY:Float = 0;
     public var velocity:Float = 0; //检测的时候需要它
-    private var velocityArray:Array<Float> = [];
 
     private var __target:Float;
     public var state:String = 'stop';
     
     // 物理参数
     private var dragSensitivity:Float = 1.0;   // 拖动灵敏度
-    private var deceleration:Float = 0.9;      // 减速系数 (0.9 - 0.99 效果较好)
+    private var inertiaDecay:Float = -Math.log(0.9) * 60;
     private var minVelocity:Float = 0.001;       // 最小速度阈值
     private var springStrength:Float = 25.0;
     private var releaseBoost:Float = 1.1;
@@ -62,11 +66,11 @@ class MouseMove extends FlxBasic
         this.event = putEvent;
     }
     
-    private var _lastUpdateTime:Int = 0;
-    private var __lastDragTick:Int = 0;
-    private var _inertiaTime:Float = 0;
+    private var lastDragTick:Int = 0;
+    private var lastMovementTick:Int = 0;
     public var inputAllow:Bool = true;
     private var allowLerp:Bool = false;
+    private var requestedTarget:Float = 0;
     private var _pendingDragDelta:Float = 0;
     public var dragStartDelayMs:Int = 100;
     public var dragStartDistance:Float = 10;
@@ -74,68 +78,53 @@ class MouseMove extends FlxBasic
     private var _dragPendingTick:Int = 0;
     private var _dragPendingY:Float = 0;
     override function update(elapsed:Float) {
-        if (!allowUpdate) {
-            super.update(elapsed);
+        if (allowUpdate) {
+            saveElapsed = elapsed;
+            updateInput();
+        } else {
+            cancelDrag();
+        }
+        super.update(elapsed);
+    }
+
+    private function updateInput():Void {
+        var mouse = FlxG.mouse;
+        if (!inputAllow || mouse == null) {
+            cancelDrag();
             return;
         }
 
-        saveElapsed = elapsed;
-
-        var mouse = FlxG.mouse;
-
-        var checkInput:Bool = true;
-
-        var inBounds:Bool = mouse.x > mouseLimit[0][0] && mouse.x < mouseLimit[0][1] && mouse.y > mouseLimit[1][0] && mouse.y < mouseLimit[1][1];
-        if (!inBounds && !isDragging) {
-            _dragPending = false;
-            checkInput = false;
-        }
-        
-        if (checkInput && inputAllow) {
-            // 鼠标按下
-            if (mouse.justPressed) {
+        var now = FlxG.game.ticks;
+        var mouseY = mouse.y;
+        var inBounds = mouse.x > mouseLimit[0][0] && mouse.x < mouseLimit[0][1] && mouseY > mouseLimit[1][0] && mouseY < mouseLimit[1][1];
+        if (mouse.justPressed) {
+            cancelDrag();
+            if (inBounds) {
                 _dragPending = true;
-                _dragPendingTick = FlxG.game.ticks;
-                _dragPendingY = mouse.y;
-                lastMouseY = mouse.y;
+                _dragPendingTick = now;
+                _dragPendingY = mouseY;
             }
-
-            if (_dragPending && mouse.pressed) {
-                var heldMs = FlxG.game.ticks - _dragPendingTick;
-                var moved = Math.abs(mouse.y - _dragPendingY);
-                if (heldMs >= dragStartDelayMs || moved >= dragStartDistance) {
-                    _dragPending = false;
-                    startDrag(mouse.y);
-                    cancelMoveTo();
-                }
-            }
-
-            // 鼠标滚轮
-            if (enableMouseWheel && inBounds && mouse.wheel != 0) {
-                isDragging = false;
-                _dragPending = false;
-                velocity += mouse.wheel * mouseWheelSensitivity;
-                cancelMoveTo();
-            }
-            
-            // 拖动中更新位置
-            if (isDragging && mouse.pressed)
-            {
-                updateDrag(mouse.y);
-            }
-
-        } else {
-            lastMouseY = mouse.y;
-            _dragPending = false;
         }
 
-        // 拖动开始后允许指针经过滚动区域外，但释放事件无论位置都必须结束拖动。
+        if (enableMouseWheel && inBounds && mouse.wheel != 0) {
+            cancelDrag();
+            velocity += mouse.wheel * mouseWheelSensitivity;
+            cancelMoveTo();
+            return;
+        }
+
+        if (_dragPending && (mouse.pressed || mouse.justReleased)) {
+            var passedDistance = Math.abs(mouseY - _dragPendingY) >= dragStartDistance;
+            var passedDelay = mouse.pressed && now - _dragPendingTick >= dragStartDelayMs;
+            if (passedDistance || passedDelay) startDrag();
+        }
+        if (isDragging && (mouse.pressed || mouse.justReleased)) updateDrag(mouseY, now);
         if (mouse.justReleased) {
-            if (_dragPending) _dragPending = false;
-            endDrag();
+            _dragPending = false;
+            endDrag(now);
+        } else if (!mouse.pressed) {
+            cancelDrag();
         }
-
-        super.update(elapsed);
     }
 
     override function drawUpdate(elapsed:Float) {
@@ -153,13 +142,12 @@ class MouseMove extends FlxBasic
             applyInertia(elapsed);
         }
 
-        if (tweenData != 0 && allowLerp) {
-            if (Math.abs(target - tweenData) < 0.1) {
-                target = tweenData;
-                tweenData = 0;
-                allowLerp = false;
+        if (allowLerp) {
+            if (Math.abs(target - requestedTarget) < 0.1) {
+                target = requestedTarget;
+                cancelMoveTo();
             } else {
-                target = FlxMath.lerp(tweenData, target, Math.exp(-elapsed * lerpSmooth));
+                target = FlxMath.lerp(requestedTarget, target, Math.exp(-elapsed * lerpSmooth));
             }
         }
 
@@ -188,152 +176,99 @@ class MouseMove extends FlxBasic
         }
     }
     
-    private function startDrag(startY:Float) {
+    private function startDrag():Void {
+        _dragPending = false;
         isDragging = true;
-        lastMouseY = startY;
-        velocLastMouseY = startY;
-        _lastUpdateTime = FlxG.game.ticks;
+        // The threshold confirms the gesture, so the first sample still starts at the press.
+        lastMouseY = _dragPendingY;
+        lastMovementTick = lastDragTick = _dragPendingTick;
         velocity = 0;
-        velocityArray = [];
-        __lastDragTick = FlxG.game.ticks;
-        _inertiaTime = 0;
-        _pendingDragDelta = 0;
+        cancelMoveTo();
     }
-    
-    private var velocLastMouseY:Float = 0;
-    private function updateDrag(currentY:Float) {
-        var deltaY = currentY - lastMouseY;
-        var now = FlxG.game.ticks;
-        var deltaMs = Math.max(1, now - __lastDragTick);
-        velocity = (deltaY * dragSensitivity) * (1000.0 / deltaMs);
-        _pendingDragDelta += deltaY * dragSensitivity;
-        lastMouseY = currentY;
-        __lastDragTick = now;
 
-        if (FlxG.game.ticks - _lastUpdateTime >= 16)
-        {
-            var dY = currentY - velocLastMouseY;
-            var dMs = Math.max(1, FlxG.game.ticks - _lastUpdateTime);
-            var vps = (dY * dragSensitivity) * (1000.0 / dMs);
-            velocUpdate(vps);
-            velocLastMouseY = currentY;
-            
-            _lastUpdateTime = FlxG.game.ticks;
+    private function updateDrag(currentY:Float, now:Int):Void {
+        var distance = (currentY - lastMouseY) * dragSensitivity;
+        var inputInterval = now - lastDragTick;
+        var movementInterval = now - lastMovementTick;
+        lastMouseY = currentY;
+        lastDragTick = now;
+        if (distance == 0) {
+            if (movementInterval >= DRAG_STOP_MS) velocity = 0;
+            return;
         }
+
+        _pendingDragDelta += distance;
+        // Input coordinates can update less often than the game polls them.
+        var sampleMs:Float = movementInterval < DRAG_STOP_MS ? movementInterval : inputInterval;
+        if (sampleMs <= 0) sampleMs = DRAG_VELOCITY_FALLBACK_MS;
+        var sampleVelocity = distance * (1000.0 / sampleMs);
+        if (velocity * sampleVelocity <= 0 || movementInterval >= DRAG_STOP_MS) {
+            velocity = sampleVelocity;
+        } else {
+            velocity = FlxMath.lerp(sampleVelocity, velocity, Math.exp(-sampleMs / DRAG_VELOCITY_SMOOTH_MS));
+        }
+        lastMovementTick = now;
     }
-    
-    private function endDrag() {
+
+    private function endDrag(now:Int):Void {
         if (!isDragging) return;
         isDragging = false;
-        if (velocLastMouseY != lastMouseY) {
-            var dY = lastMouseY - velocLastMouseY;
-            var dMs = Math.max(1, FlxG.game.ticks - _lastUpdateTime);
-            var vps = (dY * dragSensitivity) * (1000.0 / dMs);
-            velocUpdate(vps);
-            velocLastMouseY = lastMouseY;
-        }
-        velocityChange();
-        velocity *= releaseBoost;
-        _inertiaTime = 0;
+        var recentMovement = FlxMath.bound((DRAG_STOP_MS - (now - lastMovementTick)) / (DRAG_STOP_MS - DRAG_RELEASE_HOLD_MS), 0, 1);
+        velocity *= releaseBoost * recentMovement;
     }
 
-    private function set_tweenData(value:Float) {
-        var doNotStop:Bool = value == tweenData;
-        tweenData = value;
-        if (!doNotStop) moveTo(tweenData);
-
-        return tweenData;
+    private function cancelDrag():Void {
+        _dragPending = false;
+        if (!isDragging) return;
+        isDragging = false;
+        velocity = 0;
     }
 
-    private var moveTween:FlxTween = null;
-    private function moveTo(data:Float) {
-        if (!useLerp) {
-            if (moveTween != null) moveTween.cancel();
-            moveTween = FlxTween.num(target, data, tweenTime, {ease:CoolUtil.getTweenEaseByString(tweenType)}, function(v){target = v;});
-        } else {
-            allowLerp = true;
-        }
+    private function get_tweenData():Float {
+        return requestedTarget;
     }
 
-    private function cancelMoveTo() {
+    private function set_tweenData(value:Float):Float {
+        if (value == requestedTarget && (allowLerp || moveTween != null)) return value;
+        cancelMoveTo();
+        requestedTarget = value;
+        velocity = 0;
+        if (target == value) return value;
+        if (useLerp) allowLerp = true;
+        else moveTween = FlxTween.num(target, value, tweenTime, {
+            ease: CoolUtil.getTweenEaseByString(tweenType),
+            onComplete: _ -> moveTween = null
+        }, position -> target = position);
+        return value;
+    }
+
+    private var moveTween:FlxTween;
+    private function cancelMoveTo():Void {
         allowLerp = false;
-        tweenData = 0;
-        if (moveTween != null) moveTween.cancel();
-    }
-
-    var isPositive:Bool = true; //正数检测
-    private function velocUpdate(data:Float) {
-        var zero = Math.abs(data) < minVelocity;
-        if (isPositive) {
-            if (data > 0) {
-                velocityArray = velocityArray.filter(function(v) return Math.abs(v) >= minVelocity);
-                velocityArray.push(data);
-                if (velocityArray.length > 11) velocityArray.shift();
-            } else if (data < 0) {
-                velocityArray = [];
-                if (!zero) velocityArray.push(data);
-                isPositive = false;
-            } else {
-                velocityArray.push(0);
-                if (velocityArray.length > 11) velocityArray.shift();
-            }
-        } else {
-            if (data < 0) {
-                velocityArray = velocityArray.filter(function(v) return Math.abs(v) >= minVelocity);
-                velocityArray.push(data);
-                if (velocityArray.length > 11) velocityArray.shift();
-            } else if (data > 0)  {
-                velocityArray = [];
-                if (!zero) velocityArray.push(data);
-                isPositive = true;
-            } else {
-                velocityArray.push(0);
-                if (velocityArray.length > 11) velocityArray.shift();
-            }
+        requestedTarget = 0;
+        if (moveTween != null) {
+            moveTween.cancel();
+            moveTween = null;
         }
     }
 
-    private function velocityChange() {
-        if (velocityArray.length < 3) {
-            velocity = 0;
-            return;
-        }
-        var delete = Std.int(velocityArray.length / 6);
-        var sorted = velocityArray.copy();
-        sorted.sort(Reflect.compare);
-        var low = sorted[delete];
-        var high = sorted[sorted.length - 1 - delete];
-        var filtered:Array<Float> = [];
-        for (v in velocityArray) if (v >= low && v <= high) filtered.push(v);
-        if (filtered.length == 0) filtered = velocityArray.copy();
-        var sum:Float = 0;
-        var weightSum:Float = 0;
-        var n = filtered.length;
-        for (i in 0...n) {
-            var w = Math.pow(1.25, i);
-            sum += filtered[i] * w;
-            weightSum += w;
-        }
-        velocity = sum / weightSum;
+    override public function destroy():Void {
+        cancelMoveTo();
+        super.destroy();
     }
 
-    private function applyInertia(elapsed:Float) {
-        _inertiaTime += elapsed;
-        var decelFactor = Math.pow(deceleration, elapsed * 60);
-        velocity *= decelFactor;
+    private function applyInertia(elapsed:Float):Void {
+        // Integrating the exponential decay keeps unbounded inertia independent of the draw rate.
+        var decay = Math.exp(-inertiaDecay * elapsed);
+        var distance = velocity * (1 - decay) / inertiaDecay;
+        velocity *= decay;
         if (!infScroll) {
-            if (target < moveLimit[0]) {
-                var acc = (moveLimit[0] - target) * springStrength;
-                velocity += acc * elapsed;
-            } else if (target > moveLimit[1]) {
-                var acc2 = (moveLimit[1] - target) * springStrength;
-                velocity += acc2 * elapsed;
-            }
+            var boundary = FlxMath.bound(target, moveLimit[0], moveLimit[1]);
+            var correction = (boundary - target) * springStrength * elapsed;
+            velocity += correction;
+            distance += correction * elapsed;
         }
-        if (Math.abs(velocity) < minVelocity) {
-            velocity = 0;
-            return;
-        }
-        target += velocity * elapsed;
+        target += distance;
+        if (Math.abs(velocity) < minVelocity) velocity = 0;
     }
 }

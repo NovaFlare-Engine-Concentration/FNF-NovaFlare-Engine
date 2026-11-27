@@ -22,6 +22,13 @@ class DataCalc
 
 	static public var drawFPS:Float = 0;
 	static public var drawFrameTime:Float = 0;
+	static public var drawRateLimit(get, never):Int;
+
+	static function get_drawRateLimit():Int
+	{
+		final window = FlxG.stage.window;
+		return window.lockRender ? window.drawFrameRate : Std.int(window.frameRate);
+	}
 
 	/////////////////////////////////////////
 
@@ -219,60 +226,45 @@ class DataCalc
 
 	static public function draw()
 	{
-		drawCount++;
-		
-		var time = Lib.getTimer();
-		var stamp = haxe.Timer.stamp() * 1000;
-		if (drawLastStamp > 0)
-		{
-			var frameDelta = stamp - drawLastStamp;
-			if (frameDelta > drawWorstSample)
-				drawWorstSample = frameDelta;
-		}
-		drawLastStamp = stamp;
-		if (!drawInitialized)
+		var stamp = lime.system.System.getTimerNano();
+		if (!drawInitialized || stamp < drawLastStamp)
 		{
 			drawInitialized = true;
-			drawTimeSave = time;
-			drawLowTime = time;
+			drawLastStamp = stamp;
+			drawTimeSave = stamp;
+			drawLowTime = stamp;
 			drawCount = 0;
+			drawWorstSample = 0;
 			return;
 		}
-		if (time - drawLowTime >= 1000)
+		drawCount++;
+		var frameDelta = stamp - drawLastStamp;
+		if (frameDelta > drawWorstSample)
+			drawWorstSample = frameDelta;
+		drawLastStamp = stamp;
+		if (stamp - drawLowTime >= 1000)
 		{
 			drawWorstFrameTime = drawWorstSample;
 			drawLowFPS = drawWorstSample > 0
 				? Math.floor(1000 / drawWorstSample + 0.5)
 				: drawFPS;
 			drawWorstSample = 0;
-			drawLowTime = time;
+			drawLowTime = stamp;
 		}
-		if (time - drawTimeSave < 100)
+		var drawWait:Float = stamp - drawTimeSave;
+		// At high mobile refresh rates, small boundary shifts dominate a 100 ms sample.
+		if (drawWait < (#if mobile 500 #else 100 #end))
 			return;
-		
-		var drawWait:Float = time - drawTimeSave;
-		var currentCount:Float = drawCount;
-		var lockRender:Bool = ClientPrefs.data.lockRender;
-		var drawFramerate:Int = ClientPrefs.data.drawFramerate;
-		var framerate:Int = ClientPrefs.data.framerate;
 
-		drawTimeSave = time;
+		var currentCount:Float = drawCount;
+
+		drawTimeSave = stamp;
 		drawCount = 0;
 
 		/////////////////// →更新
 		drawFrameTime = drawWait / currentCount;
 
-		var newFPS = Math.floor(1000 / drawFrameTime + 0.5);
-		if (lockRender) {
-			if (newFPS > drawFramerate) {
-				newFPS = drawFramerate;
-			}
-		} else {
-			if (newFPS > framerate) {
-				newFPS = framerate;
-			}
-		}
-		drawFPS = newFPS;
+		drawFPS = Math.floor(1000 / drawFrameTime + 0.5);
 
 		////////////////////////////// 数据初始化
 	}

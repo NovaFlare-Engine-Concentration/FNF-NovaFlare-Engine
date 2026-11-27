@@ -1,0 +1,362 @@
+diff --git a/project/src/graphics/opengl/OpenGLBindings.cpp b/project/src/graphics/opengl/OpenGLBindings.cpp
+index e9a510e..c0d2794 100644
+--- a/project/src/graphics/opengl/OpenGLBindings.cpp
++++ b/project/src/graphics/opengl/OpenGLBindings.cpp
+@@ -521,6 +521,215 @@ namespace lime {
+ 			}
+ 		}
+ 
++		constexpr int shaderFloatBytes = sizeof (GLfloat);
++
++		bool ValidShaderFloatCount (int count) {
++			return count > 0 && count <= (std::numeric_limits<int>::max) () / shaderFloatBytes;
++		}
++
++		bool ShaderInputsWorkerReady () {
++			static const bool enabled = [] () {
++				const char* configured = std::getenv ("NOVAFLARE_SHADER_INPUTS");
++				return !configured || std::strcmp (configured, "0") != 0;
++			} ();
++			return enabled && contextRouting == ContextRouting::Worker && OpenGLBindings::renderThread
++				&& OpenGLBindings::renderThread->IsRunning ();
++		}
++
++		struct ShaderInputTrace {
++			std::uint64_t frame = FrameTimeline::CurrentWork ();
++			const char* phase = FrameTimeline::IsUpdate () ? "update" : "render";
++
++			std::uint64_t Begin () const { return frame ? FrameTimeline::Now () : 0; }
++
++			void End (const char* event, std::uint64_t started, int packed, int bytes) const {
++				if (started) FrameTimeline::Write ({event, frame, started, FrameTimeline::Now (),
++					static_cast<std::uint64_t> (packed), static_cast<std::uint64_t> (bytes), "worker", 0, phase});
++			}
++		};
++
++		bool CopyShaderFloats (value source, int count, std::vector<double>& values) {
++			const auto* data = val_array_double (source);
++			if (!data) return false;
++			values.assign (data, data + count);
++			return true;
++		}
++
++		void PackShaderFloats (const std::vector<double>& source, GLfloat* output) {
++			std::transform (source.begin (), source.end (), output, [] (double number) { return static_cast<GLfloat> (number); });
++		}
++
++		class UniformMatrixUpload {
++		public:
++			bool Snapshot (int uniformLocation, int matrixDimension, value source) {
++				if (uniformLocation < 0 || matrixDimension < 2 || matrixDimension > 4 || !val_is_array (source)) return false;
++				const int matrixSize = matrixDimension * matrixDimension;
++				if (val_array_size (source) < matrixSize) return false;
++				const auto* data = val_array_double (source);
++				if (!data) return false;
++				std::memcpy (values, data, matrixSize * sizeof (double));
++				location = uniformLocation;
++				dimension = matrixDimension;
++				return true;
++			}
++
++			void operator() () {
++				const auto started = trace.Begin ();
++				const int size = dimension * dimension;
++				GLfloat converted[16];
++				std::transform (values, values + size, converted, [] (double number) { return static_cast<GLfloat> (number); });
++				switch (dimension) {
++					case 2: glUniformMatrix2fv (location, 1, GL_FALSE, converted); break;
++					case 3: glUniformMatrix3fv (location, 1, GL_FALSE, converted); break;
++					case 4: glUniformMatrix4fv (location, 1, GL_FALSE, converted); break;
++				}
++				trace.End ("uniform_matrix_pack", started, size, size * shaderFloatBytes);
++			}
++
++		private:
++			ShaderInputTrace trace;
++			double values[16] = {};
++			int location = -1;
++			int dimension = 0;
++		};
++
++		char* ShaderParamBytes (value bytes, int offset, int floatCount) {
++			if (offset < 0 || !ValidShaderFloatCount (floatCount) || !val_is_object (bytes)) return nullptr;
++			static const int lengthField = val_id ("length");
++			static const int bytesField = val_id ("b");
++			const value declaredLength = val_field (bytes, lengthField);
++			if (!val_is_int (declaredLength)) return nullptr;
++			const auto backing = val_to_buffer (val_field (bytes, bytesField));
++			if (!backing) return nullptr;
++			const int length = (std::min) (val_int (declaredLength), buffer_size (backing));
++			if (offset > length || floatCount * shaderFloatBytes > length - offset) return nullptr;
++			char* data = buffer_data (backing);
++			return data ? data + offset : nullptr;
++		}
++
++		class ShaderParamSegment {
++		public:
++			bool Snapshot (value source, int previousEnd, int limit) {
++				if (!val_is_object (source)) return false;
++				static const int offsetField = val_id ("offset");
++				static const int valuesField = val_id ("values");
++				const value start = val_field (source, offsetField);
++				const value data = val_field (source, valuesField);
++				if (!val_is_int (start) || !val_is_array (data)) return false;
++				offset = val_int (start);
++				const int count = val_array_size (data);
++				return offset >= previousEnd && offset <= limit && count > 0 && count <= limit - offset
++					&& CopyShaderFloats (data, count, values);
++			}
++
++			int Offset () const { return offset; }
++			int Count () const { return static_cast<int> (values.size ()); }
++			int End () const { return offset + Count (); }
++
++			void Write (GLfloat* destination) const {
++				PackShaderFloats (values, destination + offset);
++			}
++
++			void WriteToBytes (char* destination) const {
++				char* position = destination + offset * shaderFloatBytes;
++				for (double value : values) {
++					const auto converted = static_cast<GLfloat> (value);
++					std::memcpy (position, &converted, sizeof (converted));
++					position += shaderFloatBytes;
++				}
++			}
++
++		private:
++			int offset = 0;
++			std::vector<double> values;
++		};
++
++		class ShaderParamsSnapshot {
++		public:
++			bool Capture (value source, value bytes, int byteOffset, int floatCount) {
++				if (!ValidShaderFloatCount (floatCount) || !val_is_array (source)) return false;
++				const int segmentCount = val_array_size (source);
++				if (segmentCount <= 0 || segmentCount > floatCount) return false;
++				segments.reserve (segmentCount);
++				int previousEnd = 0;
++				for (int index = 0; index < segmentCount; ++index) {
++					ShaderParamSegment segment;
++					if (!segment.Snapshot (val_array_i (source, index), previousEnd, floatCount)) return false;
++					previousEnd = segment.End ();
++					packedCount += segment.Count ();
++					segments.emplace_back (std::move (segment));
++				}
++				output.reset (new (std::nothrow) GLfloat[floatCount]);
++				if (!output) return false;
++				length = floatCount;
++				const char* data = ShaderParamBytes (bytes, byteOffset, floatCount);
++				if (!data) return false;
++				CopyReadyRanges (data);
++				return true;
++			}
++
++			void Upload (GLenum usage, const ShaderInputTrace& trace) {
++				const auto started = trace.Begin ();
++				bool packedNow = false;
++				// A window change can leave commands pending on a different render worker.
++				std::call_once (packOnce, [this, &packedNow] () {
++					for (const auto& segment : segments) segment.Write (output.get ());
++					packedNow = true;
++				});
++				const int bytes = length * shaderFloatBytes;
++				glBufferData (GL_ARRAY_BUFFER, bytes, output.get (), usage);
++				trace.End (packedNow ? "shader_attribute_pack" : "shader_attribute_upload",
++					started, packedNow ? packedCount : length, bytes);
++			}
++
++			bool Materialize (value bytes, int byteOffset, int floatCount) const {
++				if (floatCount != length) return false;
++				char* destination = ShaderParamBytes (bytes, byteOffset, floatCount);
++				if (!destination) return false;
++				for (const auto& segment : segments) segment.WriteToBytes (destination);
++				return true;
++			}
++
++		private:
++			void CopyReadyRanges (const char* data) {
++				int previousEnd = 0;
++				for (const auto& segment : segments) {
++					CopyReadyRange (data, previousEnd, segment.Offset ());
++					previousEnd = segment.End ();
++				}
++				CopyReadyRange (data, previousEnd, length);
++			}
++
++			void CopyReadyRange (const char* data, int start, int end) {
++				if (end > start) std::memcpy (output.get () + start, data + start * shaderFloatBytes, (end - start) * shaderFloatBytes);
++			}
++
++			std::vector<ShaderParamSegment> segments;
++			std::unique_ptr<GLfloat[]> output;
++			std::once_flag packOnce;
++			int length = 0;
++			int packedCount = 0;
++		};
++
++		struct ShaderParamsTicket {
++			explicit ShaderParamsTicket (std::shared_ptr<ShaderParamsSnapshot> snapshot) : snapshot (std::move (snapshot)) {}
++			std::shared_ptr<ShaderParamsSnapshot> snapshot;
++		};
++
++		vkind ShaderParamsTicketKind () {
++			static vkind kind = alloc_kind ();
++			return kind;
++		}
++
++		ShaderParamsTicket* ShaderParamsTicketFromValue (value ticket) {
++			if (!val_is_abstract (ticket)) return nullptr;
++			return static_cast<ShaderParamsTicket*> (val_to_kind (ticket, ShaderParamsTicketKind ()));
++		}
++
++		void FinalizeShaderParamsTicket (value ticket) {
++			delete ShaderParamsTicketFromValue (ticket);
++		}
++
+ 		bool RemoveGLObjectID (void* object, GLObjectType type, GLuint id) {
+ 			glObjectIDs.erase (object);
+ 			auto& objects = glObjects[type];
+@@ -1283,6 +1492,60 @@ namespace lime {
+ 	}
+ 
+ 
++	bool lime_gl_queue_uniform_matrix (int location, int dimension, value values) {
++		if (!ShaderInputsWorkerReady ()) return false;
++		try {
++			UniformMatrixUpload upload;
++			return upload.Snapshot (location, dimension, values) && OpenGLBindings::renderThread->PushCommand (std::move (upload));
++		} catch (const std::bad_alloc&) {
++			return false;
++		} catch (const std::length_error&) {
++			return false;
++		}
++	}
++
++
++	value lime_gl_snapshot_shader_params (value segments, value bytes, int byteOffset, int floatCount) {
++		if (!ShaderInputsWorkerReady ()) return alloc_null ();
++		try {
++			auto snapshot = std::make_shared<ShaderParamsSnapshot> ();
++			if (!snapshot->Capture (segments, bytes, byteOffset, floatCount)) return alloc_null ();
++			std::unique_ptr<ShaderParamsTicket> holder (new ShaderParamsTicket (std::move (snapshot)));
++			const value ticket = alloc_abstract (ShaderParamsTicketKind (), holder.get ());
++			if (val_is_null (ticket)) return alloc_null ();
++			val_gc (ticket, FinalizeShaderParamsTicket);
++			holder.release ();
++			return ticket;
++		} catch (const std::bad_alloc&) {
++			return alloc_null ();
++		} catch (const std::length_error&) {
++			return alloc_null ();
++		}
++	}
++
++
++	bool lime_gl_queue_shader_params (value ticket, int usage) {
++		if (!ShaderInputsWorkerReady ()) return false;
++		const auto* holder = ShaderParamsTicketFromValue (ticket);
++		if (!holder) return false;
++		try {
++			const ShaderInputTrace trace;
++			auto snapshot = holder->snapshot;
++			return QueueGLCommand (std::move (snapshot), [=] (const std::shared_ptr<ShaderParamsSnapshot>& input) {
++				input->Upload (static_cast<GLenum> (usage), trace);
++			});
++		} catch (const std::bad_alloc&) {
++			return false;
++		}
++	}
++
++
++	bool lime_gl_materialize_shader_params (value ticket, value bytes, int byteOffset, int floatCount) {
++		const auto* holder = ShaderParamsTicketFromValue (ticket);
++		return holder && holder->snapshot->Materialize (bytes, byteOffset, floatCount);
++	}
++
++
+ 	void lime_gl_buffer_data (int target, int size, double data, int usage) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+@@ -8960,6 +9223,10 @@ namespace lime {
+ 	DEFINE_PRIME3 (lime_gl_queue_quad_buffer);
+ 	DEFINE_PRIME4 (lime_gl_queue_triangle_buffer);
+ 	DEFINE_PRIME3 (lime_gl_queue_tile_buffer);
++	DEFINE_PRIME3 (lime_gl_queue_uniform_matrix);
++	DEFINE_PRIME4 (lime_gl_snapshot_shader_params);
++	DEFINE_PRIME2 (lime_gl_queue_shader_params);
++	DEFINE_PRIME4 (lime_gl_materialize_shader_params);
+ 	DEFINE_PRIME4v (lime_gl_buffer_data);
+ 	DEFINE_PRIME4v (lime_gl_buffer_sub_data);
+ 	DEFINE_PRIME1 (lime_gl_check_framebuffer_status);
+diff --git a/src/lime/_internal/backend/native/NativeCFFI.hx b/src/lime/_internal/backend/native/NativeCFFI.hx
+index 36bf268..b20a0e4 100644
+--- a/src/lime/_internal/backend/native/NativeCFFI.hx
++++ b/src/lime/_internal/backend/native/NativeCFFI.hx
+@@ -83,7 +83,7 @@ class NativeCFFI
+ 		if (!triangleBufferUploadResolved)
+ 		{
+ 			triangleBufferUploadResolved = true;
+-			queueTriangleBuffer = loadMeshUpload("lime_gl_queue_triangle_buffer", 4);
++			queueTriangleBuffer = loadOptionalGLBinding("lime_gl_queue_triangle_buffer", 4);
+ 		}
+ 		return queueTriangleBuffer != null && queueTriangleBuffer(batches, vertexCount, vertexSize, usage) == true;
+ 	}
+@@ -93,12 +93,54 @@ class NativeCFFI
+ 		if (!tileBufferUploadResolved)
+ 		{
+ 			tileBufferUploadResolved = true;
+-			queueTileBuffer = loadMeshUpload("lime_gl_queue_tile_buffer", 3);
++			queueTileBuffer = loadOptionalGLBinding("lime_gl_queue_tile_buffer", 3);
+ 		}
+ 		return queueTileBuffer != null && queueTileBuffer(records, flags, usage) == true;
+ 	}
+ 
+-	private static function loadMeshUpload(symbol:String, arity:Int):Dynamic
++	#if !lime_webgl
++	private static var queueUniformMatrix:Dynamic;
++	private static var uniformMatrixResolved = false;
++	private static var snapshotShaderParams:Dynamic;
++	private static var queueShaderParams:Dynamic;
++	private static var writeShaderParams:Dynamic;
++	private static var shaderParamsResolved = false;
++
++	@:noCompletion public static function tryQueueUniformMatrix(location:Int, dimension:Int, values:Array<Float>):Bool
++	{
++		if (!uniformMatrixResolved)
++		{
++			uniformMatrixResolved = true;
++			queueUniformMatrix = loadOptionalGLBinding("lime_gl_queue_uniform_matrix", 3);
++		}
++		return queueUniformMatrix != null && queueUniformMatrix(location, dimension, values) == true;
++	}
++
++	@:noCompletion public static function trySnapshotShaderParams(segments:Dynamic, buffer:Dynamic, byteOffset:Int, floatCount:Int):Dynamic
++	{
++		if (!shaderParamsResolved)
++		{
++			shaderParamsResolved = true;
++			snapshotShaderParams = loadOptionalGLBinding("lime_gl_snapshot_shader_params", 4);
++			queueShaderParams = loadOptionalGLBinding("lime_gl_queue_shader_params", 2);
++			writeShaderParams = loadOptionalGLBinding("lime_gl_materialize_shader_params", 4);
++		}
++		if (snapshotShaderParams == null || queueShaderParams == null || writeShaderParams == null) return null;
++		return snapshotShaderParams(segments, buffer, byteOffset, floatCount);
++	}
++
++	@:noCompletion public static function tryQueueShaderParams(snapshot:Dynamic, usage:Int):Bool
++	{
++		return queueShaderParams != null && queueShaderParams(snapshot, usage) == true;
++	}
++
++	@:noCompletion public static function materializeShaderParams(snapshot:Dynamic, buffer:Dynamic, byteOffset:Int, floatCount:Int):Bool
++	{
++		return writeShaderParams != null && writeShaderParams(snapshot, buffer, byteOffset, floatCount) == true;
++	}
++	#end
++
++	private static function loadOptionalGLBinding(symbol:String, arity:Int):Dynamic
+ 	{
+ 		try
+ 		{

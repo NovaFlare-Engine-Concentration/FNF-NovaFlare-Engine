@@ -128,7 +128,34 @@ class ImageCompressionMacro
 		}
 		var upload = findMethod(fields, "getTextureAsync");
 		upload.expr = ExprTools.map(upload.expr, trackAsyncUpload);
+		if (hasLiveTextureTracking()) trackBitmapTextureAliases(fields);
 		return fields;
+	}
+
+	static function hasLiveTextureTracking():Bool
+		return Context.defined("cpp") || Context.defined("novaflare_image_live_test");
+
+	static function trackBitmapTextureAliases(fields:Array<Field>):Void
+	{
+		var fromTexture = findMethod(fields, "fromTexture");
+		fromTexture.expr = ExprTools.map(fromTexture.expr, expr -> switch (expr.expr)
+		{
+			case EReturn({expr: EConst(CIdent("bitmapData"))}):
+				macro {
+					bitmapData.trackCompressionTexture();
+					return bitmapData;
+				};
+			default: expr;
+		});
+		var dispose = findMethod(fields, "dispose");
+		dispose.expr = macro
+		{
+			var texture = imageCompressionTracksTexture ? __texture : null;
+			imageCompressionTracksTexture = false;
+			$e{dispose.expr};
+			if (texture != null && imageCompressionUploads == 0)
+				haxe.MainLoop.runInMainThread(() -> releaseCompressionTexture(texture, false));
+		};
 	}
 
 	public static function buildAssets():Array<Field>
@@ -145,25 +172,65 @@ class ImageCompressionMacro
 	public static function buildAssetLibrary():Array<Field>
 	{
 		var fields = Context.getBuildFields();
-		var loadImage = findMethod(fields, "loadImage");
-		function preserveRawCache(expr:Expr):Expr
+		var getImage = findMethod(fields, "getImage");
+		getImage.expr = macro
 		{
-			return switch (expr.expr)
-			{
-				case ECall({expr: EField({expr: EConst(CIdent("cachedBytes"))}, "remove")}, _)
-					| ECall({expr: EField({expr: EConst(CIdent("cachedImages"))}, "set")}, _):
-					macro if (cacheOriginalImage) $e{expr};
-				default: ExprTools.map(expr, preserveRawCache);
-			}
-		}
-		var original = preserveRawCache(loadImage.expr);
+			if (types.get(id) == IMAGE && cachedBytes.exists(id) && !classTypes.exists(id) && general.backend.ImageCompression.canDecodeScaled())
+				return Image.fromBytes(cachedBytes.get(id));
+			$e{getImage.expr};
+		};
+		var loadImage = findMethod(fields, "loadImage");
 		loadImage.expr = macro
 		{
-			// A scaled display texture must never replace the readable source image.
-			var cacheOriginalImage = !general.backend.ImageCompression.hasScaledDecodeScope();
-			$e{original};
+			// Preserve encoded data for later raw reads and changes to display compression.
+			if (cachedBytes.exists(id) && !cachedImages.exists(id) && !classTypes.exists(id)
+				&& (general.backend.ImageCompression.hasScaledDecodeScope()
+					|| (types.get(id) == IMAGE && general.backend.ImageCompression.canDecodeScaled())))
+				return Image.loadFromBytes(cachedBytes.get(id));
+			$e{loadImage.expr};
 		};
+		var load = findMethod(fields, "load");
+		load.expr = retainPreloadedImageBytes(load.expr);
+		var loadBundle = findMethod(fields, "__fromBundle");
+		loadBundle.expr = retainBundledImageBytes(loadBundle.expr);
 		return fields;
+	}
+
+	static function retainPreloadedImageBytes(expr:Expr):Expr
+	{
+		switch (expr.expr)
+		{
+			case ESwitch(_, cases, _):
+				for (branch in cases)
+				{
+					if (!Lambda.exists(branch.values, value -> value.expr.match(EConst(CIdent("IMAGE"))))) continue;
+					branch.expr = macro
+					{
+						if (general.backend.ImageCompression.canDecodeScaled())
+						{
+							// Embedded assets already retain their encoded bytes in the executable.
+							if (classTypes.exists(id)) continue;
+							assetsTotal++;
+							loadBytes(id).onProgress(load_onProgress.bind(id)).onError(load_onError.bind(id))
+								.onComplete(loadBytes_onComplete.bind(id));
+						}
+						else $e{branch.expr};
+					};
+				}
+				return expr;
+			default: return ExprTools.map(expr, retainPreloadedImageBytes);
+		}
+	}
+
+	static function retainBundledImageBytes(expr:Expr):Expr
+	{
+		return switch (expr.expr)
+		{
+			case ECall({expr: EField({expr: EConst(CIdent("cachedImages"))}, "set")}, [id,
+				{expr: ECall({expr: EField({expr: EConst(CIdent("Image"))}, "fromBytes")}, [bytes])}]):
+				macro if (general.backend.ImageCompression.canDecodeScaled()) cachedBytes.set($e{id}, $e{bytes}); else $e{expr};
+			default: ExprTools.map(expr, retainBundledImageBytes);
+		}
 	}
 
 	public static function buildDeferredAssetLibrary():Array<Field>
@@ -191,7 +258,12 @@ class ImageCompressionMacro
 
 	static function liveBitmapFields():Array<Field>
 	{
-		return (macro class LiveCompression
+		var releaseTexture = hasLiveTextureTracking() ? macro
+		{
+			releaseCompressionTexture(__texture, true);
+			imageCompressionTracksTexture = false;
+		} : macro if (__texture != null) __texture.dispose();
+		var fields = (macro class LiveCompression
 		{
 			var imageCompressionVersion:Int = -1;
 			public var imageCompressionUploads(default, null):Int = 0;
@@ -199,15 +271,18 @@ class ImageCompressionMacro
 			@:noCompletion public function canRefreshCompression():Bool
 			{
 				return __isValid && imageCompressionVersion >= 0 && __framebuffer == null
+					&& (__texture == null || __texture.__glFramebuffer == null)
 					&& (image == null || image.version == imageCompressionVersion);
 			}
 
 			@:noCompletion public function applyRefreshedCompression(replacement:lime.graphics.Image):Void
 			{
 				if (!readable) disposeOnUpload = true;
+				$e{releaseTexture};
 				__texture = null;
 				__textureContext = null;
 				__textureVersion = -1;
+				if (__vertexBuffer != null) __vertexBuffer.dispose();
 				__vertexBuffer = null;
 				__vertexBufferData = null;
 				__surface = null;
@@ -217,6 +292,71 @@ class ImageCompressionMacro
 				replacement.transparent = transparent;
 				if (replacement.version <= imageCompressionVersion) replacement.version = imageCompressionVersion + 1;
 				imageCompressionVersion = replacement.version;
+			}
+		}).fields;
+		return hasLiveTextureTracking() ? fields.concat(textureTrackingFields()) : fields;
+	}
+
+	static function textureTrackingFields():Array<Field>
+	{
+		var groupType = macro :{
+			var owners:haxe.Constraints.IMap<openfl.display.BitmapData, Bool>;
+			var retired:Bool;
+		};
+		var makeGroups = Context.defined("cpp")
+			? macro new haxe.ds.WeakMap<openfl.display3D.textures.TextureBase, $groupType>()
+			: macro new haxe.ds.ObjectMap<openfl.display3D.textures.TextureBase, $groupType>();
+		var makeOwners = Context.defined("cpp")
+			? macro new haxe.ds.WeakMap<openfl.display.BitmapData, Bool>()
+			: macro new haxe.ds.ObjectMap<openfl.display.BitmapData, Bool>();
+		return (macro class TextureTracking
+		{
+			static final imageCompressionTextureMutex = new sys.thread.Mutex();
+			static final imageCompressionTextureGroups = $e{makeGroups};
+			var imageCompressionTracksTexture = false;
+
+			function trackCompressionTexture(?copy:openfl.display.BitmapData):Void
+			{
+				var texture = __texture;
+				if (texture == null || (copy != null && copy.__texture != texture)) return;
+				imageCompressionTextureMutex.acquire();
+				var group = imageCompressionTextureGroups.get(texture);
+				if (group == null)
+				{
+					group = {owners: $e{makeOwners}, retired: false};
+					imageCompressionTextureGroups.set(texture, group);
+				}
+				group.owners.set(this, true);
+				imageCompressionTracksTexture = true;
+				if (copy != null)
+				{
+					group.owners.set(copy, true);
+					copy.imageCompressionTracksTexture = true;
+				}
+				imageCompressionTextureMutex.release();
+			}
+
+			function releaseCompressionTexture(texture:openfl.display3D.textures.TextureBase, replaced:Bool):Void
+			{
+				if (texture == null) return;
+				imageCompressionTextureMutex.acquire();
+				var group = imageCompressionTextureGroups.get(texture);
+				var deleteTexture = replaced;
+				if (group != null)
+				{
+					group.owners.remove(this);
+					group.retired = group.retired || replaced;
+					deleteTexture = group.retired;
+					for (owner in group.owners.keys())
+					{
+						if (owner.__texture != texture && owner.imageCompressionUploads == 0) continue;
+						deleteTexture = false;
+						break;
+					}
+					if (deleteTexture || !group.owners.keys().hasNext()) imageCompressionTextureGroups.remove(texture);
+				}
+				imageCompressionTextureMutex.release();
+				if (deleteTexture) texture.dispose();
 			}
 		}).fields;
 	}
@@ -290,10 +430,12 @@ class ImageCompressionMacro
 	static function preserveCloneDimensions(fields:Array<Field>, cloneName:String, copyScale:Bool = false):Void
 	{
 		var clone = findMethod(fields, "clone");
+		var trackTexture = hasLiveTextureTracking() ? macro trackCompressionTexture($i{cloneName}) : macro {};
 		var scaleAssignment = copyScale ? macro
 		{
 			$i{cloneName}.graphicScale = graphicScale;
 			$i{cloneName}.imageCompressionVersion = imageCompressionVersion;
+			$e{trackTexture};
 			general.backend.ImageCompression.trackClone(this, $i{cloneName});
 		} : macro {};
 		function copyDimensions(expr:Expr):Expr

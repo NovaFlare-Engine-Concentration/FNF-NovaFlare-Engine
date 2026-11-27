@@ -1,7 +1,6 @@
 Graphics => Gráficos
 
 gameQuality => Cambia la calidad gráfica del juego.
-maxImageSize => 0 usa el límite del dispositivo.
 minImageCompressionSize => Aplica la proporción cuando el lado más largo de la imagen original alcanza este tamaño.
 imageCompressionRatio => Fracción de píxeles totales conservados. 0,1 conserva cerca del 10%.
 FPScounter => Contador de FPS

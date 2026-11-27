@@ -1,0 +1,329 @@
+diff --git a/project/src/graphics/opengl/OpenGLBindings.cpp b/project/src/graphics/opengl/OpenGLBindings.cpp
+--- a/project/src/graphics/opengl/OpenGLBindings.cpp
++++ b/project/src/graphics/opengl/OpenGLBindings.cpp
+@@ -279,6 +279,248 @@ namespace lime {
+ 			return !configured || std::strcmp (configured, "0") != 0;
+ 		}
+ 
++		class MeshUploadTarget {
++		public:
++			static bool Accepts (int count, int floatsPerItem) {
++				return count > 0 && count <= (std::numeric_limits<int>::max) () / (floatsPerItem * static_cast<int> (sizeof (float)));
++			}
++
++			bool Prepare (int count, int floatsPerItem, GLenum bufferUsage) {
++				if (!Accepts (count, floatsPerItem)) return false;
++				const int floatCount = count * floatsPerItem;
++				vertices.reset (new (std::nothrow) float[floatCount]);
++				if (!vertices) return false;
++				items = count;
++				byteLength = floatCount * sizeof (float);
++				usage = bufferUsage;
++				frame = FrameTimeline::CurrentWork ();
++				phase = FrameTimeline::IsUpdate () ? "update" : "render";
++				return true;
++			}
++
++			float* Data () const { return vertices.get (); }
++			std::uint64_t Begin () const { return frame ? FrameTimeline::Now () : 0; }
++
++			void Upload (const char* event, std::uint64_t started) const {
++				glBufferData (GL_ARRAY_BUFFER, byteLength, Data (), usage);
++				if (started) FrameTimeline::Write ({event, frame, started, FrameTimeline::Now (),
++					static_cast<std::uint64_t> (items), static_cast<std::uint64_t> (byteLength), "worker", 0, phase});
++			}
++
++		private:
++			std::unique_ptr<float[]> vertices;
++			GLenum usage = GL_STATIC_DRAW;
++			int items = 0;
++			int byteLength = 0;
++			std::uint64_t frame = 0;
++			const char* phase = "render";
++		};
++
++		class TriangleBufferBatch {
++		public:
++			bool Snapshot (value source, int remaining, int vertexSize) {
++				if (!val_is_object (source)) return false;
++				static const int verticesField = val_id ("vertices");
++				static const int indicesField = val_id ("indices");
++				static const int uvtDataField = val_id ("uvtData");
++				const value coordinates = val_field (source, verticesField);
++				const value elementIndices = val_field (source, indicesField);
++				const value uvt = val_field (source, uvtDataField);
++				if (!val_is_array (coordinates)) return false;
++				const int coordinateCount = val_array_size (coordinates);
++				if (coordinateCount == 0 || coordinateCount % 2 != 0) return false;
++				const int sourceCount = coordinateCount / 2;
++				if (!SnapshotIndices (elementIndices, sourceCount, remaining) || !SnapshotTexture (source, uvt, sourceCount, vertexSize)) return false;
++				return CopyQuadArray (val_array_double (coordinates), coordinateCount, positions);
++			}
++
++			int Count () const { return vertexCount; }
++
++			void Expand (float* destination, int vertexSize) const {
++				const QuadPoint extent = ImplicitTextureExtent ();
++				for (int slot = 0; slot < vertexCount; ++slot) {
++					const int index = indices.empty () ? slot : indices[slot];
++					const double* position = positions.data () + 2 * index;
++					const QuadPoint uv = TextureCoordinates (index, position, extent);
++					if (vertexSize == 6) {
++						const double perspective = textureValues[3 * index + 2];
++						destination[0] = static_cast<float> (position[0] / perspective);
++						destination[1] = static_cast<float> (position[1] / perspective);
++						destination[2] = 0;
++						destination[3] = static_cast<float> (1.0 / perspective);
++					} else {
++						destination[0] = static_cast<float> (position[0]);
++						destination[1] = static_cast<float> (position[1]);
++					}
++					destination[vertexSize - 2] = static_cast<float> (uv.x);
++					destination[vertexSize - 1] = static_cast<float> (uv.y);
++					destination += vertexSize;
++				}
++			}
++
++		private:
++			bool SnapshotIndices (value source, int sourceCount, int remaining) {
++				const bool indexed = !val_is_null (source);
++				if (indexed && !val_is_array (source)) return false;
++				vertexCount = indexed ? val_array_size (source) : sourceCount;
++				if (vertexCount <= 0 || vertexCount > remaining) return false;
++				if (!indexed) return true;
++				if (!CopyQuadArray (val_array_int (source), vertexCount, indices)) return false;
++				return std::all_of (indices.begin (), indices.end (), [sourceCount] (int index) {
++					return index >= 0 && index < sourceCount;
++				});
++			}
++
++			bool SnapshotTexture (value source, value uvt, int sourceCount, int vertexSize) {
++				if (!val_is_null (uvt)) {
++					if (!val_is_array (uvt)) return false;
++					const int suppliedStride = val_array_size (uvt) / sourceCount;
++					textureStride = vertexSize == 6 ? 3 : 2;
++					if (suppliedStride < textureStride || (vertexSize == 4 && suppliedStride >= 3)) return false;
++					return CopyQuadArray (val_array_double (uvt), sourceCount * textureStride, textureValues);
++				}
++				if (vertexSize != 4) return false;
++				static const int bitmapWidthField = val_id ("bitmapWidth");
++				static const int bitmapHeightField = val_id ("bitmapHeight");
++				const value width = val_field (source, bitmapWidthField);
++				const value height = val_field (source, bitmapHeightField);
++				if (!val_is_int (width) || !val_is_int (height)) return false;
++				bitmapWidth = val_int (width);
++				bitmapHeight = val_int (height);
++				return (bitmapWidth == 0 && bitmapHeight == 0) || (bitmapWidth > 0 && bitmapHeight > 0);
++			}
++
++			QuadPoint ImplicitTextureExtent () const {
++				if (!bitmapWidth) return {0.0, 0.0};
++				QuadPoint minimum {positions[0], positions[1]};
++				QuadPoint maximum = minimum;
++				for (std::size_t offset = 2; offset < positions.size (); offset += 2) {
++					const double x = positions[offset];
++					const double y = positions[offset + 1];
++					if (x < minimum.x) minimum.x = x;
++					else if (x > maximum.x) maximum.x = x;
++					if (y < minimum.y) minimum.y = y;
++					else if (y > maximum.y) maximum.y = y;
++				}
++				return {maximum.x - minimum.x, maximum.y - minimum.y};
++			}
++
++			QuadPoint TextureCoordinates (int index, const double* position, const QuadPoint& extent) const {
++				if (textureStride > 0) {
++					const double* uv = textureValues.data () + index * textureStride;
++					return {uv[0], uv[1]};
++				}
++				if (!bitmapWidth) return {0.0, 0.0};
++				// Keep OpenFL's implicit-UV arithmetic, including degenerate geometry.
++				return {extent.x * (position[0] / extent.x) / bitmapWidth, extent.y * (position[1] / extent.y) / bitmapHeight};
++			}
++
++			std::vector<double> positions;
++			std::vector<int> indices;
++			std::vector<double> textureValues;
++			int vertexCount = 0;
++			int textureStride = 0;
++			int bitmapWidth = 0;
++			int bitmapHeight = 0;
++		};
++
++		class TriangleBufferUpload {
++		public:
++			bool Snapshot (value source, int vertexCount, int size, GLenum usage) {
++				if ((size != 4 && size != 6) || !MeshUploadTarget::Accepts (vertexCount, size) || !val_is_array (source)) return false;
++				vertexSize = size;
++				const int batchCount = val_array_size (source);
++				int captured = 0;
++				for (int index = 0; index < batchCount; ++index) {
++					TriangleBufferBatch batch;
++					if (!batch.Snapshot (val_array_i (source, index), vertexCount - captured, vertexSize)) return false;
++					captured += batch.Count ();
++					batches.emplace_back (std::move (batch));
++				}
++				return captured == vertexCount && target.Prepare (vertexCount, vertexSize, usage);
++			}
++
++			void operator() () {
++				const auto started = target.Begin ();
++				float* destination = target.Data ();
++				for (const auto& batch : batches) {
++					batch.Expand (destination, vertexSize);
++					destination += batch.Count () * vertexSize;
++				}
++				target.Upload ("triangle_buffer_upload", started);
++			}
++
++		private:
++			std::vector<TriangleBufferBatch> batches;
++			MeshUploadTarget target;
++			int vertexSize = 0;
++		};
++
++		class TileBufferUpload {
++		public:
++			bool Snapshot (value source, int flags, GLenum usage) {
++				if (flags < 0 || flags > 3 || !val_is_array (source)) return false;
++				const int attributeCount = ((flags & 1) ? 1 : 0) + ((flags & 2) ? 8 : 0);
++				vertexSize = 4 + attributeCount;
++				recordSize = 12 + attributeCount;
++				const int inputSize = val_array_size (source);
++				if (inputSize <= 0 || inputSize % recordSize != 0) return false;
++				const int tileCount = inputSize / recordSize;
++				return MeshUploadTarget::Accepts (tileCount, 4 * vertexSize)
++					&& CopyQuadArray (val_array_double (source), inputSize, records)
++					&& target.Prepare (tileCount, 4 * vertexSize, usage);
++			}
++
++			void operator() () {
++				const auto started = target.Begin ();
++				float* destination = target.Data ();
++				for (std::size_t offset = 0; offset < records.size (); offset += recordSize) {
++					ExpandTile (records.data () + offset, destination);
++					destination += 4 * vertexSize;
++				}
++				target.Upload ("tile_buffer_upload", started);
++			}
++
++		private:
++			void ExpandTile (const double* record, float* output) const {
++				QuadTransform matrix;
++				matrix.SetBasis (record);
++				const QuadPoint origin {record[4], record[5]};
++				matrix.WriteVertex (output, {0.0, 0.0}, origin, {record[8], record[9]});
++				matrix.WriteVertex (output + vertexSize, {record[6], 0.0}, origin, {record[10], record[9]});
++				matrix.WriteVertex (output + 2 * vertexSize, {0.0, record[7]}, origin, {record[8], record[11]});
++				matrix.WriteVertex (output + 3 * vertexSize, {record[6], record[7]}, origin, {record[10], record[11]});
++				for (int attribute = 4; attribute < vertexSize; ++attribute) {
++					const auto value = static_cast<float> (record[12 + attribute - 4]);
++					for (int vertex = 0; vertex < 4; ++vertex) output[vertex * vertexSize + attribute] = value;
++				}
++			}
++
++			std::vector<double> records;
++			MeshUploadTarget target;
++			int vertexSize = 0;
++			int recordSize = 0;
++		};
++
++		bool MeshUploadEnabled () {
++			const char* configured = std::getenv ("NOVAFLARE_MESH_UPLOAD");
++			return !configured || std::strcmp (configured, "0") != 0;
++		}
++
++		template<typename Upload, typename Capture>
++		bool TryQueueMeshUpload (const Capture& capture) {
++			static const bool enabled = MeshUploadEnabled ();
++			if (!enabled || !OpenGLBindings::renderThread || !OpenGLBindings::isMultiThreaded || !OpenGLBindings::CanRender ()) return false;
++			try {
++				Upload upload;
++				return capture (upload) && OpenGLBindings::renderThread->PushCommand (std::move (upload));
++			} catch (const std::bad_alloc&) {
++				return false;
++			} catch (const std::length_error&) {
++				return false;
++			}
++		}
++
+ 		bool RemoveGLObjectID (void* object, GLObjectType type, GLuint id) {
+ 			glObjectIDs.erase (object);
+ 			auto& objects = glObjects[type];
+@@ -1027,6 +1269,20 @@ namespace lime {
+ 	}
+ 
+ 
++	bool lime_gl_queue_triangle_buffer (value batches, int vertexCount, int vertexSize, int usage) {
++		return TryQueueMeshUpload<TriangleBufferUpload> ([=] (TriangleBufferUpload& upload) {
++			return upload.Snapshot (batches, vertexCount, vertexSize, usage);
++		});
++	}
++
++
++	bool lime_gl_queue_tile_buffer (value records, int flags, int usage) {
++		return TryQueueMeshUpload<TileBufferUpload> ([=] (TileBufferUpload& upload) {
++			return upload.Snapshot (records, flags, usage);
++		});
++	}
++
++
+ 	void lime_gl_buffer_data (int target, int size, double data, int usage) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+@@ -8702,6 +8958,8 @@ namespace lime {
+ 	DEFINE_PRIME4v (lime_gl_blend_func_separate);
+ 	DEFINE_PRIME10v (lime_gl_blit_framebuffer);
+ 	DEFINE_PRIME3 (lime_gl_queue_quad_buffer);
++	DEFINE_PRIME4 (lime_gl_queue_triangle_buffer);
++	DEFINE_PRIME3 (lime_gl_queue_tile_buffer);
+ 	DEFINE_PRIME4v (lime_gl_buffer_data);
+ 	DEFINE_PRIME4v (lime_gl_buffer_sub_data);
+ 	DEFINE_PRIME1 (lime_gl_check_framebuffer_status);
+diff --git a/src/lime/_internal/backend/native/NativeCFFI.hx b/src/lime/_internal/backend/native/NativeCFFI.hx
+--- a/src/lime/_internal/backend/native/NativeCFFI.hx
++++ b/src/lime/_internal/backend/native/NativeCFFI.hx
+@@ -72,6 +72,43 @@ class NativeCFFI
+ 		}
+ 		return queueQuadBuffer != null && queueQuadBuffer(batches, quadCount, usage) == true;
+ 	}
++
++	private static var queueTriangleBuffer:Dynamic;
++	private static var triangleBufferUploadResolved = false;
++	private static var queueTileBuffer:Dynamic;
++	private static var tileBufferUploadResolved = false;
++
++	@:noCompletion public static function tryQueueTriangleBuffer(batches:Dynamic, vertexCount:Int, vertexSize:Int, usage:Int):Bool
++	{
++		if (!triangleBufferUploadResolved)
++		{
++			triangleBufferUploadResolved = true;
++			queueTriangleBuffer = loadMeshUpload("lime_gl_queue_triangle_buffer", 4);
++		}
++		return queueTriangleBuffer != null && queueTriangleBuffer(batches, vertexCount, vertexSize, usage) == true;
++	}
++
++	@:noCompletion public static function tryQueueTileBuffer(records:Dynamic, flags:Int, usage:Int):Bool
++	{
++		if (!tileBufferUploadResolved)
++		{
++			tileBufferUploadResolved = true;
++			queueTileBuffer = loadMeshUpload("lime_gl_queue_tile_buffer", 3);
++		}
++		return queueTileBuffer != null && queueTileBuffer(records, flags, usage) == true;
++	}
++
++	private static function loadMeshUpload(symbol:String, arity:Int):Dynamic
++	{
++		try
++		{
++			return CFFI.load("lime", symbol, arity);
++		}
++		catch (_:Dynamic)
++		{
++			return null;
++		}
++	}
+ 	#end
+ 
+ 	#if (cpp && lime_cffi && !disable_cffi && !macro)

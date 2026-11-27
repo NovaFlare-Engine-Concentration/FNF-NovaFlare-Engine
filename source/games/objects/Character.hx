@@ -207,8 +207,8 @@ class Character extends FlxSprite
 		antialiasing = ClientPrefs.data.antialiasing ? !noAntialiasing : false;
 
 		// animations
-		animationsArray = json.animations;
-		if (animationsArray != null && animationsArray.length > 0)
+		animationsArray = json.animations == null ? [] : json.animations;
+		if (animationsArray.length > 0)
 		{
 			for (anim in animationsArray)
 			{
@@ -229,7 +229,7 @@ class Character extends FlxSprite
 				else
 				{
 					if (animIndices != null && animIndices.length > 0)
-						atlas.anim.addBySymbolIndices(animAnim, animName, animIndices, animFps, animLoop);
+						atlas.addFrameSequence({anim: animAnim, name: animName, indices: animIndices, fps: animFps, loop: animLoop});
 					else
 						atlas.anim.addBySymbol(animAnim, animName, animFps, animLoop);
 				}

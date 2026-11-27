@@ -4,51 +4,42 @@ package mobile.input;
 import flixel.FlxG;
 import haxe.ds.IntMap;
 import haxe.ds.StringMap;
-import openfl.Lib;
-import openfl.display.DisplayObject;
 import openfl.display.InteractiveObject;
 import openfl.display.Sprite;
 import openfl.display.Stage;
 import openfl.events.Event;
-import openfl.events.KeyboardEvent;
 import openfl.events.MouseEvent;
-import openfl.events.TextEvent;
 import openfl.events.TouchEvent;
 import openfl.geom.Point;
-import openfl.text.TextField;
-import openfl.text.TextFieldType;
-import openfl.text.TextFormat;
-import openfl.text.TextFormatAlign;
-import openfl.ui.Keyboard;
 
 /** Stage-level mobile controls shared by all three engine entry points. */
 class VirtualPointerOverlay extends Sprite
 {
     static inline final VIRTUAL_POINTER_HINT = "SDL_NOVAFLARE_VIRTUAL_POINTER";
-    static inline final CONTROL_ALPHA = 0.5;
+    static final MODIFIERS = ['key:shift', 'key:ctrl', 'key:alt', 'key:caps'];
     static var instance:VirtualPointerOverlay;
     var rootStage:Stage;
     var pointer:Sprite;
-    var mouseShell:Sprite;
-    var ctrlHolds:Int = 0;
+    final panel:VirtualPointerPanel;
+    final keyboardInput:VirtualPointerKeyboardInput;
     var mouse:VirtualMouse;
     var active:Bool = false;
+    var closeRequested:Bool = false;
+    var keyboardVisible:Bool = false;
+    var sensitivity:Float = 0.5;
     var synthesized:Bool = false;
     var suppressCleanupClick:Bool = false;
     var moveTouch:Int = -1;
     var lastX:Float = 0;
     var lastY:Float = 0;
     var wheelTouch:Int = -1;
+    var sensitivityTouch:Int = -1;
     var wheelLastY:Float = 0;
     var scrollRemainder:Float = 0;
     var touches:IntMap<String> = new IntMap();
     var held:StringMap<Int> = new StringMap();
-    var buttons:Array<OverlayButton> = [];
-    var unit:Float = 40;
     var surfaceWidth:Int = 0;
     var surfaceHeight:Int = 0;
-    var keyQueue:Array<{code:Int, character:Int, down:Bool, ctrl:Bool}> = [];
-    var ime:TextField;
     #if android
     var installVolume:Dynamic;
     var consumeVolume:Dynamic;
@@ -80,13 +71,10 @@ class VirtualPointerOverlay extends Sprite
         pointer.graphics.lineTo(16, 13);
         pointer.graphics.lineTo(0, 0);
         pointer.graphics.endFill();
-        ime = new TextField();
-        ime.type = TextFieldType.INPUT;
-        ime.width = ime.height = 2;
-        ime.alpha = 0.01;
-        ime.needsSoftKeyboard = true;
-        ime.addEventListener(TextEvent.TEXT_INPUT, onTextInput);
-        addChild(ime);
+        panel = new VirtualPointerPanel();
+        keyboardInput = new VirtualPointerKeyboardInput(stage);
+        addChild(panel);
+        addChild(keyboardInput.ime);
         addChild(pointer);
         visible = false;
         stage.addEventListener(Event.ENTER_FRAME, onFrame);
@@ -97,10 +85,16 @@ class VirtualPointerOverlay extends Sprite
         // This OpenFL version does not broadcast Lime window deactivation.
         if (stage.window != null)
         {
-            stage.window.onDeactivate.add(onWindowDeactivate);
-            stage.window.onActivate.add(onWindowActivate);
+            var window = stage.window;
+            window.onDeactivate.add(onWindowDeactivate);
+            window.onActivate.add(onWindowActivate);
+            // Stop SDL touch-generated mouse input before it updates OpenFL's mouse state.
+            window.onMouseDown.add((_, _, _) -> { if (active) window.onMouseDown.cancel(); }, false, 1000000);
+            window.onMouseUp.add((_, _, _) -> { if (active) window.onMouseUp.cancel(); }, false, 1000000);
+            window.onMouseMove.add((_, _) -> { if (active) window.onMouseMove.cancel(); }, false, 1000000);
+            window.onMouseWheel.add((_, _, _) -> { if (active) window.onMouseWheel.cancel(); }, false, 1000000);
         }
-        for (type in [TouchEvent.TOUCH_BEGIN, TouchEvent.TOUCH_MOVE, TouchEvent.TOUCH_END])
+        for (type in [TouchEvent.TOUCH_BEGIN, TouchEvent.TOUCH_MOVE, TouchEvent.TOUCH_END, TouchEvent.TOUCH_TAP])
         {
             stage.addEventListener(type, onTouch, true, 1000000);
             stage.addEventListener(type, onTouch, false, 1000000);
@@ -153,6 +147,7 @@ class VirtualPointerOverlay extends Sprite
 
     function onFrame(_:Event):Void
     {
+        if (closeRequested) setActive(false);
         #if android
         if (consumeVolume != null && (Std.int(consumeVolume()) & 1) != 0) setActive(!active);
         #end
@@ -176,6 +171,7 @@ class VirtualPointerOverlay extends Sprite
     public function setActive(value:Bool):Void
     {
         if (active == value) return;
+        closeRequested = false;
         if (value)
         {
             mouse = VirtualMouse.install();
@@ -188,6 +184,7 @@ class VirtualPointerOverlay extends Sprite
             #end
             mouse.setVirtualActive(true);
             active = true;
+            keyboardVisible = false;
             lime.system.System.setHint(VIRTUAL_POINTER_HINT, "1");
             cancelNativeMousePress();
             visible = true;
@@ -203,7 +200,6 @@ class VirtualPointerOverlay extends Sprite
             #if FLX_TOUCH
             if (FlxG.touches != null) FlxG.touches.reset();
             #end
-            if (rootStage.focus == ime) rootStage.focus = null;
         }
     }
 
@@ -212,18 +208,14 @@ class VirtualPointerOverlay extends Sprite
         for (id in touches.keys()) release(touches.get(id), true);
         touches = new IntMap();
         held = new StringMap();
-        ctrlHolds = 0;
         moveTouch = -1;
         wheelTouch = -1;
+        sensitivityTouch = -1;
         scrollRemainder = 0;
-        // Ensure synthesized keyboard keys cannot remain held across focus/mode changes.
-        for (code in [Keyboard.CONTROL, Keyboard.C, Keyboard.V, Keyboard.SPACE, Keyboard.UP,
-            Keyboard.DOWN, Keyboard.LEFT, Keyboard.RIGHT, Keyboard.ENTER, Keyboard.ESCAPE])
-            sendKey(code, 0, false, false);
-        #if android
-        sendKey(cast flixel.input.android.FlxAndroidKey.BACK, 0, false, false);
-        #end
-        keyQueue = [];
+        keyboardInput.reset();
+        updateModifierHighlights();
+        panel.setPressed('wheel', false);
+        panel.setPressed('sensitivity', false);
         if (mouse != null) mouse.cancelPendingButtons();
     }
 
@@ -261,64 +253,111 @@ class VirtualPointerOverlay extends Sprite
         var id = event.touchPointID;
         if (event.type == TouchEvent.TOUCH_BEGIN)
         {
-            var action = buttonAt(event.stageX, event.stageY);
-            if (action != null)
-            {
-                touches.set(id, action);
-                if (action == 'wheel')
-                {
-                    if (wheelTouch != -1) touches.remove(id);
-                    else { wheelTouch = id; wheelLastY = event.stageY; scrollRemainder = 0; }
-                }
-                else press(action);
-            }
-            else if (moveTouch == -1)
-            {
-                moveTouch = id;
-                lastX = event.stageX;
-                lastY = event.stageY;
-                touches.set(id, 'move');
-            }
+            beginTouch(event);
         }
         else if (event.type == TouchEvent.TOUCH_MOVE)
         {
             var action = touches.get(id);
             if (action == 'move' && moveTouch == id)
             {
-                var old = FlxG.game.globalToLocal(new Point(lastX, lastY));
-                var next = FlxG.game.globalToLocal(new Point(event.stageX, event.stageY));
-                var topLeft = FlxG.game.globalToLocal(new Point(0, 0));
-                var bottomRight = FlxG.game.globalToLocal(new Point(rootStage.stageWidth, rootStage.stageHeight));
-                mouse.virtualX = Math.max(Math.min(topLeft.x, bottomRight.x), Math.min(Math.max(topLeft.x, bottomRight.x), mouse.virtualX + next.x - old.x));
-                mouse.virtualY = Math.max(Math.min(topLeft.y, bottomRight.y), Math.min(Math.max(topLeft.y, bottomRight.y), mouse.virtualY + next.y - old.y));
-                lastX = event.stageX;
-                lastY = event.stageY;
-                dispatchMouse(MouseEvent.MOUSE_MOVE);
+                movePointer(event.stageX, event.stageY);
             }
             else if (action == 'wheel' && wheelTouch == id)
             {
                 scrollRemainder += wheelLastY - event.stageY;
                 wheelLastY = event.stageY;
-                var step = Math.max(8.0, unit * 0.25);
+                var step = Math.max(8.0, Math.min(surfaceWidth / 56, surfaceHeight / 36));
                 var ticks = Std.int(scrollRemainder / step);
                 if (ticks != 0) { mouse.scroll(ticks); dispatchMouse(MouseEvent.MOUSE_WHEEL, ticks); scrollRemainder -= ticks * step; }
+            }
+            else if (action == 'sensitivity' && sensitivityTouch == id)
+            {
+                changeSensitivity(event.stageX);
             }
         }
         else if (event.type == TouchEvent.TOUCH_END)
         {
             var action = touches.get(id);
-            if (action == 'move' && moveTouch == id) moveTouch = -1;
-            else if (action == 'wheel' && wheelTouch == id) { wheelTouch = -1; scrollRemainder = 0; }
-            else if (action != null && action != 'wheel') release(action);
+            if (action == 'move' && moveTouch == id)
+            {
+                moveTouch = -1;
+            }
+            else if (action == 'wheel' && wheelTouch == id)
+            {
+                wheelTouch = -1;
+                scrollRemainder = 0;
+                panel.setPressed('wheel', false);
+            }
+            else if (action == 'sensitivity' && sensitivityTouch == id)
+            {
+                sensitivityTouch = -1;
+                panel.setPressed('sensitivity', false);
+            }
+            else if (action == 'close')
+            {
+                release(action);
+                // OpenFL dispatches TOUCH_TAP after TOUCH_END for the same touch.
+                closeRequested = panel.actionAt(event.stageX, event.stageY) == 'close';
+            }
+            else if (action != null) release(action);
             touches.remove(id);
         }
     }
 
-    function buttonAt(x:Float, y:Float):Null<String>
+    function beginTouch(event:TouchEvent):Void
     {
-        for (button in buttons)
-            if (x >= button.x && y >= button.y && x < button.x + button.w && y < button.y + button.h) return button.action;
-        return null;
+        var id = event.touchPointID;
+        switch (panel.actionAt(event.stageX, event.stageY))
+        {
+            case 'idle':
+            case 'wheel':
+                if (wheelTouch != -1) return;
+                wheelTouch = id;
+                wheelLastY = event.stageY;
+                scrollRemainder = 0;
+                touches.set(id, 'wheel');
+                panel.setPressed('wheel', true);
+            case 'sensitivity':
+                if (sensitivityTouch != -1) return;
+                sensitivityTouch = id;
+                touches.set(id, 'sensitivity');
+                changeSensitivity(event.stageX);
+                panel.setPressed('sensitivity', true);
+            case null:
+                if (moveTouch != -1) return;
+                moveTouch = id;
+                lastX = event.stageX;
+                lastY = event.stageY;
+                touches.set(id, 'move');
+            case action:
+                touches.set(id, action);
+                press(action);
+        }
+    }
+
+    function movePointer(x:Float, y:Float):Void
+    {
+        var old = FlxG.game.globalToLocal(new Point(lastX, lastY));
+        var next = FlxG.game.globalToLocal(new Point(x, y));
+        var topLeft = FlxG.game.globalToLocal(new Point(0, 0));
+        var bottomRight = FlxG.game.globalToLocal(new Point(surfaceWidth, surfaceHeight));
+        var gain = 0.4 + sensitivity * 1.2;
+        mouse.virtualX = clampPosition(mouse.virtualX + (next.x - old.x) * gain, topLeft.x, bottomRight.x);
+        mouse.virtualY = clampPosition(mouse.virtualY + (next.y - old.y) * gain, topLeft.y, bottomRight.y);
+        lastX = x;
+        lastY = y;
+        dispatchMouse(MouseEvent.MOUSE_MOVE);
+    }
+
+    inline function clampPosition(value:Float, start:Float, end:Float):Float
+    {
+        return Math.max(Math.min(start, end), Math.min(Math.max(start, end), value));
+    }
+
+    function changeSensitivity(x:Float):Void
+    {
+        sensitivity = panel.sensitivityAt(x);
+        panel.setSensitivity(sensitivity);
     }
 
     function press(action:String):Void
@@ -326,20 +365,21 @@ class VirtualPointerOverlay extends Sprite
         var count = held.exists(action) ? held.get(action) : 0;
         held.set(action, count + 1);
         if (count != 0) return;
+        panel.setPressed(action, true);
         switch (action)
         {
             case 'left', 'right':
                 var right = action == 'right';
                 mouse.queueButton(right, true);
                 dispatchMouse(right ? MouseEvent.RIGHT_MOUSE_DOWN : MouseEvent.MOUSE_DOWN);
-            case 'keyboard': showKeyboard();
-            case 'copy', 'paste':
-                applyClipboardToOpenFLInput(action);
-                if (ctrlHolds++ == 0) enqueue(Keyboard.CONTROL, true);
-                enqueue(action == 'copy' ? Keyboard.C : Keyboard.V, true, true);
+            case 'keyboard':
+                releaseAll();
+                keyboardVisible = !keyboardVisible;
+                layout();
+            case 'close':
             default:
-                var code = keyCode(action);
-                if (code != 0) enqueue(code, true);
+                keyboardInput.press(action);
+                updateModifierHighlights();
         }
     }
 
@@ -348,106 +388,25 @@ class VirtualPointerOverlay extends Sprite
         var count = held.exists(action) ? held.get(action) : 0;
         if (count <= 1) held.remove(action); else { held.set(action, count - 1); return; }
         if (count == 0) return;
+        panel.setPressed(action, keyboardInput.isLatched(action));
         switch (action)
         {
             case 'left', 'right':
                 var right = action == 'right';
                 mouse.queueButton(right, false);
                 dispatchMouse(right ? MouseEvent.RIGHT_MOUSE_UP : MouseEvent.MOUSE_UP, 0, cancelClick);
-            case 'copy', 'paste':
-                enqueue(action == 'copy' ? Keyboard.C : Keyboard.V, false, true);
-                ctrlHolds = Std.int(Math.max(0, ctrlHolds - 1));
-                if (ctrlHolds == 0) enqueue(Keyboard.CONTROL, false);
-            case 'keyboard':
-            default:
-                var code = keyCode(action);
-                if (code != 0) enqueue(code, false);
+            default: keyboardInput.release(action);
         }
     }
 
-    function keyCode(action:String):Int
+    function updateModifierHighlights():Void
     {
-        return switch (action)
-        {
-            case 'up': Keyboard.UP;
-            case 'down': Keyboard.DOWN;
-            case 'arrowLeft': Keyboard.LEFT;
-            case 'arrowRight': Keyboard.RIGHT;
-            case 'space': Keyboard.SPACE;
-            case 'enter': Keyboard.ENTER;
-            case 'back': #if android (cast flixel.input.android.FlxAndroidKey.BACK : Int) #else Keyboard.ESCAPE #end;
-            default: 0;
-        }
+        for (action in MODIFIERS) panel.setPressed(action, keyboardInput.isLatched(action));
     }
 
     function processKeyQueue():Void
     {
-        if (!active || keyQueue.length == 0) return;
-        var item = keyQueue.shift();
-        sendKey(item.code, item.character, item.down, item.ctrl);
-    }
-
-    function enqueue(code:Int, down:Bool, ctrl:Bool = false, character:Int = 0):Void
-    {
-        keyQueue.push({code: code, character: character, down: down, ctrl: ctrl});
-    }
-
-    function sendKey(code:Int, character:Int, down:Bool, ctrl:Bool):Void
-    {
-        // Flixel's native key correction treats zero-char C/V as PageDown/F7.
-        // Supply the corresponding letter for synthetic alphabetic keys.
-        if (character == 0 && code >= Keyboard.A && code <= Keyboard.Z) character = code + 32;
-        var event = new KeyboardEvent(down ? KeyboardEvent.KEY_DOWN : KeyboardEvent.KEY_UP, true, false,
-            character, code, null, ctrl);
-        var target:InteractiveObject = rootStage.focus != null ? rootStage.focus : rootStage;
-        target.dispatchEvent(event);
-    }
-
-    function applyClipboardToOpenFLInput(action:String):Void
-    {
-        if (rootStage.focus == ime || !Std.isOfType(rootStage.focus, TextField)) return;
-        var field:TextField = cast rootStage.focus;
-        if (field.type != TextFieldType.INPUT) return;
-        if (action == 'copy')
-        {
-            if (!field.displayAsPassword && field.selectionEndIndex > field.selectionBeginIndex)
-                lime.system.Clipboard.text = field.text.substring(field.selectionBeginIndex, field.selectionEndIndex);
-        }
-        else
-        {
-            var value = lime.system.Clipboard.text;
-            if (value == null) return;
-            var textEvent = new TextEvent(TextEvent.TEXT_INPUT, true, true, value);
-            if (!field.dispatchEvent(textEvent) || textEvent.isDefaultPrevented()) return;
-            var before = field.text;
-            // Match OpenFL's native paste path, including restrict/maxChars.
-            @:privateAccess field.__replaceSelectedText(value, true);
-            if (field.text != before) field.dispatchEvent(new Event(Event.CHANGE, true));
-        }
-    }
-
-    function showKeyboard():Void
-    {
-        var current = rootStage.focus;
-        if (!Std.isOfType(current, TextField) || cast(current, TextField).type != TextFieldType.INPUT)
-            rootStage.focus = ime;
-        // The installed OpenFL requestSoftKeyboard() is a stub. Lime's SDL
-        // text-input switch is the platform path that actually opens the IME.
-        if (rootStage.window != null) rootStage.window.textInputEnabled = true;
-    }
-
-    function onTextInput(event:TextEvent):Void
-    {
-        if (!active || rootStage.focus != ime) return;
-        event.preventDefault();
-        for (i in 0...event.text.length)
-        {
-            var character = event.text.charCodeAt(i);
-            if (character == null) continue;
-            var key = character >= 97 && character <= 122 ? character - 32 : character;
-            enqueue(key, true, false, character);
-            enqueue(key, false, false, character);
-        }
+        if (active) keyboardInput.update();
     }
 
     function dispatchMouse(type:String, delta:Int = 0, cancelClick:Bool = false):Void
@@ -500,64 +459,10 @@ class VirtualPointerOverlay extends Sprite
     {
         surfaceWidth = rootStage.stageWidth;
         surfaceHeight = rootStage.stageHeight;
-        unit = Math.max(22, Math.min(surfaceWidth / 14, surfaceHeight / 9));
-        for (button in buttons) if (button.view.parent == this) removeChild(button.view);
-        if (mouseShell != null && mouseShell.parent == this) removeChild(mouseShell);
-        buttons = [];
-        var u = unit;
-        addButton('paste', 'Ctrl+V', 0, 0, u, u * 0.72);
-        addButton('copy', 'Ctrl+C', u, 0, u, u * 0.72);
-        addButton('keyboard', '⌨', surfaceWidth - u, 0, u, u * 0.82);
-        mouseShell = new Sprite();
-        mouseShell.mouseEnabled = false;
-        mouseShell.alpha = CONTROL_ALPHA;
-        mouseShell.graphics.lineStyle(1, 0x000000, 1);
-        mouseShell.graphics.beginFill(0xFFFFFF, 1);
-        mouseShell.graphics.drawRect(1, 1, u * 2 - 2, u * 1.10 - 2);
-        mouseShell.graphics.endFill();
-        mouseShell.x = 0;
-        mouseShell.y = surfaceHeight - u * 1.10;
-        addChildAt(mouseShell, 0);
-        addButton('left', 'L', 0, surfaceHeight - u * 1.10, u, u * 0.58);
-        buttons[buttons.length - 1].h = u * 1.10;
-        addButton('right', 'R', u, surfaceHeight - u * 1.10, u, u * 0.58);
-        buttons[buttons.length - 1].h = u * 1.10;
-        addButton('space', 'SPACE', 0, surfaceHeight - u * 2.02, u * 3, u * 0.78);
-        addButton('up', '↑', u, surfaceHeight - u * 4.02, u, u * 0.85);
-        addButton('arrowLeft', '←', 0, surfaceHeight - u * 3.12, u, u * 0.85);
-        addButton('down', '↓', u, surfaceHeight - u * 3.12, u, u * 0.85);
-        addButton('arrowRight', '→', u * 2, surfaceHeight - u * 3.12, u, u * 0.85);
-        addButton('enter', 'ENTER', surfaceWidth - u * 1.65, surfaceHeight - u, u * 1.65, u);
-        addButton('wheel', '↕', surfaceWidth - u, surfaceHeight * 0.5 - u * 0.65, u, u * 1.75);
-        addButton('back', 'BACK', surfaceWidth - u, surfaceHeight * 0.5 - u * 1.55, u, u * 0.75);
-    }
-
-    function addButton(action:String, label:String, x:Float, y:Float, w:Float, h:Float):Void
-    {
-        var view = new Sprite();
-        view.mouseEnabled = false;
-        view.mouseChildren = false;
-        view.alpha = CONTROL_ALPHA;
-        final hasBackground = action != 'left' && action != 'right';
-        view.graphics.lineStyle(1, 0x000000, 1);
-        if (hasBackground) view.graphics.beginFill(0xFFFFFF, 1);
-        view.graphics.drawRect(1, 1, w - 2, h - 2);
-        if (hasBackground) view.graphics.endFill();
-        view.x = x;
-        view.y = y;
-        var text = new TextField();
-        text.defaultTextFormat = new TextFormat('_sans', Std.int(Math.max(12, unit * (label.length > 4 ? 0.22 : 0.38))), 0x000000, false, null, null, null, null, TextFormatAlign.CENTER);
-        text.selectable = false;
-        text.mouseEnabled = false;
-        text.width = w;
-        text.height = h;
-        text.text = label;
-        text.y = Math.max(0, (h - text.textHeight) * 0.5 - 2);
-        view.addChild(text);
-        addChildAt(view, Std.int(Math.max(0, numChildren - 1)));
-        buttons.push({action: action, x: x, y: y, w: w, h: h, view: view});
+        panel.layout(surfaceWidth, surfaceHeight, keyboardVisible, sensitivity);
+        for (action in held.keys()) panel.setPressed(action, true);
+        panel.setPressed('wheel', wheelTouch != -1);
+        updateModifierHighlights();
     }
 }
-
-private typedef OverlayButton = {var action:String; var x:Float; var y:Float; var w:Float; var h:Float; var view:Sprite;}
 #end

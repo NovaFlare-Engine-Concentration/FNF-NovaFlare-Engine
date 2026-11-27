@@ -2,6 +2,7 @@
 import haxe.macro.Context;
 import haxe.macro.Expr;
 #else
+import haxe.io.Bytes;
 import sys.thread.Mutex;
 import sys.thread.Thread;
 #end
@@ -20,7 +21,7 @@ class AsyncDecodeTrace
                 case FFun(decoder):
                     decoder.expr = macro
                     {
-                        if (encoded != null) AsyncDecodeTrace.record(hasScaledDecodeScope());
+                        if (encoded != null) AsyncDecodeTrace.record(hasScaledDecodeScope(), encoded);
                         $e{decoder.expr};
                     };
                     return fields;
@@ -32,22 +33,41 @@ class AsyncDecodeTrace
     #else
     static final mutex = new Mutex();
     static var mainThread:Thread;
+    static var fixturePath:String;
+    static var fixtureImages:Array<Bytes>;
     static var observations:Array<{scoped:Bool, worker:Bool}> = [];
     static var recording = false;
 
-    public static function start():Void
+    public static function start(path:String, images:Array<Bytes>):Void
     {
         mutex.acquire();
         mainThread = Thread.current();
+        fixturePath = path;
+        fixtureImages = images;
         recording = true;
         mutex.release();
     }
 
-    public static function record(scoped:Bool):Void
+    public static function record(scoped:Bool, encoded:Dynamic):Void
     {
         mutex.acquire();
-        if (recording) observations.push({scoped: scoped, worker: Thread.current() != mainThread});
+        if (recording && isFixture(encoded)) observations.push({scoped: scoped, worker: Thread.current() != mainThread});
         mutex.release();
+    }
+
+    static function isFixture(encoded:Dynamic):Bool
+    {
+        if (encoded is String) return encoded == fixturePath;
+        var bytes:Bytes = cast encoded;
+        return Lambda.exists(fixtureImages, image -> isSameImage(image, bytes));
+    }
+
+    static function isSameImage(expected:Bytes, actual:Bytes):Bool
+    {
+        if (expected.length != actual.length) return false;
+        for (index in 0...expected.length)
+            if (expected.get(index) != actual.get(index)) return false;
+        return true;
     }
 
     public static function check(description:String, scoped:Bool, worker:Null<Bool>):Void

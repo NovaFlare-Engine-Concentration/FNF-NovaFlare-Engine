@@ -142,19 +142,18 @@ class GeneralGroup extends OptionCata
 	function onChangeFramerate()
 	{
 		FlxG.updateFramerate = ClientPrefs.data.framerate;
+		RenderResolution.applyDrawRate(FlxG.stage);
 	}
 
 	#if !ios
 	function onChangeDrawFramerate()
 	{
-		FlxG.drawFramerate = ClientPrefs.data.drawFramerate;
+		RenderResolution.applyDrawRate(FlxG.stage);
 	}
 
 	function onChangelockRender()
 	{
-		var window = FlxG.stage.window;
-		window.lockRender = ClientPrefs.data.lockRender;
-		ClientPrefs.data.lockRender = window.lockRender;
+		RenderResolution.applyDrawRate(FlxG.stage);
 	}
 	#end
 
@@ -180,7 +179,7 @@ class GeneralGroup extends OptionCata
 
 	function onChangeResolution()
 	{
-		RenderResolution.apply(openfl.Lib.current.stage, ClientPrefs.data.resolution);
+		RenderResolution.apply(FlxG.stage);
 	}
 
 	function onChangeFilter()

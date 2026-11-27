@@ -1,0 +1,23 @@
+diff --git a/toolchain/android-toolchain-clang.xml b/toolchain/android-toolchain-clang.xml
+--- a/toolchain/android-toolchain-clang.xml
++++ b/toolchain/android-toolchain-clang.xml
+@@ -85,6 +85,8 @@
+   <exe name="clang++" />
+   <flag value ="-shared" />
+   <flag value="--target=${ABITRIPLE}${HXCPP_ANDROID_PLATFORM}" />
++  <flag value="-Wl,-z,max-page-size=16384" if="HXCPP_ARM64 || HXCPP_X86_64" />
++  <flag value="-Wl,-z,common-page-size=16384" if="HXCPP_ARM64 || HXCPP_X86_64" />
+ 
+   <!-- Build time error, not run time -->
+   <flag value="-Wl,--no-undefined" unless="HXCPP_ALLOW_UNDEFINED" />
+diff --git a/toolchain/haxe-target.xml b/toolchain/haxe-target.xml
+--- a/toolchain/haxe-target.xml
++++ b/toolchain/haxe-target.xml
+@@ -234,6 +234,7 @@
+   <ext value="${LIBEXTRA}.a" if="watchsimulator" unless="dll_import" />
+ 
+   <section if="android">
++     <depend name="${HXCPP}/toolchain/android-toolchain-clang.xml" if="HXCPP_ARM64 || HXCPP_X86_64" unless="static_link || exe_link" />
+      <ext value="${LIBEXTRA}.so" />
+      <ext value="${LIBEXTRA}.a"  if="static_link" />
+      <ext value="${LIBEXTRA}" if="exe_link" />

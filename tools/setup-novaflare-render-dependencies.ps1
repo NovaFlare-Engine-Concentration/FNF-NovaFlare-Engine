@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Timeline', 'Resolution', 'AndroidHints', 'GcBreakdown', 'RenderAttachmentTrace', 'VSync', 'FocusCadence', 'VirtualPointer', 'RenderState', 'GenerationalGC', 'ImmixReclaim', 'ImmixMark', 'RenderThreadRepair', 'ImageCoordinates')]
+    [ValidateSet('Timeline', 'Resolution', 'AndroidHints', 'GcBreakdown', 'RenderAttachmentTrace', 'VSync', 'FocusCadence', 'VirtualPointer', 'RenderState', 'GenerationalGC', 'ImmixReclaim', 'ImmixMark', 'RenderThreadRepair', 'ImageCoordinates', 'Android16K', 'CairoGC')]
     [string[]]$Component = @('Resolution')
 )
 
@@ -55,6 +55,20 @@ function Install-DependencyPatch([string]$root, [string]$patchName, [string]$mar
 
 Push-Location $workspace
 try {
+    if ('CairoGC' -in $Component) {
+        $lime = Find-DependencyRoot 'lime' 'project/Build.xml'
+        Install-DependencyPatch $lime 'lime-cairo-handle-registry.patch' ''
+        $Component = @($Component | Where-Object { $_ -ne 'CairoGC' })
+        if ($Component.Count -eq 0) { return }
+    }
+    if ('Android16K' -in $Component) {
+        $runtime = Find-DependencyRoot 'hxcpp' 'toolchain/android-toolchain-clang.xml'
+        Install-DependencyPatch $runtime 'hxcpp-android-16k.patch' ''
+        $lime = Find-DependencyRoot 'lime' 'project/Build.xml'
+        Install-DependencyPatch $lime 'lime-android-16k.patch' ''
+        $Component = @($Component | Where-Object { $_ -ne 'Android16K' })
+        if ($Component.Count -eq 0) { return }
+    }
     if ('ImageCoordinates' -in $Component) {
         $flixel = Find-DependencyRoot 'flixel' 'flixel/graphics/FlxGraphic.hx'
         Install-DependencyPatch $flixel 'flixel-image-frame-coordinates.patch' ''
@@ -98,7 +112,11 @@ try {
     $threadRepairPatch = 'lime-render-thread-repair.patch'
     $cadencePatch = 'lime-render-cadence.patch'
     $backpressurePatch = 'lime-vsync-render-backpressure.patch'
-    $backpressureInstalled = Test-DependencyPatch $lime $backpressurePatch
+    $androidRenderPacingPatch = 'lime-android-render-pacing.patch'
+    $androidDeadlinePhasePatch = 'lime-android-deadline-phase.patch'
+    $androidRenderRetryPatch = 'lime-android-render-retry.patch'
+    $androidRenderRetryInstalled = Test-DependencyPatch $lime $androidRenderRetryPatch
+    $backpressureInstalled = $androidRenderRetryInstalled -or (Test-DependencyPatch $lime $androidRenderPacingPatch) -or (Test-DependencyPatch $lime $backpressurePatch)
     $cadenceInstalled = $backpressureInstalled -or (Test-DependencyPatch $lime $cadencePatch)
     $threadRepairInstalled = $cadenceInstalled -or (Test-DependencyPatch $lime $threadRepairPatch)
     $installThreadRepair = 'RenderThreadRepair' -in $Component -and !$threadRepairInstalled
@@ -118,6 +136,7 @@ try {
     if ('Resolution' -in $Component) {
         $openfl = Find-DependencyRoot 'openfl' 'src/openfl/display/Stage.hx'
         Install-DependencyPatch $openfl 'openfl-stage-render-target.patch' ''
+        Install-DependencyPatch $openfl 'openfl-stage-filter-scale.patch' ''
     }
     if ('RenderAttachmentTrace' -in $Component) {
         $openfl = Find-DependencyRoot 'openfl' 'src/openfl/display/BitmapData.hx'
@@ -151,7 +170,7 @@ try {
         Install-DependencyPatch $openfl 'openfl-sampler-binding.patch' ''
         Install-DependencyPatch $openfl 'openfl-shader-buffer-overwrite.patch' ''
     }
-    Install-DependencyPatch $lime 'lime-render-thread-build-dependencies.patch' ''
+    if (!$androidRenderRetryInstalled) { Install-DependencyPatch $lime 'lime-render-thread-build-dependencies.patch' '' }
     if ('RenderThreadRepair' -in $Component) {
         if (!$cadenceInstalled) { Install-DependencyPatch $lime $threadRepairPatch '' }
         if ($backpressureInstalled) {
@@ -160,11 +179,57 @@ try {
             Install-DependencyPatch $lime $cadencePatch ''
             Install-DependencyPatch $lime $backpressurePatch ''
         }
+        if (!$androidRenderRetryInstalled) { Install-DependencyPatch $lime $androidRenderPacingPatch '' }
+        Install-DependencyPatch $lime $androidDeadlinePhasePatch ''
+        Install-DependencyPatch $lime $androidRenderRetryPatch ''
+        $threadedMeshPatch = 'lime-threaded-mesh-upload.patch'
+        $threadedShaderPatch = 'lime-threaded-shader-inputs.patch'
+        $limeShaderTicketPatch = 'lime-shader-param-ticket-reuse.patch'
+        $limeCompactQuadPatch = 'lime-compact-quad-shader-attributes.patch'
+        $limeProjectionPatch = 'lime-threaded-projection-matrix.patch'
+        $limeProjectionInstalled = Test-DependencyPatch $lime $limeProjectionPatch
+        $limeCompactQuadInstalled = $limeProjectionInstalled -or (Test-DependencyPatch $lime $limeCompactQuadPatch)
+        $limeShaderTicketInstalled = $limeCompactQuadInstalled -or (Test-DependencyPatch $lime $limeShaderTicketPatch)
+        if (!$limeShaderTicketInstalled -and !(Test-DependencyPatch $lime $threadedShaderPatch)) {
+            if (!(Test-DependencyPatch $lime $threadedMeshPatch)) {
+                Install-DependencyPatch $lime 'lime-threaded-quad-upload.patch' ''
+            }
+            Install-DependencyPatch $lime $threadedMeshPatch ''
+        }
+        if (!$limeShaderTicketInstalled) { Install-DependencyPatch $lime $threadedShaderPatch '' }
+        if (!$limeCompactQuadInstalled) { Install-DependencyPatch $lime $limeShaderTicketPatch '' }
+        if (!$limeProjectionInstalled) { Install-DependencyPatch $lime $limeCompactQuadPatch '' }
+        Install-DependencyPatch $lime $limeProjectionPatch ''
         $openfl = Find-DependencyRoot 'openfl' 'src/openfl/display3D/textures/TextureBase.hx'
         Install-DependencyPatch $openfl 'openfl-queued-texture-upload.patch' ''
-        Install-DependencyPatch $openfl 'openfl-quad-upload-size.patch' ''
+        $threadedQuadPatch = 'openfl-threaded-quad-upload.patch'
+        $threadedTrianglePatch = 'openfl-threaded-triangle-upload.patch'
+        $threadedTilePatch = 'openfl-threaded-tile-upload.patch'
+        if (!(Test-DependencyPatch $openfl $threadedTrianglePatch) -and !(Test-DependencyPatch $openfl $threadedTilePatch)) {
+            if (!(Test-DependencyPatch $openfl $threadedQuadPatch)) {
+                Install-DependencyPatch $openfl 'openfl-quad-upload-size.patch' ''
+            }
+            Install-DependencyPatch $openfl $threadedQuadPatch ''
+        }
+        Install-DependencyPatch $openfl $threadedTrianglePatch ''
+        Install-DependencyPatch $openfl $threadedTilePatch ''
+        $openflShaderTicketPatch = 'openfl-shader-param-ticket-reuse.patch'
+        $openflCompactQuadPatch = 'openfl-compact-quad-shader-attributes.patch'
+        $openflProjectionPatch = 'openfl-threaded-projection-matrix.patch'
+        if (!(Test-DependencyPatch $openfl $openflProjectionPatch)) {
+            if (!(Test-DependencyPatch $openfl $openflCompactQuadPatch)) {
+                if (!(Test-DependencyPatch $openfl $openflShaderTicketPatch)) {
+                    Install-DependencyPatch $openfl 'openfl-threaded-shader-inputs.patch' ''
+                }
+                Install-DependencyPatch $openfl $openflShaderTicketPatch ''
+            }
+            Install-DependencyPatch $openfl $openflCompactQuadPatch ''
+        }
+        Install-DependencyPatch $openfl 'openfl-threaded-uniform-matrix.patch' ''
+        Install-DependencyPatch $openfl $openflProjectionPatch ''
         $flixel = Find-DependencyRoot 'flixel' 'flixel/FlxG.hx'
         Install-DependencyPatch $flixel 'flixel-render-cadence.patch' ''
+        Install-DependencyPatch $flixel 'flixel-compact-quad-shader-attributes.patch' ''
     }
 }
 finally {

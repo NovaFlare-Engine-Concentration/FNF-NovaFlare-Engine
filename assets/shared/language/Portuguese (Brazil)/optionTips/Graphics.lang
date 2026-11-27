@@ -1,7 +1,6 @@
 Graphics => Gráficos
 
 gameQuality => Alterar a qualidade do jogo na tela
-maxImageSize => 0 usa o limite do dispositivo.
 minImageCompressionSize => Aplica a taxa quando o lado mais longo da imagem original atinge este tamanho.
 imageCompressionRatio => Fração do total de pixels mantidos. 0,1 mantém cerca de 10%.
 

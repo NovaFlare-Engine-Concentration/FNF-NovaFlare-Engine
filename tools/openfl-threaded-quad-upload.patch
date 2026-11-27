@@ -1,0 +1,451 @@
+diff --git a/src/openfl/display/_internal/Context3DBuffer.hx b/src/openfl/display/_internal/Context3DBuffer.hx
+index 3445776..f4881da 100644
+--- a/src/openfl/display/_internal/Context3DBuffer.hx
++++ b/src/openfl/display/_internal/Context3DBuffer.hx
+@@ -74,15 +74,29 @@ class Context3DBuffer
+ 	}
+ 
+ 	public function flushVertexBufferData(usedFloats:Int = -1):Void
++	{
++		ensureVertexBuffer();
++		var byteLength = usedFloats >= 0 ? usedFloats * Float32Array.BYTES_PER_ELEMENT : -1;
++		vertexBuffer.uploadFromTypedArray(vertexBufferData, byteLength);
++	}
++
++	public function uploadQuadBatches(batches:Array<Context3DQuadBatch>, quadCount:Int):Void
++	{
++		#if (cpp && lime && lime_cffi && !disable_cffi && !macro && (lime_opengl || lime_opengles))
++		ensureVertexBuffer();
++		if (vertexBuffer.__tryUploadQuadBatches(batches, quadCount)) return;
++		#end
++		Context3DQuadBatch.writeVertices(batches, vertexBufferData);
++		flushVertexBufferData(quadCount * Context3DQuadBatch.VALUES_PER_QUAD);
++	}
++
++	private function ensureVertexBuffer():Void
+ 	{
+ 		if (vertexBufferData.length > vertexCount)
+ 		{
+ 			vertexCount = vertexBufferData.length;
+ 			vertexBuffer = context3D.createVertexBuffer(vertexCount, dataPerVertex, DYNAMIC_DRAW);
+ 		}
+-
+-		var byteLength = usedFloats >= 0 ? usedFloats * Float32Array.BYTES_PER_ELEMENT : -1;
+-		vertexBuffer.uploadFromTypedArray(vertexBufferData, byteLength);
+ 	}
+ 
+ 	public function resize(elementCount:Int, dataPerVertex:Int = -1):Void
+diff --git a/src/openfl/display/_internal/Context3DGraphics.hx b/src/openfl/display/_internal/Context3DGraphics.hx
+index e36ff9f..57d2208 100644
+--- a/src/openfl/display/_internal/Context3DGraphics.hx
++++ b/src/openfl/display/_internal/Context3DGraphics.hx
+@@ -44,7 +44,8 @@ class Context3DGraphics
+ 
+ 	private static function buildBuffer(graphics:Graphics, renderer:OpenGLRenderer):Void
+ 	{
+-		var quadBufferPosition = 0;
++		var quadBatches:Array<Context3DQuadBatch> = null;
++		var quadCount = 0;
+ 		var triangleIndexBufferPosition = 0;
+ 		var vertexBufferPosition = 0;
+ 		var vertexBufferPositionUVT = 0;
+@@ -54,9 +55,6 @@ class Context3DGraphics
+ 
+ 		var context = renderer.__context3D;
+ 
+-		var tileRect = Rectangle.__pool.get();
+-		var tileTransform = Matrix.__pool.get();
+-
+ 		var bitmap:BitmapData = null;
+ 		var bitmapMatrix:Matrix = null;
+ 
+@@ -208,167 +206,21 @@ class Context3DGraphics
+ 
+ 				case DRAW_QUADS:
+ 					var c = data.readDrawQuads();
++					#if cpp
++					var rects:Array<Float> = untyped (c.rects).__array;
++					var indices:Array<Int> = c.indices == null ? null : untyped (c.indices).__array;
++					var transforms:Array<Float> = c.transforms == null ? null : untyped (c.transforms).__array;
++					#else
+ 					var rects = c.rects;
+ 					var indices = c.indices;
+ 					var transforms = c.transforms;
+-
+-					#if cpp
+-					var rects:Array<Float> = rects == null ? null : untyped (rects).__array;
+-					var indices:Array<Int> = indices == null ? null : untyped (indices).__array;
+-					var transforms:Array<Float> = transforms == null ? null : untyped (transforms).__array;
+ 					#end
++					var batch = new Context3DQuadBatch(rects, indices, transforms, bitmap);
++					if (batch.count == 0) continue;
+ 
+-					var hasIndices = (indices != null);
+-					var transformABCD = false, transformXY = false;
+-
+-					var length = hasIndices ? indices.length : Math.floor(rects.length / 4);
+-					if (length == 0) return;
+-
+-					if (transforms != null)
+-					{
+-						if (transforms.length >= length * 6)
+-						{
+-							transformABCD = true;
+-							transformXY = true;
+-						}
+-						else if (transforms.length >= length * 4)
+-						{
+-							transformABCD = true;
+-						}
+-						else if (transforms.length >= length * 2)
+-						{
+-							transformXY = true;
+-						}
+-					}
+-
+-					var dataPerVertex = 4;
+-					var stride = dataPerVertex * 4;
+-
+-					if (graphics.__quadBuffer == null)
+-					{
+-						graphics.__quadBuffer = new Context3DBuffer(context, QUADS, length, dataPerVertex);
+-					}
+-					else
+-					{
+-						graphics.__quadBuffer.resize(quadBufferPosition + length, dataPerVertex);
+-					}
+-
+-					var vertexOffset:Int;
+-					var bitmapWidth:Int;
+-					var bitmapHeight:Int;
+-					var tileWidth:Float;
+-					var tileHeight:Float;
+-					var uvX:Float;
+-					var uvY:Float;
+-					var uvWidth:Float;
+-					var uvHeight:Float;
+-					var x:Float;
+-					var y:Float;
+-					var x2:Float;
+-					var y2:Float;
+-					var x3:Float;
+-					var y3:Float;
+-					var x4:Float;
+-					var y4:Float;
+-					var ri:Int;
+-					var ti:Int;
+-
+-					var vertexBufferData = graphics.__quadBuffer.vertexBufferData;
+-
+-					bitmapWidth = 1;
+-					bitmapHeight = 1;
+-					if (bitmap != null)
+-					{
+-						#if openfl_power_of_two
+-						while (bitmapWidth < bitmap.width)
+-						{
+-							bitmapWidth <<= 1;
+-						}
+-						while (bitmapHeight < bitmap.height)
+-						{
+-							bitmapHeight <<= 1;
+-						}
+-						#else
+-						bitmapWidth = bitmap.width;
+-						bitmapHeight = bitmap.height;
+-						#end
+-					}
+-
+-					for (i in 0...length)
+-					{
+-						vertexOffset = (quadBufferPosition + i) * stride;
+-
+-						ri = (hasIndices ? (indices[i] * 4) : i * 4);
+-						if (ri < 0) continue;
+-						tileRect.setTo(rects[ri], rects[ri + 1], rects[ri + 2], rects[ri + 3]);
+-
+-						tileWidth = tileRect.width;
+-						tileHeight = tileRect.height;
+-
+-						if (tileWidth <= 0 || tileHeight <= 0)
+-						{
+-							continue;
+-						}
+-
+-						if (transformABCD && transformXY)
+-						{
+-							ti = i * 6;
+-							tileTransform.setTo(transforms[ti], transforms[ti + 1], transforms[ti + 2], transforms[ti + 3], transforms[ti + 4],
+-								transforms[ti + 5]);
+-						}
+-						else if (transformABCD)
+-						{
+-							ti = i * 4;
+-							tileTransform.setTo(transforms[ti], transforms[ti + 1], transforms[ti + 2], transforms[ti + 3], tileRect.x, tileRect.y);
+-						}
+-						else if (transformXY)
+-						{
+-							ti = i * 2;
+-							tileTransform.tx = transforms[ti];
+-							tileTransform.ty = transforms[ti + 1];
+-						}
+-						else
+-						{
+-							tileTransform.tx = tileRect.x;
+-							tileTransform.ty = tileRect.y;
+-						}
+-
+-						uvX = tileRect.x / bitmapWidth;
+-						uvY = tileRect.y / bitmapHeight;
+-						uvWidth = tileRect.right / bitmapWidth;
+-						uvHeight = tileRect.bottom / bitmapHeight;
+-
+-						x = tileTransform.__transformX(0, 0);
+-						y = tileTransform.__transformY(0, 0);
+-						x2 = tileTransform.__transformX(tileWidth, 0);
+-						y2 = tileTransform.__transformY(tileWidth, 0);
+-						x3 = tileTransform.__transformX(0, tileHeight);
+-						y3 = tileTransform.__transformY(0, tileHeight);
+-						x4 = tileTransform.__transformX(tileWidth, tileHeight);
+-						y4 = tileTransform.__transformY(tileWidth, tileHeight);
+-
+-						vertexBufferData[vertexOffset + 0] = x;
+-						vertexBufferData[vertexOffset + 1] = y;
+-						vertexBufferData[vertexOffset + 2] = uvX;
+-						vertexBufferData[vertexOffset + 3] = uvY;
+-
+-						vertexBufferData[vertexOffset + dataPerVertex + 0] = x2;
+-						vertexBufferData[vertexOffset + dataPerVertex + 1] = y2;
+-						vertexBufferData[vertexOffset + dataPerVertex + 2] = uvWidth;
+-						vertexBufferData[vertexOffset + dataPerVertex + 3] = uvY;
+-
+-						vertexBufferData[vertexOffset + (dataPerVertex * 2) + 0] = x3;
+-						vertexBufferData[vertexOffset + (dataPerVertex * 2) + 1] = y3;
+-						vertexBufferData[vertexOffset + (dataPerVertex * 2) + 2] = uvX;
+-						vertexBufferData[vertexOffset + (dataPerVertex * 2) + 3] = uvHeight;
+-
+-						vertexBufferData[vertexOffset + (dataPerVertex * 3) + 0] = x4;
+-						vertexBufferData[vertexOffset + (dataPerVertex * 3) + 1] = y4;
+-						vertexBufferData[vertexOffset + (dataPerVertex * 3) + 2] = uvWidth;
+-						vertexBufferData[vertexOffset + (dataPerVertex * 3) + 3] = uvHeight;
+-					}
+-
+-					quadBufferPosition += length;
++					if (quadBatches == null) quadBatches = [];
++					quadBatches.push(batch);
++					quadCount += batch.count;
+ 
+ 				case DRAW_TRIANGLES:
+ 					var c = data.readDrawTriangles();
+@@ -460,9 +312,13 @@ class Context3DGraphics
+ 
+ 		// TODO: Should we use static data specific to Context3DGraphics instead of each Graphics instance?
+ 
+-		if (quadBufferPosition > 0)
++		if (quadBatches != null)
+ 		{
+-			graphics.__quadBuffer.flushVertexBufferData(quadBufferPosition * 4 * graphics.__quadBuffer.dataPerVertex);
++			if (graphics.__quadBuffer == null)
++				graphics.__quadBuffer = new Context3DBuffer(context, QUADS, quadCount, 4);
++			else
++				graphics.__quadBuffer.resize(quadCount, 4);
++			graphics.__quadBuffer.uploadQuadBatches(quadBatches, quadCount);
+ 		}
+ 
+ 		if (triangleIndexBufferPosition > 0)
+@@ -506,9 +362,6 @@ class Context3DGraphics
+ 
+ 			buffer.uploadFromTypedArray(graphics.__vertexBufferDataUVT);
+ 		}
+-
+-		Rectangle.__pool.release(tileRect);
+-		Matrix.__pool.release(tileTransform);
+ 	}
+ 
+ 	private static function isCompatible(graphics:Graphics):Bool
+diff --git a/src/openfl/display/_internal/Context3DQuadBatch.hx b/src/openfl/display/_internal/Context3DQuadBatch.hx
+new file mode 100644
+index 0000000..54cea9e
+--- /dev/null
++++ b/src/openfl/display/_internal/Context3DQuadBatch.hx
+@@ -0,0 +1,150 @@
++package openfl.display._internal;
++
++#if !flash
++import openfl.Vector;
++import openfl.display.BitmapData;
++import openfl.geom.Matrix;
++import openfl.utils._internal.Float32Array;
++
++private typedef QuadInput<T> = #if cpp Array<T> #else Vector<T> #end;
++
++@:access(openfl.geom.Matrix)
++class Context3DQuadBatch
++{
++	public static inline var VALUES_PER_QUAD = 16;
++
++	public final rects:QuadInput<Float>;
++	public final indices:QuadInput<Int>;
++	public final transforms:QuadInput<Float>;
++	public final bitmapWidth:Int;
++	public final bitmapHeight:Int;
++	public final count:Int;
++
++	public function new(rects:QuadInput<Float>, indices:QuadInput<Int>, transforms:QuadInput<Float>, bitmap:BitmapData)
++	{
++		this.rects = rects;
++		this.indices = indices;
++		this.transforms = transforms;
++		bitmapWidth = textureDimension(bitmap == null ? 1 : bitmap.width);
++		bitmapHeight = textureDimension(bitmap == null ? 1 : bitmap.height);
++		count = indices == null ? Math.floor(rects.length / 4) : indices.length;
++	}
++
++	public static function writeVertices(batches:Array<Context3DQuadBatch>, vertices:Float32Array):Void
++	{
++		// Translation-only batches inherit the linear part of the previous transform.
++		final matrix = new Matrix();
++		var offset = 0;
++		for (batch in batches)
++		{
++			batch.writeBatch(vertices, offset, matrix);
++			offset += batch.count * VALUES_PER_QUAD;
++		}
++	}
++
++	private function writeBatch(vertices:Float32Array, offset:Int, matrix:Matrix):Void
++	{
++		final rectCount = Math.floor(rects.length / 4);
++		final transformStride = getTransformStride();
++		for (quadIndex in 0...count)
++		{
++			final quadOffset = offset + quadIndex * VALUES_PER_QUAD;
++			final rectIndex = indices == null ? quadIndex : indices[quadIndex];
++			if (rectIndex < 0 || rectIndex >= rectCount)
++			{
++				clearQuad(vertices, quadOffset);
++				continue;
++			}
++			final rectOffset = rectIndex * 4;
++			if (rects[rectOffset + 2] <= 0 || rects[rectOffset + 3] <= 0)
++			{
++				clearQuad(vertices, quadOffset);
++				continue;
++			}
++
++			updateMatrix(matrix, quadIndex, rectOffset, transformStride);
++			writeQuad(vertices, quadOffset, matrix, rectOffset);
++		}
++	}
++
++	private function getTransformStride():Int
++	{
++		if (transforms == null) return 0;
++		if (transforms.length >= count * 6) return 6;
++		if (transforms.length >= count * 4) return 4;
++		if (transforms.length >= count * 2) return 2;
++		return 0;
++	}
++
++	private inline function updateMatrix(matrix:Matrix, quadIndex:Int, rectOffset:Int, stride:Int):Void
++	{
++		final transformOffset = quadIndex * stride;
++		if (stride >= 4)
++		{
++			matrix.a = transforms[transformOffset];
++			matrix.b = transforms[transformOffset + 1];
++			matrix.c = transforms[transformOffset + 2];
++			matrix.d = transforms[transformOffset + 3];
++		}
++		if (stride == 2 || stride == 6)
++		{
++			final translationOffset = transformOffset + (stride == 6 ? 4 : 0);
++			matrix.tx = transforms[translationOffset];
++			matrix.ty = transforms[translationOffset + 1];
++		}
++		else
++		{
++			matrix.tx = rects[rectOffset];
++			matrix.ty = rects[rectOffset + 1];
++		}
++	}
++
++	private inline function writeQuad(vertices:Float32Array, offset:Int, matrix:Matrix, rectOffset:Int):Void
++	{
++		final x = rects[rectOffset];
++		final y = rects[rectOffset + 1];
++		final width = rects[rectOffset + 2];
++		final height = rects[rectOffset + 3];
++		final left = x / bitmapWidth;
++		final top = y / bitmapHeight;
++		final right = (x + width) / bitmapWidth;
++		final bottom = (y + height) / bitmapHeight;
++
++		vertices[offset] = matrix.__transformX(0, 0);
++		vertices[offset + 1] = matrix.__transformY(0, 0);
++		vertices[offset + 2] = left;
++		vertices[offset + 3] = top;
++		vertices[offset + 4] = matrix.__transformX(width, 0);
++		vertices[offset + 5] = matrix.__transformY(width, 0);
++		vertices[offset + 6] = right;
++		vertices[offset + 7] = top;
++		vertices[offset + 8] = matrix.__transformX(0, height);
++		vertices[offset + 9] = matrix.__transformY(0, height);
++		vertices[offset + 10] = left;
++		vertices[offset + 11] = bottom;
++		vertices[offset + 12] = matrix.__transformX(width, height);
++		vertices[offset + 13] = matrix.__transformY(width, height);
++		vertices[offset + 14] = right;
++		vertices[offset + 15] = bottom;
++	}
++
++	private static inline function clearQuad(vertices:Float32Array, offset:Int):Void
++	{
++		// An invalid index still occupies a slot in the draw and shader input buffers.
++		for (valueIndex in 0...VALUES_PER_QUAD)
++			vertices[offset + valueIndex] = 0;
++	}
++
++	private static function textureDimension(size:Int):Int
++	{
++		#if openfl_power_of_two
++		var dimension = 1;
++		while (dimension < size)
++			dimension <<= 1;
++		return dimension;
++		#else
++		return size;
++		#end
++	}
++}
++#end
+diff --git a/src/openfl/display3D/VertexBuffer3D.hx b/src/openfl/display3D/VertexBuffer3D.hx
+index 3d0cd55..379d4da 100644
+--- a/src/openfl/display3D/VertexBuffer3D.hx
++++ b/src/openfl/display3D/VertexBuffer3D.hx
+@@ -6,6 +6,9 @@ import openfl.utils._internal.ArrayBufferView;
+ import openfl.utils._internal.Float32Array;
+ import openfl.utils.ByteArray;
+ import openfl.Vector;
++#if (cpp && lime && lime_cffi && !disable_cffi && !macro && (lime_opengl || lime_opengles))
++import lime._internal.backend.native.NativeCFFI;
++#end
+ 
+ /**
+ 	The VertexBuffer3D class represents a set of vertex data uploaded to a rendering context.
+@@ -139,6 +142,15 @@ class VertexBuffer3D
+ 		gl.bufferData(gl.ARRAY_BUFFER, data, __usage);
+ 	}
+ 
++	#if (cpp && lime && lime_cffi && !disable_cffi && !macro && (lime_opengl || lime_opengles))
++	@:allow(openfl.display._internal.Context3DBuffer)
++	private function __tryUploadQuadBatches(batches:Dynamic, quadCount:Int):Bool
++	{
++		__context.__bindGLArrayBuffer(__id);
++		return @:privateAccess NativeCFFI.tryQueueQuadBuffer(batches, quadCount, __usage);
++	}
++	#end
++
+ 	/**
+ 		Uploads the data for a set of points to the rendering context from a vector array.
+ 

@@ -36,6 +36,12 @@ class NovaFlareGame extends FlxGame
 		scriptUpdateActive = false;
 	}
 
+	override function onFocus(event:Event):Void
+	{
+		super.onFocus(event);
+		RenderResolution.applyDrawRate(stage);
+	}
+
 	override function onFocusLost(event:Event):Void
 	{
 		if (FlxG.autoPause)

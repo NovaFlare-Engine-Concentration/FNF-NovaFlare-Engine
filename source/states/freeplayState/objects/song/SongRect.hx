@@ -2,6 +2,7 @@ package states.freeplayState.objects.song;
 
 import games.objects.HealthIcon;
 import flixel.graphics.FlxGraphic;
+import general.backend.ImageCompression;
 import lime._internal.graphics.ImageDataUtil;
 import lime.graphics.Image as LimeImage;
 import lime.math.Rectangle as LimeRectangle;
@@ -191,13 +192,13 @@ class SongRect extends FlxSpriteGroup {
             if (!FileSystem.exists(file))
                 return null;
 
-            var source:LimeImage = LimeImage.fromFile(file);
+            var source = ImageCompression.withScaledDecode(() -> LimeImage.fromFile(file));
             if (source == null || source.width <= 0 || source.height <= 0)
                 return null;
 
-            // Take ownership of the decoded buffer and shrink it before making
-            // any copies. This keeps even an 8K mod background from being cloned
-            // at full resolution.
+            // The cover and thumbnail have their own coordinates after cropping.
+            source.imageSourceWidth = 0;
+            source.imageSourceHeight = 0;
             var resizedBackground:LimeImage = coverBackgroundImage(
                 source, viewportWidth, viewportHeight);
             if (resizedBackground == null)

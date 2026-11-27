@@ -3,6 +3,7 @@ Maintenance => 维护设置
 developerMode => 开发者模式，会禁用一些报错显示和trace
 deepDebug => 记录每首歌曲使用的脚本、图片、音频等资源，并在歌曲结束后输出到运行目录下的debug文件夹
 moreLuaErrors => 启用它将会放出更多Lua的运行时的隐性错误，对于一些疑难杂症真的有很大用处
+hideLuaDebugText => 隐藏画面上的 Lua 调试文字
 devConScale => 控制台的大小，此控制台是用来捕捉所有trace输出的
 
 oldHscriptVersion => 使用 Hscript 为 runhaxecode 工作以兼容旧模组

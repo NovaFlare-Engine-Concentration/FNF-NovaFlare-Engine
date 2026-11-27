@@ -1,0 +1,256 @@
+diff --git a/src/openfl/display/_internal/Context3DGraphics.hx b/src/openfl/display/_internal/Context3DGraphics.hx
+index 57d22088..56f9f9d2 100644
+--- a/src/openfl/display/_internal/Context3DGraphics.hx
++++ b/src/openfl/display/_internal/Context3DGraphics.hx
+@@ -9,12 +9,17 @@ import openfl.utils._internal.UInt16Array;
+ import openfl.display.BitmapData;
+ import openfl.display.Graphics;
+ import openfl.display.OpenGLRenderer;
++import openfl.display3D.Context3D;
++import openfl.display3D.VertexBuffer3D;
+ import openfl.geom.ColorTransform;
+ import openfl.geom.Matrix;
+ import openfl.geom.Rectangle;
+ #if lime
+ import lime.math.ARGB;
+ #end
++#if (cpp && lime && lime_cffi && !disable_cffi && !macro && (lime_opengl || lime_opengles))
++import lime._internal.backend.native.NativeCFFI;
++#end
+ #if gl_stats
+ import openfl.display._internal.stats.Context3DStats;
+ import openfl.display._internal.stats.DrawCallContext;
+@@ -65,7 +70,16 @@ class Context3DGraphics
+ 			scale9Grid = null;
+ 		}
+ 
+-		inline function buildDrawTrianglesBuffer(vertices:Vector<Float>, indices:Vector<Int>, uvtData:Vector<Float>, culling:TriangleCulling):Void
++		#if (cpp && lime && lime_cffi && !disable_cffi && !macro && (lime_opengl || lime_opengles))
++		final collectTriangles = !hasScale9Grid && canCollectTriangles(graphics);
++		var queueTriangles = collectTriangles;
++		var trianglesXY:Array<Context3DTriangleBatch> = null;
++		var trianglesUVT:Array<Context3DTriangleBatch> = null;
++		var triangleCountXY = 0;
++		var triangleCountUVT = 0;
++		#end
++
++		inline function buildDrawTrianglesBuffer(vertices:Vector<Float>, indices:Vector<Int>, uvtData:Vector<Float>):Void
+ 		{
+ 			if (hasScale9Grid)
+ 			{
+@@ -224,11 +238,33 @@ class Context3DGraphics
+ 
+ 				case DRAW_TRIANGLES:
+ 					var c = data.readDrawTriangles();
+-					var vertices = c.vertices;
+-					var indices = c.indices;
+-					var uvtData = c.uvtData;
+-					var culling = c.culling;
+-					buildDrawTrianglesBuffer(vertices, indices, uvtData, culling);
++					#if (cpp && lime && lime_cffi && !disable_cffi && !macro && (lime_opengl || lime_opengles))
++					if (collectTriangles)
++					{
++						final batch = new Context3DTriangleBatch(c.vertices, c.indices, c.uvtData, bitmap);
++						if (batch.bitmap != null && batch.sourceUVT == null && (batch.bitmapWidth <= 0 || batch.bitmapHeight <= 0))
++							queueTriangles = false;
++						if (batch.count == 0)
++						{
++							// Preserve the legacy handling of empty index vectors.
++							queueTriangles = false;
++						}
++						else if (batch.hasUVT)
++						{
++							if (trianglesUVT == null) trianglesUVT = [];
++							trianglesUVT.push(batch);
++							triangleCountUVT += batch.count;
++						}
++						else
++						{
++							if (trianglesXY == null) trianglesXY = [];
++							trianglesXY.push(batch);
++							triangleCountXY += batch.count;
++						}
++						continue;
++					}
++					#end
++					buildDrawTrianglesBuffer(c.vertices, c.indices, c.uvtData);
+ 
+ 				case DRAW_CIRCLE:
+ 					var c = data.readDrawCircle();
+@@ -241,7 +277,7 @@ class Context3DGraphics
+ 
+ 					PolygonFunctions.buildEllipseVerticesAndIndices(x - radius, y - radius, radius, radius, scaleX, scaleY, tempVerticesVector,
+ 						tempIndicesVector);
+-					buildDrawTrianglesBuffer(tempVerticesVector, tempIndicesVector, null, NONE);
++					buildDrawTrianglesBuffer(tempVerticesVector, tempIndicesVector, null);
+ 
+ 				case DRAW_ELLIPSE:
+ 					var c = data.readDrawEllipse();
+@@ -254,7 +290,7 @@ class Context3DGraphics
+ 					var scaleY = graphics.__owner.scaleY;
+ 
+ 					PolygonFunctions.buildEllipseVerticesAndIndices(x, y, radiusX, radiusY, scaleX, scaleY, tempVerticesVector, tempIndicesVector);
+-					buildDrawTrianglesBuffer(tempVerticesVector, tempIndicesVector, null, NONE);
++					buildDrawTrianglesBuffer(tempVerticesVector, tempIndicesVector, null);
+ 
+ 				case DRAW_ROUND_RECT:
+ 					var c = data.readDrawRoundRect();
+@@ -274,7 +310,7 @@ class Context3DGraphics
+ 
+ 					PolygonFunctions.buildRoundRectVerticesAndIndices(x, y, width, height, radiusX, radiusY, scaleX, scaleY, tempVerticesVector,
+ 						tempIndicesVector);
+-					buildDrawTrianglesBuffer(tempVerticesVector, tempIndicesVector, null, NONE);
++					buildDrawTrianglesBuffer(tempVerticesVector, tempIndicesVector, null);
+ 
+ 				case DRAW_RECT:
+ 					if (bitmap != null)
+@@ -298,7 +334,7 @@ class Context3DGraphics
+ 						tempIndicesVector[4] = 2;
+ 						tempIndicesVector[5] = 3;
+ 
+-						buildDrawTrianglesBuffer(tempVerticesVector, tempIndicesVector, null, NONE);
++						buildDrawTrianglesBuffer(tempVerticesVector, tempIndicesVector, null);
+ 					}
+ 
+ 				case END_FILL:
+@@ -335,34 +371,84 @@ class Context3DGraphics
+ 			buffer.uploadFromTypedArray(graphics.__triangleIndexBufferData);
+ 		}
+ 
+-		if (vertexBufferPosition > 0)
++		#if (cpp && lime && lime_cffi && !disable_cffi && !macro && (lime_opengl || lime_opengles))
++		if (trianglesXY != null && (!queueTriangles || !tryQueueTriangles(graphics, context, trianglesXY, triangleCountXY)))
+ 		{
+-			var buffer = graphics.__vertexBuffer;
++			for (batch in trianglesXY)
++			{
++				bitmap = batch.bitmap;
++				buildDrawTrianglesBuffer(batch.sourceVertices, batch.sourceIndices, batch.sourceUVT);
++			}
++		}
+ 
+-			if (buffer == null || vertexBufferPosition > graphics.__vertexBufferCount)
++		if (trianglesUVT != null && (!queueTriangles || !tryQueueTriangles(graphics, context, trianglesUVT, triangleCountUVT)))
++		{
++			for (batch in trianglesUVT)
+ 			{
+-				buffer = context.createVertexBuffer(vertexBufferPosition, 4, DYNAMIC_DRAW);
+-				graphics.__vertexBuffer = buffer;
+-				graphics.__vertexBufferCount = vertexBufferPosition;
++				bitmap = batch.bitmap;
++				buildDrawTrianglesBuffer(batch.sourceVertices, batch.sourceIndices, batch.sourceUVT);
+ 			}
++		}
++		#end
+ 
++		if (vertexBufferPosition > 0)
++		{
++			final buffer = getTriangleVertexBuffer(graphics, context, vertexBufferPosition, false);
+ 			buffer.uploadFromTypedArray(graphics.__vertexBufferData);
+ 		}
+ 
+ 		if (vertexBufferPositionUVT > 0)
+ 		{
+-			var buffer = graphics.__vertexBufferUVT;
++			final buffer = getTriangleVertexBuffer(graphics, context, vertexBufferPositionUVT, true);
++			buffer.uploadFromTypedArray(graphics.__vertexBufferDataUVT);
++		}
++	}
++
++	private static function getTriangleVertexBuffer(graphics:Graphics, context:Context3D, valueCount:Int, hasUVT:Bool):VertexBuffer3D
++	{
++		final buffer = hasUVT ? graphics.__vertexBufferUVT : graphics.__vertexBuffer;
++		final capacity = hasUVT ? graphics.__vertexBufferCountUVT : graphics.__vertexBufferCount;
++		if (buffer != null && capacity >= valueCount) return buffer;
++
++		final newBuffer = context.createVertexBuffer(valueCount, hasUVT ? 6 : 4, DYNAMIC_DRAW);
++		if (hasUVT)
++		{
++			graphics.__vertexBufferUVT = newBuffer;
++			graphics.__vertexBufferCountUVT = valueCount;
++		}
++		else
++		{
++			graphics.__vertexBuffer = newBuffer;
++			graphics.__vertexBufferCount = valueCount;
++		}
++		return newBuffer;
++	}
+ 
+-			if (buffer == null || vertexBufferPositionUVT > graphics.__vertexBufferCountUVT)
++	#if (cpp && lime && lime_cffi && !disable_cffi && !macro && (lime_opengl || lime_opengles))
++	private static function canCollectTriangles(graphics:Graphics):Bool
++	{
++		// These commands share mutable polygon vectors with the legacy builder.
++		for (type in graphics.__commands.types)
++		{
++			switch (type)
+ 			{
+-				buffer = context.createVertexBuffer(vertexBufferPositionUVT, 6, DYNAMIC_DRAW);
+-				graphics.__vertexBufferUVT = buffer;
+-				graphics.__vertexBufferCountUVT = vertexBufferPositionUVT;
++				case DRAW_CIRCLE | DRAW_ELLIPSE | DRAW_ROUND_RECT | DRAW_RECT:
++					return false;
++				default:
+ 			}
+-
+-			buffer.uploadFromTypedArray(graphics.__vertexBufferDataUVT);
+ 		}
++		return true;
++	}
++
++	private static function tryQueueTriangles(graphics:Graphics, context:Context3D, batches:Array<Context3DTriangleBatch>, vertexCount:Int):Bool
++	{
++		final hasUVT = batches[0].hasUVT;
++		final vertexSize = hasUVT ? 6 : 4;
++		final buffer = getTriangleVertexBuffer(graphics, context, vertexCount * vertexSize, hasUVT);
++		@:privateAccess context.__bindGLArrayBuffer(buffer.__id);
++		return @:privateAccess NativeCFFI.tryQueueTriangleBuffer(batches, vertexCount, vertexSize, buffer.__usage);
+ 	}
++	#end
+ 
+ 	private static function isCompatible(graphics:Graphics):Bool
+ 	{
+diff --git a/src/openfl/display/_internal/Context3DTriangleBatch.hx b/src/openfl/display/_internal/Context3DTriangleBatch.hx
+new file mode 100644
+index 00000000..f22324d3
+--- /dev/null
++++ b/src/openfl/display/_internal/Context3DTriangleBatch.hx
+@@ -0,0 +1,37 @@
++package openfl.display._internal;
++
++#if (cpp && lime && lime_cffi && !disable_cffi && !macro && (lime_opengl || lime_opengles) && !flash)
++import openfl.Vector;
++import openfl.display.BitmapData;
++
++class Context3DTriangleBatch
++{
++	public final sourceVertices:Vector<Float>;
++	public final sourceIndices:Vector<Int>;
++	public final sourceUVT:Vector<Float>;
++	public final bitmap:BitmapData;
++	public final vertices:Array<Float>;
++	public final indices:Array<Int>;
++	public final uvtData:Array<Float>;
++	public final bitmapWidth:Int;
++	public final bitmapHeight:Int;
++	public final count:Int;
++	public final hasUVT:Bool;
++
++	public function new(vertices:Vector<Float>, indices:Vector<Int>, uvtData:Vector<Float>, bitmap:BitmapData)
++	{
++		sourceVertices = vertices;
++		sourceIndices = indices;
++		sourceUVT = uvtData;
++		this.bitmap = bitmap;
++		this.vertices = untyped (vertices).__array;
++		this.indices = indices == null ? null : untyped (indices).__array;
++		this.uvtData = uvtData == null ? null : untyped (uvtData).__array;
++		bitmapWidth = bitmap != null && uvtData == null ? bitmap.width : 0;
++		bitmapHeight = bitmap != null && uvtData == null ? bitmap.height : 0;
++		final numVertices = Math.floor(vertices.length / 2);
++		count = indices == null ? numVertices : indices.length;
++		hasUVT = uvtData != null && uvtData.length >= numVertices * 3;
++	}
++}
++#end

@@ -48,6 +48,8 @@ class NoteSplash extends FlxSprite
 
 	var spawned:Bool = false;
 	var noteDataMap:Map<Int, String> = new Map();
+	static inline final DEFAULT_MIN_FPS = 22;
+	static inline final DEFAULT_MAX_FPS = 26;
 
 	public static var defaultNoteSplash(default, never):String = "noteSplashes/noteSplashes";
 	public static var configs:Map<String, NoteSplashConfig> = new Map();
@@ -138,7 +140,7 @@ class NoteSplash extends FlxSprite
 		// Splashes with no json
 		var tempConfig:NoteSplashConfig = createConfig();
 		var anim:String = 'note splash';
-		var fps:Array<Null<Int>> = [22, 26];
+		var fps:Array<Null<Int>> = [DEFAULT_MIN_FPS, DEFAULT_MAX_FPS];
 		var offsets:Array<Array<Float>> = [[0, 0]];
 		if (Paths.fileExists('$path.txt', TEXT)) // Backwards compatibility with 0.7 splash txts
 		{
@@ -150,8 +152,8 @@ class NoteSplash extends FlxSprite
 				{
 					var framerates:Array<String> = configFile[1].split(' ');
 					fps = [Std.parseInt(framerates[0]), Std.parseInt(framerates[1])];
-					if (fps[0] == null) fps[0] = 22;
-					if (fps[1] == null) fps[1] = 26;
+				if (fps[0] == null) fps[0] = DEFAULT_MIN_FPS;
+				if (fps[1] == null) fps[1] = DEFAULT_MAX_FPS;
 
 					if (configFile.length > 2)
 					{
@@ -206,9 +208,10 @@ class NoteSplash extends FlxSprite
 	public function spawnSplashNote(?x:Float = 0, ?y:Float = 0, ?noteData:Int = 0, ?note:Note, ?randomize:Bool = true)
 	{
 		if (note != null && note.noteSplashData.disabled)
+		{
+			kill();
 			return;
-
-		aliveTime = 0;
+		}
 
 		if (!inEditor)
 		{
@@ -231,8 +234,22 @@ class NoteSplash extends FlxSprite
 		if (randomize && maxAnims > 1)
 			noteData = noteLane + (FlxG.random.int(0, maxAnims - 1) * Note.colArray.length);
 
+		var anim = noteDataMap.get(noteData);
+		if (anim == null && randomize && noteData != noteLane)
+		{
+			noteData = noteLane;
+			anim = noteDataMap.get(noteData);
+		}
+		var clip = anim != null ? animation.getByName(anim) : null;
+		if (clip == null)
+		{
+			kill();
+			return;
+		}
+
 		this.noteData = noteData;
-		var anim:String = playDefaultAnim();
+		var conf = config.animations.get(anim);
+		clip.frameRate = randomFrameRate(conf != null ? conf.fps : null);
 
 		var tempShader:RGBPalette = null;
 		// 着色体系：RGB（通道重映射）/ legacy（HSV 整体偏移，0.6.3 行为）。见 NoteSplash.allowRGBShader()
@@ -301,18 +318,12 @@ class NoteSplash extends FlxSprite
 		else if (!NoteHSV.apply(this, noteLane)) shader = rgbShader.shader;
 
 		offset.set(10, 10);
-		var conf:NoteSplashAnim = config.animations.get(anim);
 		var offsets:Array<Float> = [0, 0];
 		if (conf != null) offsets = conf.offsets;
 		if (offsets != null)
 		{
 			offset.x += offsets[0];
 			offset.y += offsets[1];
-		}
-
-		animation.finishCallback = function(name:String) {
-			kill();
-			spawned = false;
 		}
 
 		alpha = ClientPrefs.data.splashAlpha;
@@ -322,21 +333,9 @@ class NoteSplash extends FlxSprite
 		if (note != null) antialiasing = note.noteSplashData.antialiasing;
 		if (PlayState.isPixelStage && config.allowPixel) antialiasing = false;
 
-		var minFps:Int = 22;
-		var maxFps:Int = 26;
-		if (conf != null)
-		{
-			minFps = conf.fps[0];
-			if (minFps < 0) minFps = 0;
-
-			maxFps = conf.fps[1];
-			if (maxFps < 0) maxFps = 0;
-		}
-
-		if (animation.curAnim != null)
-			animation.curAnim.frameRate = FlxG.random.int(minFps, maxFps);
-
 		spawned = true;
+		playDefaultAnim();
+		recycleStoppedSplash();
 	}
 	
 	public function playDefaultAnim()
@@ -348,6 +347,21 @@ class NoteSplash extends FlxSprite
 		return anim;
 	}
 
+	static function validFrameRate(fps:Array<Int>, index:Int):Int
+	{
+		var rate:Null<Int> = fps != null && index < fps.length ? fps[index] : null;
+		return rate != null && rate > 0 ? rate : 0;
+	}
+
+	static function randomFrameRate(fps:Array<Int>):Int
+	{
+		var min = validFrameRate(fps, 0);
+		var max = validFrameRate(fps, 1);
+		if (min == 0 && max == 0) return FlxG.random.int(DEFAULT_MIN_FPS, DEFAULT_MAX_FPS);
+		if (min == 0 || max == 0) return min + max;
+		return min <= max ? FlxG.random.int(min, max) : FlxG.random.int(max, min);
+	}
+
 	function checkForAnim(anim:String)
 	{
 		var animFrames = [];
@@ -357,20 +371,15 @@ class NoteSplash extends FlxSprite
 		return animFrames.length > 0;
 	}
 
-	var aliveTime:Float = 0;
-	static var buggedKillTime:Float = 0.5; //automatically kills note splashes if they break to prevent it from flooding your HUD
+	override public function kill():Void
+	{
+		spawned = false;
+		babyArrow = null;
+		super.kill();
+	}
+
 	override function update(elapsed:Float)
 	{
-		if (spawned)
-		{
-			aliveTime += elapsed;
-			if (animation.curAnim == null && aliveTime >= buggedKillTime)
-			{
-				kill();
-				spawned = false;
-			}
-		}
-
 		if (babyArrow != null)
 		{
 			if (copyX)
@@ -380,6 +389,15 @@ class NoteSplash extends FlxSprite
 				y = babyArrow.y - Note.swagWidth;
 		}
 		super.update(elapsed);
+		recycleStoppedSplash();
+	}
+
+	function recycleStoppedSplash():Void
+	{
+		if (!spawned || !exists) return;
+		var clip = animation.curAnim;
+		if (clip == null || clip.finished || clip.frameRate <= 0)
+			kill();
 	}
 
 	public static function getSplashSkinPostfix()
@@ -472,14 +490,16 @@ class NoteSplash extends FlxSprite
 		for (i in value.animations)
 		{
 			var key:String = i.name;
-			if (i.prefix.length > 0 && key != null && key.length > 0)
+			if (i.prefix != null && i.prefix.length > 0 && key != null && key.length > 0)
 			{
+				var frameRate = validFrameRate(i.fps, 1);
+				if (frameRate == 0) frameRate = DEFAULT_MAX_FPS;
 				if (i.indices != null && i.indices.length > 0)
-					animation.addByIndices(key, i.prefix, i.indices, "", i.fps[1], false);
+					animation.addByIndices(key, i.prefix, i.indices, "", frameRate, false);
 				else
-					animation.addByPrefix(key, i.prefix, i.fps[1], false);
+					animation.addByPrefix(key, i.prefix, frameRate, false);
 
-				noteDataMap.set(i.noteData, key);
+				if (animation.exists(key)) noteDataMap.set(i.noteData, key);
 			}
 		}
 

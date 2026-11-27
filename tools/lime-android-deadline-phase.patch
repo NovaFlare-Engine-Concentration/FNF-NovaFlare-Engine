@@ -1,0 +1,17 @@
+diff --git a/project/src/backend/sdl/SDLApplication.cpp b/project/src/backend/sdl/SDLApplication.cpp
+index d6ad215..d8b3b33 100644
+--- a/project/src/backend/sdl/SDLApplication.cpp
++++ b/project/src/backend/sdl/SDLApplication.cpp
+@@ -92,8 +92,12 @@ namespace lime {
+ 	}
+ 
+ 	static Uint64 AdvanceFrameDeadline (Uint64 deadline, Uint64 period, Uint64 now) {
++#ifdef ANDROID
++		return now + (period - (now - deadline) % period);
++#else
+ 		const auto next = deadline + period;
+ 		return next > now ? next : now + period;
++#endif
+ 	}
+ 
+ 	#if !defined(IPHONE) && !defined(EMSCRIPTEN)

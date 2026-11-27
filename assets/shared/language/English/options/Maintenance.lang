@@ -3,6 +3,7 @@ Maintenance => Maintenance
 developerMode => developer model
 deepDebug => Deep Debug
 moreLuaErrors => Strict Lua syntax
+hideLuaDebugText => Hide Debug Text
 devConScale => console Size
 
 oldHscriptVersion => Old Hscript Version

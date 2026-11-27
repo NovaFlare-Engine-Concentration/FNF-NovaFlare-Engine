@@ -137,7 +137,7 @@ jobs:
       - name: Prepare render thread and Immix runtime
         shell: pwsh
         run: |
-          ./tools/setup-novaflare-render-dependencies.ps1 -Component GenerationalGC,ImmixReclaim,ImmixMark,RenderThreadRepair,ImageCoordinates
+          ./tools/setup-novaflare-render-dependencies.ps1 -Component GenerationalGC,ImmixReclaim,ImmixMark,RenderThreadRepair,ImageCoordinates,Resolution,Android16K,CairoGC
           haxelib run lime rebuild android
           if ($LASTEXITCODE -ne 0) { throw 'Lime native rebuild failed' }
 
@@ -152,6 +152,9 @@ jobs:
           else
             haxelib run lime build android -Dcommit_sha=$COMMIT_SHA -Dbuild_number=$CURRENT_VERSION "-DORIGIN_ASSETS_PATH=$GITHUB_WORKSPACE/_build/origin-editor-build-assets"
           fi
+
+      - name: Verify Android native library alignment
+        run: python3 tools/check-android-16k.py export/release/android/bin/app/build/outputs/apk/release/*.apk
 
       - name: Create Android zip package
         run: |

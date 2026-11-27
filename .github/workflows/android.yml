@@ -81,7 +81,7 @@ jobs:
       - name: Prepare render thread and Immix runtime
         shell: pwsh
         run: |
-          ./tools/setup-novaflare-render-dependencies.ps1 -Component GenerationalGC,ImmixReclaim,ImmixMark,RenderThreadRepair,ImageCoordinates
+          ./tools/setup-novaflare-render-dependencies.ps1 -Component GenerationalGC,ImmixReclaim,ImmixMark,RenderThreadRepair,ImageCoordinates,Resolution,Android16K,CairoGC
           haxelib run lime rebuild android
           if ($LASTEXITCODE -ne 0) { throw 'Lime native rebuild failed' }
 
@@ -90,6 +90,9 @@ jobs:
         env:
           cert_pass: nullfunni
           cert_alias_pass: nullfunni
+
+      - name: Verify Android native library alignment
+        run: python3 tools/check-android-16k.py export/release/android/bin/app/build/outputs/apk/release/*.apk
 
       - name: Upload Artifact
         uses: actions/upload-artifact@main

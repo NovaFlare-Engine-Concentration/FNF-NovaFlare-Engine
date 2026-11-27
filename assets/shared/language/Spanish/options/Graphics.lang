@@ -1,7 +1,6 @@
 Graphics => Gráficos
 
 gameQuality => Calidad del juego
-maxImageSize => Lado Máximo de Imagen
 minImageCompressionSize => Umbral de Compresión
 imageCompressionRatio => Proporción de Compresión
 FPScounter => Contador de FPS

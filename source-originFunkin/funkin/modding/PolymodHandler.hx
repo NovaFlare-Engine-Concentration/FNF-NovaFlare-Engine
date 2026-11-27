@@ -912,7 +912,6 @@ class PolymodHandler
   static function set_enabledModIds(value:Array<String>):Array<String>
   {
     Save.instance.enabledModIds.value = value.copy();
-    Save.system.flush();
     return value;
   }
 

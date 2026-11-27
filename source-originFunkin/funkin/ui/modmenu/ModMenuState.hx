@@ -130,6 +130,7 @@ class ModMenuState extends MusicBeatState
    * This should disable other interaction.
    */
   var exitingMenu:Bool = false;
+  var applyingModlist:Bool = false;
 
   #if FEATURE_ONE_CLICK_INSTALL
   /**
@@ -1250,6 +1251,7 @@ class ModMenuState extends MusicBeatState
     // states. Origin's Controls edge queries must run after that advance,
     // alongside its other menus, so one physical press is consumed once.
     handleMenuInput(elapsed);
+    if (applyingModlist) return;
 
     if (backPressStage == 3)
     {
@@ -1407,7 +1409,7 @@ class ModMenuState extends MusicBeatState
       }
       else if (mouseOverButton(buttonDone))
       {
-        applyModlist();
+        playElectrocutionSequence();
         return true;
       }
     }
@@ -1432,6 +1434,8 @@ class ModMenuState extends MusicBeatState
 
   function playElectrocutionSequence():Void
   {
+    crispyTimer = 0;
+    playedCrispySFX = false;
     bf.playAnimation(ELECTROCUTED, true);
     gf.playAnimation(ELECTROCUTED, true);
 
@@ -2027,6 +2031,7 @@ class ModMenuState extends MusicBeatState
       FunkinSound.playOnce(Paths.sound('ui/main-menu/scroll-menu'), 0.4);
 
       playElectrocutionSequence();
+      return;
     }
 
     if (TouchUtil.overlapsComplex(buttonBackToMenu) && TouchUtil.justPressed)
@@ -2329,26 +2334,32 @@ class ModMenuState extends MusicBeatState
 
   function applyModlist():Void
   {
-    // Backup the user's save data before switching mods.
-    var backupSlot:Int = Save.system.archiveBadSaveData(FlxG.save.data);
-    trace('[SAVE] Backed up current save data in case of emergency to $backupSlot!');
+    if (applyingModlist) return;
+    applyingModlist = true;
+    allowInput = false;
 
-    // set enabled mods
     var enabledModIds:Array<String> = [];
     for (modItem in enabledModItems.modItems)
     {
       var modId = modItem.getModId();
-      if (modId == BASE_GAME_MOD_ID) continue;
+      if (modId == BASE_GAME_MOD_ID || enabledModIds.contains(modId)) continue;
       enabledModIds.push(modId);
     }
 
-    PolymodHandler.disableAllMods();
-    for (modId in enabledModIds)
+    try
     {
-      PolymodHandler.enableMod(modId);
+      var backupSlot:Int = Save.system.archiveBadSaveData(FlxG.save.data);
+      trace('[SAVE] Backed up current save data in case of emergency to $backupSlot!');
+      InitState.resetTitleState();
+      PolymodHandler.enabledModIds = enabledModIds;
     }
-
-    InitState.resetTitleState();
+    catch (error:haxe.Exception)
+    {
+      applyingModlist = false;
+      allowInput = true;
+      WindowUtil.showError('Could not switch mods', error.message);
+      return;
+    }
 
     buttonDone.visible = false;
     buttonOpenFolder.visible = false;

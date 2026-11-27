@@ -1,0 +1,259 @@
+diff --git a/project/src/graphics/opengl/OpenGLBindings.cpp b/project/src/graphics/opengl/OpenGLBindings.cpp
+--- a/project/src/graphics/opengl/OpenGLBindings.cpp
++++ b/project/src/graphics/opengl/OpenGLBindings.cpp
+@@ -14,6 +14,9 @@
+ #include <string>
+ #include <vector>
+ #include <cstdio>
++#include <algorithm>
++#include <limits>
++#include <stdexcept>
+ 
+ #ifdef NEED_EXTENSIONS
+ #define DEFINE_EXTENSION
+@@ -118,6 +121,164 @@ namespace lime {
+ 			return copy;
+ 		}
+ 
++		constexpr int quadVertexFloats = 16;
++		constexpr int quadBytes = quadVertexFloats * sizeof(float);
++		static_assert(sizeof(float) == 4, "Quad vertices require 32-bit floats");
++
++		template<typename Element>
++		bool CopyQuadArray (const Element* source, int count, std::vector<Element>& target) {
++			if (count == 0) return true;
++			if (source == nullptr || count < 0) return false;
++			target.assign (source, source + count);
++			return true;
++		}
++
++		struct QuadPoint {
++			double x;
++			double y;
++		};
++
++		struct QuadTransform {
++			double horizontalX = 1.0;
++			double horizontalY = 0.0;
++			double verticalX = 0.0;
++			double verticalY = 1.0;
++
++			void SetBasis (const double* values) {
++				horizontalX = values[0];
++				horizontalY = values[1];
++				verticalX = values[2];
++				verticalY = values[3];
++			}
++
++			void WriteVertex (float* vertex, const QuadPoint& position, const QuadPoint& origin, const QuadPoint& texture) const {
++				vertex[0] = static_cast<float> (position.x * horizontalX + position.y * verticalX + origin.x);
++				vertex[1] = static_cast<float> (position.x * horizontalY + position.y * verticalY + origin.y);
++				vertex[2] = static_cast<float> (texture.x);
++				vertex[3] = static_cast<float> (texture.y);
++			}
++		};
++
++		class QuadBufferBatch {
++		public:
++			bool Snapshot (value source, int remainingQuads) {
++				if (!val_is_object (source)) return false;
++				static const int rectsField = val_id ("rects");
++				static const int indicesField = val_id ("indices");
++				static const int transformsField = val_id ("transforms");
++				static const int bitmapWidthField = val_id ("bitmapWidth");
++				static const int bitmapHeightField = val_id ("bitmapHeight");
++
++				const value rectangles = val_field (source, rectsField);
++				const value indices = val_field (source, indicesField);
++				const value transforms = val_field (source, transformsField);
++				const value width = val_field (source, bitmapWidthField);
++				const value height = val_field (source, bitmapHeightField);
++				const bool indexed = !val_is_null (indices);
++				const bool transformed = !val_is_null (transforms);
++				if (!val_is_array (rectangles) || (indexed && !val_is_array (indices))
++					|| (transformed && !val_is_array (transforms)) || !val_is_int (width) || !val_is_int (height)) return false;
++
++				bitmapWidth = val_int (width);
++				bitmapHeight = val_int (height);
++				const int rectangleCount = val_array_size (rectangles) / 4;
++				quadCount = indexed ? val_array_size (indices) : rectangleCount;
++				if (bitmapWidth <= 0 || bitmapHeight <= 0 || rectangleCount < 0
++					|| quadCount < 0 || quadCount > remainingQuads) return false;
++				if (quadCount == 0) return true;
++
++				const int transformFieldsPerQuad = transformed ? val_array_size (transforms) / quadCount : 0;
++				transformStride = transformFieldsPerQuad >= 6 ? 6 : transformFieldsPerQuad >= 4 ? 4 : transformFieldsPerQuad >= 2 ? 2 : 0;
++				return CopyQuadArray (val_array_double (rectangles), rectangleCount * 4, rectangleSnapshot)
++					&& (!indexed || CopyQuadArray (val_array_int (indices), quadCount, indexSnapshot))
++					&& (transformStride == 0 || CopyQuadArray (val_array_double (transforms), quadCount * transformStride, transformSnapshot));
++			}
++
++			int Count () const { return quadCount; }
++
++			void Expand (QuadTransform& matrix, float* destination) const {
++				for (int slot = 0; slot < quadCount; ++slot) {
++					const int index = indexSnapshot.empty () ? slot : indexSnapshot[slot];
++					if (index < 0 || static_cast<std::size_t> (index) >= rectangleSnapshot.size () / 4) {
++						std::fill_n (destination, quadVertexFloats, 0.0f);
++					} else {
++						ExpandQuad (&rectangleSnapshot[static_cast<std::size_t> (index) * 4], slot, matrix, destination);
++					}
++					destination += quadVertexFloats;
++				}
++			}
++
++		private:
++			void ExpandQuad (const double* rectangle, int slot, QuadTransform& matrix, float* destination) const {
++				const double width = rectangle[2];
++				const double height = rectangle[3];
++				if (width <= 0.0 || height <= 0.0) {
++					std::fill_n (destination, quadVertexFloats, 0.0f);
++					return;
++				}
++
++				const double x = rectangle[0];
++				const double y = rectangle[1];
++				double translatedX = x;
++				double translatedY = y;
++				if (transformStride > 0) {
++					const double* transform = &transformSnapshot[static_cast<std::size_t> (slot) * transformStride];
++					if (transformStride >= 4) matrix.SetBasis (transform);
++					if (transformStride == 2 || transformStride == 6) {
++						translatedX = transform[transformStride - 2];
++						translatedY = transform[transformStride - 1];
++					}
++				}
++
++				const double u0 = x / bitmapWidth;
++				const double v0 = y / bitmapHeight;
++				const double u1 = (x + width) / bitmapWidth;
++				const double v1 = (y + height) / bitmapHeight;
++				const QuadPoint origin {translatedX, translatedY};
++				matrix.WriteVertex (destination, {0.0, 0.0}, origin, {u0, v0});
++				matrix.WriteVertex (destination + 4, {width, 0.0}, origin, {u1, v0});
++				matrix.WriteVertex (destination + 8, {0.0, height}, origin, {u0, v1});
++				matrix.WriteVertex (destination + 12, {width, height}, origin, {u1, v1});
++			}
++
++			std::vector<double> rectangleSnapshot;
++			std::vector<int> indexSnapshot;
++			std::vector<double> transformSnapshot;
++			int quadCount = 0;
++			int transformStride = 0;
++			int bitmapWidth = 0;
++			int bitmapHeight = 0;
++		};
++
++		struct QuadBufferUpload {
++			std::vector<QuadBufferBatch> batches;
++			std::unique_ptr<float[]> vertices;
++			std::uint64_t frame = 0;
++			const char* phase = "render";
++			int quadCount = 0;
++			GLenum usage = GL_STATIC_DRAW;
++
++			void operator() () {
++				const auto started = frame ? FrameTimeline::Now () : 0;
++				QuadTransform matrix;
++				float* destination = vertices.get ();
++				for (const auto& batch : batches) {
++					batch.Expand (matrix, destination);
++					destination += batch.Count () * quadVertexFloats;
++				}
++
++				const int byteLength = quadCount * quadBytes;
++				glBufferData (GL_ARRAY_BUFFER, byteLength, vertices.get (), usage);
++				if (started) FrameTimeline::Write ({"quad_buffer_upload", frame, started, FrameTimeline::Now (),
++					static_cast<std::uint64_t> (quadCount), static_cast<std::uint64_t> (byteLength), "worker", 0, phase});
++			}
++		};
++
++		bool QuadBufferUploadEnabled () {
++			const char* configured = std::getenv ("NOVAFLARE_QUAD_UPLOAD");
++			return !configured || std::strcmp (configured, "0") != 0;
++		}
++
+ 		bool RemoveGLObjectID (void* object, GLObjectType type, GLuint id) {
+ 			glObjectIDs.erase (object);
+ 			auto& objects = glObjects[type];
+@@ -832,6 +993,40 @@ namespace lime {
+ 	}
+ 
+ 
++	bool lime_gl_queue_quad_buffer (value batches, int quadCount, int usage) {
++		static const bool enabled = QuadBufferUploadEnabled ();
++		if (!enabled || !OpenGLBindings::renderThread || !OpenGLBindings::isMultiThreaded || !OpenGLBindings::CanRender ()
++			|| quadCount <= 0 || quadCount > (std::numeric_limits<int>::max) () / quadBytes || !val_is_array (batches)) return false;
++
++		try {
++			QuadBufferUpload upload;
++			const int batchCount = val_array_size (batches);
++			int capturedQuads = 0;
++			for (int batchIndex = 0; batchIndex < batchCount; ++batchIndex) {
++				QuadBufferBatch batch;
++				if (!batch.Snapshot (val_array_i (batches, batchIndex), quadCount - capturedQuads)) return false;
++				if (batch.Count () == 0) continue;
++				capturedQuads += batch.Count ();
++				upload.batches.emplace_back (std::move (batch));
++			}
++			if (capturedQuads != quadCount) return false;
++
++			// Reserve uninitialized output so allocation failure can use the Haxe path.
++			upload.vertices.reset (new (std::nothrow) float[quadCount * quadVertexFloats]);
++			if (!upload.vertices) return false;
++			upload.quadCount = quadCount;
++			upload.usage = usage;
++			upload.frame = FrameTimeline::CurrentWork ();
++			upload.phase = FrameTimeline::IsUpdate () ? "update" : "render";
++			return OpenGLBindings::renderThread->PushCommand (std::move (upload));
++		} catch (const std::bad_alloc&) {
++			return false;
++		} catch (const std::length_error&) {
++			return false;
++		}
++	}
++
++
+ 	void lime_gl_buffer_data (int target, int size, double data, int usage) {
+ 
+ 		if (OpenGLBindings::renderThread && OpenGLBindings::isMultiThreaded) {
+@@ -8506,6 +8701,7 @@ namespace lime {
+ 	DEFINE_PRIME2v (lime_gl_blend_func);
+ 	DEFINE_PRIME4v (lime_gl_blend_func_separate);
+ 	DEFINE_PRIME10v (lime_gl_blit_framebuffer);
++	DEFINE_PRIME3 (lime_gl_queue_quad_buffer);
+ 	DEFINE_PRIME4v (lime_gl_buffer_data);
+ 	DEFINE_PRIME4v (lime_gl_buffer_sub_data);
+ 	DEFINE_PRIME1 (lime_gl_check_framebuffer_status);
+diff --git a/src/lime/_internal/backend/native/NativeCFFI.hx b/src/lime/_internal/backend/native/NativeCFFI.hx
+--- a/src/lime/_internal/backend/native/NativeCFFI.hx
++++ b/src/lime/_internal/backend/native/NativeCFFI.hx
+@@ -52,6 +52,28 @@ typedef CFFIPointer = Dynamic;
+ #end
+ class NativeCFFI
+ {
++	#if (cpp && lime && lime_cffi && !disable_cffi && !macro && (lime_opengl || lime_opengles))
++	private static var queueQuadBuffer:Dynamic;
++	private static var quadBufferUploadResolved = false;
++
++	@:noCompletion public static function tryQueueQuadBuffer(batches:Dynamic, quadCount:Int, usage:Int):Bool
++	{
++		if (!quadBufferUploadResolved)
++		{
++			quadBufferUploadResolved = true;
++			try
++			{
++				queueQuadBuffer = CFFI.load("lime", "lime_gl_queue_quad_buffer", 3);
++			}
++			catch (_:Dynamic)
++			{
++				queueQuadBuffer = null;
++			}
++		}
++		return queueQuadBuffer != null && queueQuadBuffer(batches, quadCount, usage) == true;
++	}
++	#end
++
+ 	#if (cpp && lime_cffi && !disable_cffi && !macro)
+ 	private static var queuePackedTextureImage2D:Dynamic;
+ 	private static var packedTextureUploadResolved = false;

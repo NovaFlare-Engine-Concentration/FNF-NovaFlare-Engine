@@ -17,6 +17,8 @@ import haxe.io.Path;
 import haxe.Timer;
 import lime.app.Future;
 import lime.graphics.Image;
+import lime.graphics.opengl.GL;
+import lime.graphics.opengl.GLTexture;
 import lime.system.System;
 import lime.utils.AssetLibrary;
 import openfl.display.BitmapData;
@@ -54,8 +56,13 @@ private class CompressionCheck extends FlxState
     var liveBitmaps:Array<BitmapData>;
     var editedBitmap:BitmapData;
     var gpuBitmap:BitmapData;
+    var gpuClone:BitmapData;
+    var borrowedBitmap:BitmapData;
     var uploadingBitmap:BitmapData;
     var currentTexture:TextureBase;
+    var cloneTexture:TextureBase;
+    var currentTextureId:GLTexture;
+    var cloneTextureId:GLTexture;
     var uploadFinished:Bool = false;
     var liveFrame:FlxFrame;
 
@@ -91,9 +98,40 @@ private class CompressionCheck extends FlxState
         library.types.set("sheet.png", IMAGE);
         library.paths.set("sheet.png", fixturePath);
         lime.utils.Assets.registerLibrary("novaflare-compression-test", library);
-        ImageCompression.configure(64, 5, 0.75);
         deadline = Timer.stamp() + 12;
-        AsyncDecodeTrace.start();
+        #if cpp
+        ImageCompression.configure(64, 0, 1);
+        if (!ImageCompression.canDecodeScaled()) throw new haxe.Exception("Lime's native scaled decoder is unavailable.");
+        library.preload.set("sheet.png", true);
+        library.load().onComplete(_ ->
+        {
+            try
+            {
+                if (library.cachedImages.exists("sheet.png")) throw new haxe.Exception("Preload retained the original pixels.");
+                var source = library.cachedBytes.get("sheet.png");
+                if (source == null || source.compare(encoded) != 0) throw new haxe.Exception("Preload did not retain the encoded PNG.");
+                ImageCompression.configure(64, 5, 0.75);
+                var image = ImageCompression.withScaledDecode(() -> Image.fromFile(fixturePath));
+                equal(image.width, STORED_WIDTH, "native decoded width before BitmapData");
+                equal(image.height, STORED_HEIGHT, "native decoded height before BitmapData");
+                equal(image.data.byteLength, STORED_WIDTH * STORED_HEIGHT * 4, "native decoded pixel bytes");
+                Sys.println("PASS native scaled PNG buffer and encoded image preload");
+                runAsyncLoads(bytes);
+            }
+            catch (error:haxe.Exception)
+            {
+                fail(error);
+            }
+        }).onError(error -> fail(new haxe.Exception('Image preload failed: $error')));
+        #else
+        runAsyncLoads(bytes);
+        #end
+    }
+
+    function runAsyncLoads(bytes:ByteArray):Void
+    {
+        ImageCompression.configure(64, 5, 0.75);
+        AsyncDecodeTrace.start(fixturePath, [Base64.decode(FIXTURE_PNG), Base64.decode(PALETTE_PNG)]);
         verifyExactPalette();
 
         var checks:Array<AsyncImageCheck> = [
@@ -141,6 +179,7 @@ private class CompressionCheck extends FlxState
     {
         equal(bitmap.width, STORED_WIDTH, "asynchronous stored width");
         equal(bitmap.height, STORED_HEIGHT, "asynchronous stored height");
+        equal(bitmap.image.data.byteLength, STORED_WIDTH * STORED_HEIGHT * 4, "asynchronous stored pixel bytes");
         equal(bitmap.imageSourceWidth, SOURCE_WIDTH, "asynchronous source width");
         equal(bitmap.imageSourceHeight, SOURCE_HEIGHT, "asynchronous source height");
         checkBitmapPaint(checkSparrowFrame(FlxGraphic.fromBitmapData(bitmap)));
@@ -181,6 +220,7 @@ private class CompressionCheck extends FlxState
 
     function startLiveChecks():Void
     {
+        GL.setMultiThreaded(false);
         ImageCompression.configure(64, 0, 1);
         var bytes = ByteArray.fromBytes(Base64.decode(FIXTURE_PNG));
         var fileBitmap = BitmapData.fromFile(fixturePath);
@@ -190,16 +230,22 @@ private class CompressionCheck extends FlxState
 
         gpuBitmap = BitmapData.fromFile(fixturePath, true);
         currentTexture = gpuBitmap.getTexture(FlxG.stage.context3D);
+        currentTextureId = @:privateAccess currentTexture.__textureID;
         checkGpuOnly();
+        gpuClone = gpuBitmap.clone();
+        cloneTexture = gpuClone.getTexture(FlxG.stage.context3D);
+        if (cloneTexture != currentTexture) throw new haxe.Exception("GPU-only clone did not share its source texture.");
+        cloneTextureId = currentTextureId;
+        borrowedBitmap = BitmapData.fromTexture(currentTexture);
         uploadingBitmap = BitmapData.fromBytes(bytes);
         uploadingBitmap.disposeOnUpload = true;
         uploadingBitmap.getTextureAsync(FlxG.stage.context3D, _ -> uploadFinished = true, 3);
         equal(uploadingBitmap.imageCompressionUploads, 1, "asynchronous upload is tracked");
 
-        liveBitmaps = [fileBitmap, bytesBitmap, bytesBitmap.clone(), gpuBitmap, uploadingBitmap];
+        liveBitmaps = [fileBitmap, bytesBitmap, bytesBitmap.clone(), Assets.getBitmapData(ASSET_KEY), gpuBitmap, gpuClone, uploadingBitmap];
         liveFrame = checkSparrowFrame(FlxGraphic.fromBitmapData(bytesBitmap));
         deadline = Timer.stamp() + 12;
-        rebuildImages(5, 0.75);
+        rebuildImages(0.25);
     }
 
     override public function update(elapsed:Float):Void
@@ -209,19 +255,28 @@ private class CompressionCheck extends FlxState
         {
             if (Timer.stamp() > deadline) throw new haxe.Exception('Image compression stalled at phase $phase.');
             if (liveBitmaps == null) return;
-            var expected = switch (phase) { case 0: 5; case 1: 2; default: SOURCE_WIDTH; };
+            var expected = switch (phase) { case 0: 5; case 1: 3; default: SOURCE_WIDTH; };
             for (bitmap in liveBitmaps)
                 if (bitmap.width != expected) return;
+            if (phase == 2 && @:privateAccess ImageCompression.processing) return;
+            if (borrowedBitmap != null)
+            {
+                if (borrowedBitmap.getTexture(FlxG.stage.context3D) != currentTexture || !GL.isTexture(currentTextureId))
+                    throw new haxe.Exception("Image compression deleted a texture while another bitmap was borrowing it.");
+                borrowedBitmap.dispose();
+                borrowedBitmap = null;
+                return;
+            }
             verifyLiveImages(expected);
             switch (phase++)
             {
                 case 0:
-                    rebuildImages(8, 0.9);
-                    rebuildImages(2, 1);
+                    rebuildImages(0.81);
+                    rebuildImages(0.1);
                 case 1:
-                    rebuildImages(0, 1);
+                    rebuildImages(1);
                 case 2:
-                    Sys.println("PASS live reload for files, bytes, clones, GPU-only textures, and asynchronous uploads");
+                    Sys.println("PASS live reload and deletion of replaced GPU textures, including shared clones and async uploads");
                     exit(0);
             }
         }
@@ -241,10 +296,20 @@ private class CompressionCheck extends FlxState
         equal(editedBitmap.getPixel32(0, 0), 0xffff0000, "edited pixels survive reloading");
         equal(uploadingBitmap.imageCompressionUploads, 0, "asynchronous upload has finished");
         if (!uploadFinished) throw new haxe.Exception("The asynchronous upload did not call back.");
-        var nextTexture = gpuBitmap.getTexture(FlxG.stage.context3D);
-        if (nextTexture == currentTexture) throw new haxe.Exception("The GPU texture was not replaced.");
-        currentTexture = nextTexture;
+        verifyTextureDeleted(currentTexture, currentTextureId);
+        if (currentTexture != cloneTexture) verifyTextureDeleted(cloneTexture, cloneTextureId);
+        currentTexture = gpuBitmap.getTexture(FlxG.stage.context3D);
+        cloneTexture = gpuClone.getTexture(FlxG.stage.context3D);
+        currentTextureId = @:privateAccess currentTexture.__textureID;
+        cloneTextureId = @:privateAccess cloneTexture.__textureID;
+        if (currentTextureId == null || cloneTextureId == null) throw new haxe.Exception("The replacement textures were not uploaded.");
         checkGpuOnly();
+    }
+
+    @:access(openfl.display3D.textures.TextureBase)
+    function verifyTextureDeleted(oldTexture:TextureBase, oldId:GLTexture):Void
+    {
+        if (oldTexture.__textureID != null || GL.isTexture(oldId)) throw new haxe.Exception("The old GPU texture was not deleted.");
     }
 
     function checkGpuOnly():Void
@@ -252,9 +317,9 @@ private class CompressionCheck extends FlxState
         if (gpuBitmap.readable || gpuBitmap.image != null) throw new haxe.Exception("A GPU-only texture kept its CPU copy.");
     }
 
-    function rebuildImages(maximum:Int, ratio:Float):Void
+    function rebuildImages(ratio:Float):Void
     {
-        ImageCompression.configure(64, maximum, ratio);
+        ImageCompression.configure(64, 0, ratio);
         ImageCompression.refreshLoadedImages();
     }
 

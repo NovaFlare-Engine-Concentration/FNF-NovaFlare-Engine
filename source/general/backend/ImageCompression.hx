@@ -67,6 +67,14 @@ class ImageCompression
 		var maximum = userLimit > 0 && (deviceLimit <= 0 || userLimit < deviceLimit) ? userLimit : deviceLimit;
 		var threshold = Std.int(Math.max(0, deviceLimit > 0 ? Math.min(compressionStart, deviceLimit) : compressionStart));
 		var ratio = Math.isFinite(retainedRatio) ? Math.max(0.1, Math.min(1, retainedRatio)) : 1;
+		canDecodeScaled();
+		if (maximum == settings.maximum && threshold == settings.threshold && ratio == settings.ratio) return false;
+		settings = {maximum: maximum, threshold: threshold, ratio: ratio};
+		return true;
+	}
+
+	@:noCompletion public static function canDecodeScaled():Bool
+	{
 		#if (cpp && sys && lime_cffi && !disable_cffi)
 		if (!lookedUpScaledDecode && CFFI.enabled)
 		{
@@ -80,10 +88,10 @@ class ImageCompression
 				lime.utils.Log.warn('Scaled image decoder unavailable: ${error.message}');
 			}
 		}
+		return nativeScaledDecode != null;
+		#else
+		return false;
 		#end
-		if (maximum == settings.maximum && threshold == settings.threshold && ratio == settings.ratio) return false;
-		settings = {maximum: maximum, threshold: threshold, ratio: ratio};
-		return true;
 	}
 
 	public static function refreshPreferences():Void
@@ -93,7 +101,7 @@ class ImageCompression
 		preferenceTimer = haxe.Timer.delay(() -> {
 			preferenceTimer = null;
 			var prefs = ClientPrefs.data;
-			if (configure(deviceLimit, prefs.maxImageSize, prefs.imageCompressionRatio, prefs.minImageCompressionSize))
+			if (configure(deviceLimit, 0, prefs.imageCompressionRatio, prefs.minImageCompressionSize))
 				refreshLoadedImages();
 		}, 180);
 		#end
@@ -102,10 +110,9 @@ class ImageCompression
 	@:noCompletion public static function adopt(bitmap:BitmapData, image:Image):Image
 	{
 		#if (cpp || novaflare_image_live_test)
-		if (image.buffer != null && image.width > 0 && image.height > 0)
+		var reopen = image.reopenCompressionSource;
+		if (reopen != null && image.buffer != null && image.width > 0 && image.height > 0)
 		{
-			var reopen = image.reopenCompressionSource;
-			if (reopen == null) reopen = image.clone;
 			sourceMutex.acquire();
 			imageSources.set(bitmap, {width: sourceWidth(image), height: sourceHeight(image), reopen: reopen});
 			sourceMutex.release();

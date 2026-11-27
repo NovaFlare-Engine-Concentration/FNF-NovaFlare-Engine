@@ -9,5 +9,6 @@
     <haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildImage())', 'lime.graphics.Image')" />
     <haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildBitmapData())', 'openfl.display.BitmapData')" />
     <haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildAssets())', 'openfl.utils.Assets')" />
+    <haxeflag name="--macro" value="addMetadata('@:build(general.backend.macros.ImageCompressionMacro.buildAssetLibrary())', 'lime.utils.AssetLibrary')" />
     <haxeflag name="--macro" value="addMetadata('@:build(AsyncDecodeTrace.instrument())', 'general.backend.ImageCompression')" />
 </project>

@@ -3,6 +3,7 @@ Maintenance => Mantenimiento
 developerMode => Activa el modo desarrollador; deshabilita algunos mensajes y registros de errores.
 deepDebug => Registra los scripts, imágenes, audios y otros recursos que usa cada canción.
 moreLuaErrors => Muestra errores ocultos de Lua; puede ayudar a diagnosticar problemas.
+hideLuaDebugText => Oculta los mensajes de depuración de Lua en pantalla.
 devConScale => Cambia el tamaño de la consola que muestra los mensajes de registro.
 oldHscriptVersion => Usa una versión anterior de Hscript para compatibilidad con runHaxeCode.
 

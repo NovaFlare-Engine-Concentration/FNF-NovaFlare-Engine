@@ -1,0 +1,128 @@
+diff --git a/project/src/graphics/opengl/OpenGLBindings.cpp b/project/src/graphics/opengl/OpenGLBindings.cpp
+index c0d2794..c0477c4 100644
+--- a/project/src/graphics/opengl/OpenGLBindings.cpp
++++ b/project/src/graphics/opengl/OpenGLBindings.cpp
+@@ -711,6 +711,18 @@ namespace lime {
+ 			int packedCount = 0;
+ 		};
+ 
++		std::shared_ptr<ShaderParamsSnapshot> CaptureShaderParams (value segments, value bytes, int byteOffset, int floatCount) {
++			try {
++				auto snapshot = std::make_shared<ShaderParamsSnapshot> ();
++				if (!snapshot->Capture (segments, bytes, byteOffset, floatCount)) return {};
++				return snapshot;
++			} catch (const std::bad_alloc&) {
++				return {};
++			} catch (const std::length_error&) {
++				return {};
++			}
++		}
++
+ 		struct ShaderParamsTicket {
+ 			explicit ShaderParamsTicket (std::shared_ptr<ShaderParamsSnapshot> snapshot) : snapshot (std::move (snapshot)) {}
+ 			std::shared_ptr<ShaderParamsSnapshot> snapshot;
+@@ -1507,9 +1519,9 @@ namespace lime {
+ 
+ 	value lime_gl_snapshot_shader_params (value segments, value bytes, int byteOffset, int floatCount) {
+ 		if (!ShaderInputsWorkerReady ()) return alloc_null ();
++		auto snapshot = CaptureShaderParams (segments, bytes, byteOffset, floatCount);
++		if (!snapshot) return alloc_null ();
+ 		try {
+-			auto snapshot = std::make_shared<ShaderParamsSnapshot> ();
+-			if (!snapshot->Capture (segments, bytes, byteOffset, floatCount)) return alloc_null ();
+ 			std::unique_ptr<ShaderParamsTicket> holder (new ShaderParamsTicket (std::move (snapshot)));
+ 			const value ticket = alloc_abstract (ShaderParamsTicketKind (), holder.get ());
+ 			if (val_is_null (ticket)) return alloc_null ();
+@@ -1518,12 +1530,27 @@ namespace lime {
+ 			return ticket;
+ 		} catch (const std::bad_alloc&) {
+ 			return alloc_null ();
+-		} catch (const std::length_error&) {
+-			return alloc_null ();
+ 		}
+ 	}
+ 
+ 
++	bool lime_gl_recapture_shader_params (value ticket, value segments, value view, int floatCount) {
++		if (!ShaderInputsWorkerReady () || !ValidShaderFloatCount (floatCount) || !val_is_object (view)) return false;
++		auto* holder = ShaderParamsTicketFromValue (ticket);
++		if (!holder) return false;
++		static const int bufferField = val_id ("buffer");
++		static const int offsetField = val_id ("byteOffset");
++		static const int lengthField = val_id ("byteLength");
++		const value offset = val_field (view, offsetField);
++		const value length = val_field (view, lengthField);
++		if (!val_is_int (offset) || !val_is_int (length) || val_int (length) < floatCount * shaderFloatBytes) return false;
++		auto snapshot = CaptureShaderParams (segments, val_field (view, bufferField), val_int (offset), floatCount);
++		if (!snapshot) return false;
++		holder->snapshot = std::move (snapshot);
++		return true;
++	}
++
++
+ 	bool lime_gl_queue_shader_params (value ticket, int usage) {
+ 		if (!ShaderInputsWorkerReady ()) return false;
+ 		const auto* holder = ShaderParamsTicketFromValue (ticket);
+@@ -9225,6 +9252,7 @@ namespace lime {
+ 	DEFINE_PRIME3 (lime_gl_queue_tile_buffer);
+ 	DEFINE_PRIME3 (lime_gl_queue_uniform_matrix);
+ 	DEFINE_PRIME4 (lime_gl_snapshot_shader_params);
++	DEFINE_PRIME4 (lime_gl_recapture_shader_params);
+ 	DEFINE_PRIME2 (lime_gl_queue_shader_params);
+ 	DEFINE_PRIME4 (lime_gl_materialize_shader_params);
+ 	DEFINE_PRIME4v (lime_gl_buffer_data);
+diff --git a/src/lime/_internal/backend/native/NativeCFFI.hx b/src/lime/_internal/backend/native/NativeCFFI.hx
+index b20a0e4..ec90292 100644
+--- a/src/lime/_internal/backend/native/NativeCFFI.hx
++++ b/src/lime/_internal/backend/native/NativeCFFI.hx
+@@ -102,6 +102,7 @@ class NativeCFFI
+ 	private static var queueUniformMatrix:Dynamic;
+ 	private static var uniformMatrixResolved = false;
+ 	private static var snapshotShaderParams:Dynamic;
++	private static var recaptureShaderParams:Dynamic;
+ 	private static var queueShaderParams:Dynamic;
+ 	private static var writeShaderParams:Dynamic;
+ 	private static var shaderParamsResolved = false;
+@@ -118,15 +119,13 @@ class NativeCFFI
+ 
+ 	@:noCompletion public static function trySnapshotShaderParams(segments:Dynamic, buffer:Dynamic, byteOffset:Int, floatCount:Int):Dynamic
+ 	{
+-		if (!shaderParamsResolved)
+-		{
+-			shaderParamsResolved = true;
+-			snapshotShaderParams = loadOptionalGLBinding("lime_gl_snapshot_shader_params", 4);
+-			queueShaderParams = loadOptionalGLBinding("lime_gl_queue_shader_params", 2);
+-			writeShaderParams = loadOptionalGLBinding("lime_gl_materialize_shader_params", 4);
+-		}
+-		if (snapshotShaderParams == null || queueShaderParams == null || writeShaderParams == null) return null;
+-		return snapshotShaderParams(segments, buffer, byteOffset, floatCount);
++		return resolveShaderParams() ? snapshotShaderParams(segments, buffer, byteOffset, floatCount) : null;
++	}
++
++	@:noCompletion public static function tryRecaptureShaderParams(ticket:Dynamic, segments:Dynamic, view:lime.utils.ArrayBufferView, floatCount:Int):Bool
++	{
++		return ticket != null && view != null && resolveShaderParams() && recaptureShaderParams != null
++			&& recaptureShaderParams(ticket, segments, view, floatCount) == true;
+ 	}
+ 
+ 	@:noCompletion public static function tryQueueShaderParams(snapshot:Dynamic, usage:Int):Bool
+@@ -138,6 +137,19 @@ class NativeCFFI
+ 	{
+ 		return writeShaderParams != null && writeShaderParams(snapshot, buffer, byteOffset, floatCount) == true;
+ 	}
++
++	private static function resolveShaderParams():Bool
++	{
++		if (!shaderParamsResolved)
++		{
++			shaderParamsResolved = true;
++			snapshotShaderParams = loadOptionalGLBinding("lime_gl_snapshot_shader_params", 4);
++			recaptureShaderParams = loadOptionalGLBinding("lime_gl_recapture_shader_params", 4);
++			queueShaderParams = loadOptionalGLBinding("lime_gl_queue_shader_params", 2);
++			writeShaderParams = loadOptionalGLBinding("lime_gl_materialize_shader_params", 4);
++		}
++		return snapshotShaderParams != null && queueShaderParams != null && writeShaderParams != null;
++	}
+ 	#end
+ 
+ 	private static function loadOptionalGLBinding(symbol:String, arity:Int):Dynamic

@@ -1,0 +1,187 @@
+diff --git a/project/src/graphics/opengl/OpenGLBindings.cpp b/project/src/graphics/opengl/OpenGLBindings.cpp
+index c0477c4..e416312 100644
+--- a/project/src/graphics/opengl/OpenGLBindings.cpp
++++ b/project/src/graphics/opengl/OpenGLBindings.cpp
+@@ -610,7 +610,7 @@ namespace lime {
+ 		class ShaderParamSegment {
+ 		public:
+ 			bool Snapshot (value source, int previousEnd, int limit) {
+-				if (!val_is_object (source)) return false;
++				if (!val_is_object (source) || !ReadRepetition (source)) return false;
+ 				static const int offsetField = val_id ("offset");
+ 				static const int valuesField = val_id ("values");
+ 				const value start = val_field (source, offsetField);
+@@ -618,20 +618,30 @@ namespace lime {
+ 				if (!val_is_int (start) || !val_is_array (data)) return false;
+ 				offset = val_int (start);
+ 				const int count = val_array_size (data);
+-				return offset >= previousEnd && offset <= limit && count > 0 && count <= limit - offset
+-					&& CopyShaderFloats (data, count, values);
++				return offset >= previousEnd && offset <= limit && count > 0 && count % components == 0
++					&& count <= (limit - offset) / repeat && CopyShaderFloats (data, count, values);
+ 			}
+ 
+ 			int Offset () const { return offset; }
+-			int Count () const { return static_cast<int> (values.size ()); }
++			int CompactCount () const { return static_cast<int> (values.size ()); }
++			int Count () const { return CompactCount () * repeat; }
+ 			int End () const { return offset + Count (); }
++			bool IsRepeated () const { return repeat > 1; }
+ 
+-			void Write (GLfloat* destination) const {
++			void WriteValues (GLfloat* destination) const {
+ 				PackShaderFloats (values, destination + offset);
+ 			}
+ 
++			void WriteRepeated (GLfloat* destination) const {
++				RepeatToBytes (reinterpret_cast<char*> (destination + offset));
++			}
++
+ 			void WriteToBytes (char* destination) const {
+ 				char* position = destination + offset * shaderFloatBytes;
++				if (IsRepeated ()) {
++					RepeatToBytes (position);
++					return;
++				}
+ 				for (double value : values) {
+ 					const auto converted = static_cast<GLfloat> (value);
+ 					std::memcpy (position, &converted, sizeof (converted));
+@@ -640,7 +650,36 @@ namespace lime {
+ 			}
+ 
+ 		private:
++			bool ReadRepetition (value source) {
++				static const int repeatField = val_id ("repeat");
++				static const int componentsField = val_id ("components");
++				const value repeatValue = val_field (source, repeatField);
++				const value componentsValue = val_field (source, componentsField);
++				if (val_is_int (repeatValue)) repeat = val_int (repeatValue);
++				else if (!val_is_null (repeatValue)) return false;
++				if (val_is_int (componentsValue)) components = val_int (componentsValue);
++				else if (!val_is_null (componentsValue)) return false;
++				return repeat > 0 && (components == 1 || components == 4);
++			}
++
++			void RepeatToBytes (char* destination) const {
++				const int tupleBytes = components * shaderFloatBytes;
++				const int compactCount = CompactCount ();
++				for (int start = 0; start < compactCount; start += components) {
++					GLfloat tuple[4];
++					for (int component = 0; component < components; ++component) {
++						tuple[component] = static_cast<GLfloat> (values[start + component]);
++					}
++					for (int vertex = 0; vertex < repeat; ++vertex) {
++						std::memcpy (destination, tuple, tupleBytes);
++						destination += tupleBytes;
++					}
++				}
++			}
++
+ 			int offset = 0;
++			int repeat = 1;
++			int components = 1;
+ 			std::vector<double> values;
+ 		};
+ 
+@@ -657,6 +696,10 @@ namespace lime {
+ 					if (!segment.Snapshot (val_array_i (source, index), previousEnd, floatCount)) return false;
+ 					previousEnd = segment.End ();
+ 					packedCount += segment.Count ();
++					if (segment.IsRepeated ()) {
++						repeatedCompactCount += segment.CompactCount ();
++						repeatedExpandedCount += segment.Count ();
++					}
+ 					segments.emplace_back (std::move (segment));
+ 				}
+ 				output.reset (new (std::nothrow) GLfloat[floatCount]);
+@@ -672,8 +715,8 @@ namespace lime {
+ 				const auto started = trace.Begin ();
+ 				bool packedNow = false;
+ 				// A window change can leave commands pending on a different render worker.
+-				std::call_once (packOnce, [this, &packedNow] () {
+-					for (const auto& segment : segments) segment.Write (output.get ());
++				std::call_once (packOnce, [this, &packedNow, &trace] () {
++					PackOutput (trace);
+ 					packedNow = true;
+ 				});
+ 				const int bytes = length * shaderFloatBytes;
+@@ -691,6 +734,18 @@ namespace lime {
+ 			}
+ 
+ 		private:
++			void PackOutput (const ShaderInputTrace& trace) {
++				for (const auto& segment : segments) {
++					if (!segment.IsRepeated ()) segment.WriteValues (output.get ());
++				}
++				if (!repeatedExpandedCount) return;
++				const auto started = trace.Begin ();
++				for (const auto& segment : segments) {
++					if (segment.IsRepeated ()) segment.WriteRepeated (output.get ());
++				}
++				trace.End ("shader_quad_attribute_expand", started, repeatedCompactCount, repeatedExpandedCount);
++			}
++
+ 			void CopyReadyRanges (const char* data) {
+ 				int previousEnd = 0;
+ 				for (const auto& segment : segments) {
+@@ -709,6 +764,8 @@ namespace lime {
+ 			std::once_flag packOnce;
+ 			int length = 0;
+ 			int packedCount = 0;
++			int repeatedCompactCount = 0;
++			int repeatedExpandedCount = 0;
+ 		};
+ 
+ 		std::shared_ptr<ShaderParamsSnapshot> CaptureShaderParams (value segments, value bytes, int byteOffset, int floatCount) {
+@@ -1517,6 +1574,11 @@ namespace lime {
+ 	}
+ 
+ 
++	bool lime_gl_shader_attribute_repetition () {
++		return ShaderInputsWorkerReady ();
++	}
++
++
+ 	value lime_gl_snapshot_shader_params (value segments, value bytes, int byteOffset, int floatCount) {
+ 		if (!ShaderInputsWorkerReady ()) return alloc_null ();
+ 		auto snapshot = CaptureShaderParams (segments, bytes, byteOffset, floatCount);
+@@ -9251,6 +9313,7 @@ namespace lime {
+ 	DEFINE_PRIME4 (lime_gl_queue_triangle_buffer);
+ 	DEFINE_PRIME3 (lime_gl_queue_tile_buffer);
+ 	DEFINE_PRIME3 (lime_gl_queue_uniform_matrix);
++	DEFINE_PRIME0 (lime_gl_shader_attribute_repetition);
+ 	DEFINE_PRIME4 (lime_gl_snapshot_shader_params);
+ 	DEFINE_PRIME4 (lime_gl_recapture_shader_params);
+ 	DEFINE_PRIME2 (lime_gl_queue_shader_params);
+diff --git a/src/lime/_internal/backend/native/NativeCFFI.hx b/src/lime/_internal/backend/native/NativeCFFI.hx
+index ec90292..3c313d6 100644
+--- a/src/lime/_internal/backend/native/NativeCFFI.hx
++++ b/src/lime/_internal/backend/native/NativeCFFI.hx
+@@ -101,6 +101,7 @@ class NativeCFFI
+ 	#if !lime_webgl
+ 	private static var queueUniformMatrix:Dynamic;
+ 	private static var uniformMatrixResolved = false;
++	private static var shaderAttributeRepetition:Dynamic;
+ 	private static var snapshotShaderParams:Dynamic;
+ 	private static var recaptureShaderParams:Dynamic;
+ 	private static var queueShaderParams:Dynamic;
+@@ -117,6 +118,11 @@ class NativeCFFI
+ 		return queueUniformMatrix != null && queueUniformMatrix(location, dimension, values) == true;
+ 	}
+ 
++	@:noCompletion public static function supportsShaderAttributeRepetition():Bool
++	{
++		return resolveShaderParams() && shaderAttributeRepetition != null && shaderAttributeRepetition() == true;
++	}
++
+ 	@:noCompletion public static function trySnapshotShaderParams(segments:Dynamic, buffer:Dynamic, byteOffset:Int, floatCount:Int):Dynamic
+ 	{
+ 		return resolveShaderParams() ? snapshotShaderParams(segments, buffer, byteOffset, floatCount) : null;
+@@ -143,6 +149,7 @@ class NativeCFFI
+ 		if (!shaderParamsResolved)
+ 		{
+ 			shaderParamsResolved = true;
++			shaderAttributeRepetition = loadOptionalGLBinding("lime_gl_shader_attribute_repetition", 0);
+ 			snapshotShaderParams = loadOptionalGLBinding("lime_gl_snapshot_shader_params", 4);
+ 			recaptureShaderParams = loadOptionalGLBinding("lime_gl_recapture_shader_params", 4);
+ 			queueShaderParams = loadOptionalGLBinding("lime_gl_queue_shader_params", 2);

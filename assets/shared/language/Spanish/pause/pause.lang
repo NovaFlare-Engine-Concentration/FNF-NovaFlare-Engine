@@ -6,3 +6,4 @@ options => Opciones
 exit => Salir
 back => Volver
 debug => Depuración
+hideLuaDebugText => Ocultar texto de depuración

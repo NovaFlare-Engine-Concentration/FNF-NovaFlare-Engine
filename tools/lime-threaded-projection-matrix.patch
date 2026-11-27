@@ -1,0 +1,156 @@
+diff --git a/project/src/graphics/opengl/OpenGLBindings.cpp b/project/src/graphics/opengl/OpenGLBindings.cpp
+index e416312..0836fc1 100644
+--- a/project/src/graphics/opengl/OpenGLBindings.cpp
++++ b/project/src/graphics/opengl/OpenGLBindings.cpp
+@@ -15,6 +15,7 @@
+ #include <vector>
+ #include <cstdio>
+ #include <algorithm>
++#include <cmath>
+ #include <limits>
+ #include <stdexcept>
+ 
+@@ -593,6 +594,85 @@ namespace lime {
+ 			int dimension = 0;
+ 		};
+ 
++		struct ProjectionAffine {
++			double m00, m10, m01, m11, translateX, translateY;
++
++			ProjectionAffine Concat (const ProjectionAffine& world) const {
++				return {
++					m00 * world.m00 + m10 * world.m01,
++					m00 * world.m10 + m10 * world.m11,
++					m01 * world.m00 + m11 * world.m01,
++					m01 * world.m10 + m11 * world.m11,
++					translateX * world.m00 + translateY * world.m01 + world.translateX,
++					translateX * world.m10 + translateY * world.m11 + world.translateY
++				};
++			}
++
++			bool AllowsAutoSnapping () const {
++				return m10 == 0 && m01 == 0 && m00 > 0.999 && m00 < 1.001 && m11 > 0.999 && m11 < 1.001;
++			}
++		};
++
++		double RoundProjectionOffset (double value) {
++			// hxcpp Math.round uses floor(value + 0.5) followed by a Haxe Int conversion.
++			const auto bits = static_cast<std::uint32_t> (static_cast<std::int64_t> (std::floor (value + 0.5)));
++			return bits < 0x80000000u ? static_cast<double> (bits) : static_cast<double> (bits) - 4294967296.0;
++		}
++
++		class ProjectionMatrixUpload {
++		public:
++			bool Snapshot (int uniformLocation, value source, int projectionFlags) {
++				if (uniformLocation < 0 || (projectionFlags & ~(snapMask | flipFlag)) != 0 || (projectionFlags & snapMask) == snapMask
++					|| !val_is_array (source) || val_array_size (source) != valueCount) return false;
++				const auto* data = val_array_double (source);
++				if (!data) return false;
++				std::memcpy (values, data, sizeof (values));
++				// Keep snapping within the range that hxcpp can convert through a signed 64-bit integer.
++				if ((projectionFlags & snapMask) != 0 && !std::all_of (values, values + affineValueCount, [] (double number) {
++					return number >= -1000000000.0 && number <= 1000000000.0;
++				})) return false;
++				location = uniformLocation;
++				flags = projectionFlags;
++				return true;
++			}
++
++			void operator() () const {
++				const auto started = trace.Begin ();
++				const ProjectionAffine object = {values[0], values[1], values[2], values[3], values[4], values[5]};
++				const ProjectionAffine world = {values[6], values[7], values[8], values[9], values[10], values[11]};
++				auto transform = object.Concat (world);
++				const int pixelSnapping = flags & snapMask;
++				if (pixelSnapping == snapAlways || (pixelSnapping == snapAuto && transform.AllowsAutoSnapping ())) {
++					transform.translateX = RoundProjectionOffset (transform.translateX);
++					transform.translateY = RoundProjectionOffset (transform.translateY);
++				}
++				const bool flipped = (flags & flipFlag) != 0;
++				const double projectionX = values[12];
++				const double projectionY = flipped ? -values[13] : values[13];
++				const GLfloat matrix[] = {
++					static_cast<GLfloat> (transform.m00 * projectionX), static_cast<GLfloat> (transform.m10 * projectionY), 0, 0,
++					static_cast<GLfloat> (transform.m01 * projectionX), static_cast<GLfloat> (transform.m11 * projectionY), 0, 0,
++					0, 0, -0.001f, 0,
++					static_cast<GLfloat> (transform.translateX * projectionX - 1),
++					static_cast<GLfloat> (transform.translateY * projectionY + (flipped ? 1 : -1)), 0, 1
++				};
++				glUniformMatrix4fv (location, 1, GL_FALSE, matrix);
++				trace.End ("projection_matrix_build", started, 16, sizeof (matrix));
++			}
++
++		private:
++			static constexpr int valueCount = 14;
++			static constexpr int affineValueCount = 12;
++			static constexpr int snapMask = 3;
++			static constexpr int snapAuto = 1;
++			static constexpr int snapAlways = 2;
++			static constexpr int flipFlag = 4;
++			ShaderInputTrace trace;
++			double values[valueCount] = {};
++			int location = -1;
++			int flags = 0;
++		};
++
+ 		char* ShaderParamBytes (value bytes, int offset, int floatCount) {
+ 			if (offset < 0 || !ValidShaderFloatCount (floatCount) || !val_is_object (bytes)) return nullptr;
+ 			static const int lengthField = val_id ("length");
+@@ -1574,6 +1654,19 @@ namespace lime {
+ 	}
+ 
+ 
++	bool lime_gl_queue_projection_matrix (int location, value values, int flags) {
++		if (!ShaderInputsWorkerReady ()) return false;
++		try {
++			ProjectionMatrixUpload upload;
++			return upload.Snapshot (location, values, flags) && OpenGLBindings::renderThread->PushCommand (std::move (upload));
++		} catch (const std::bad_alloc&) {
++			return false;
++		} catch (const std::length_error&) {
++			return false;
++		}
++	}
++
++
+ 	bool lime_gl_shader_attribute_repetition () {
+ 		return ShaderInputsWorkerReady ();
+ 	}
+@@ -9313,6 +9406,7 @@ namespace lime {
+ 	DEFINE_PRIME4 (lime_gl_queue_triangle_buffer);
+ 	DEFINE_PRIME3 (lime_gl_queue_tile_buffer);
+ 	DEFINE_PRIME3 (lime_gl_queue_uniform_matrix);
++	DEFINE_PRIME3 (lime_gl_queue_projection_matrix);
+ 	DEFINE_PRIME0 (lime_gl_shader_attribute_repetition);
+ 	DEFINE_PRIME4 (lime_gl_snapshot_shader_params);
+ 	DEFINE_PRIME4 (lime_gl_recapture_shader_params);
+diff --git a/src/lime/_internal/backend/native/NativeCFFI.hx b/src/lime/_internal/backend/native/NativeCFFI.hx
+index 3c313d6..41c08df 100644
+--- a/src/lime/_internal/backend/native/NativeCFFI.hx
++++ b/src/lime/_internal/backend/native/NativeCFFI.hx
+@@ -101,6 +101,8 @@ class NativeCFFI
+ 	#if !lime_webgl
+ 	private static var queueUniformMatrix:Dynamic;
+ 	private static var uniformMatrixResolved = false;
++	private static var queueProjectionMatrix:Dynamic;
++	private static var projectionMatrixResolved = false;
+ 	private static var shaderAttributeRepetition:Dynamic;
+ 	private static var snapshotShaderParams:Dynamic;
+ 	private static var recaptureShaderParams:Dynamic;
+@@ -118,6 +120,16 @@ class NativeCFFI
+ 		return queueUniformMatrix != null && queueUniformMatrix(location, dimension, values) == true;
+ 	}
+ 
++	@:noCompletion public static function tryQueueProjectionMatrix(location:Int, values:Array<Float>, flags:Int):Bool
++	{
++		if (!projectionMatrixResolved)
++		{
++			projectionMatrixResolved = true;
++			queueProjectionMatrix = loadOptionalGLBinding("lime_gl_queue_projection_matrix", 3);
++		}
++		return queueProjectionMatrix != null && queueProjectionMatrix(location, values, flags) == true;
++	}
++
+ 	@:noCompletion public static function supportsShaderAttributeRepetition():Bool
+ 	{
+ 		return resolveShaderParams() && shaderAttributeRepetition != null && shaderAttributeRepetition() == true;

@@ -171,8 +171,7 @@ class NoteSplashEditorState extends MusicBeatState
                     curAnim = name;
                     minFps.value = i.fps[0];
                     maxFps.value = i.fps[1];
-                    if (i.indices != null && i.indices.length > 0)
-                        indices_input.text = i.indices.toString().substring(1, i.indices.toString().length - 2);
+                    indices_input.text = AnimationFrameIndices.format(i.indices);
 
                     playStrumAnim(curAnim, i.noteData);
                 }
@@ -220,17 +219,11 @@ class NoteSplashEditorState extends MusicBeatState
 
         addButton = new PsychUIButton(20, 185, "Add/Update", function()
         {       
-            var indices:Array<Int> = [];
-            if (indices_input.text.split(',').length > 1)
+            var indices = AnimationFrameIndices.parse(indices_input.text);
+            if (indices == null)
             {
-                for (i in indices_input.text.split(','))
-                {
-                    var index:Null<Int> = Std.parseInt(i);
-                    if (!Math.isNaN(index) && index != null)
-                    {
-                        indices.push(index);
-                    }
-                }
+                FlxG.log.warn('Animation indices must be non-negative whole numbers.');
+                return;
             }
 
             var offsets:Array<Float> = [0, 0];

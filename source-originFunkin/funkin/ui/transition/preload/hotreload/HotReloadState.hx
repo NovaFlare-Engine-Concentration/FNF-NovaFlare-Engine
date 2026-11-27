@@ -285,14 +285,26 @@ class HotReloadState extends MusicBeatState
 
   function rebuildSoundTray():Void
   {
-    // Since its graphics got destroyed,
-    // we have to manually reconstruct the sound tray.
+    #if (!mobile && FLX_SOUND_TRAY)
     @:privateAccess
     {
-      FlxG.game.removeChild(FlxG.game.soundTray);
-      FlxG.game.soundTray = Type.createInstance(FlxG.game._customSoundTray, []);
-      FlxG.game.addChild(FlxG.game.soundTray);
+      var game = FlxG.game;
+      var soundTray = game.soundTray;
+      if (soundTray == null || soundTray.parent != game) return;
+
+      try
+      {
+        var replacement = Type.createInstance(game._customSoundTray, []);
+        game.addChildAt(replacement, game.getChildIndex(soundTray));
+        game.soundTray = replacement;
+        game.removeChild(soundTray);
+      }
+      catch (error:Dynamic)
+      {
+        reportStepFailed('rebuild sound tray', error);
+      }
     }
+    #end
   }
 
   /**

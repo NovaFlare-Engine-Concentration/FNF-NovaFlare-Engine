@@ -335,7 +335,7 @@ index 4102b21f..e8d0955c 100644
  			result = spng_decoded_image_size (ctx, SPNG_FMT_RGBA8, &imageSize);
 diff --git a/project/include/graphics/format/ImageDecodeScale.h b/project/include/graphics/format/ImageDecodeScale.h
 new file mode 100644
-index 00000000..028a4ade
+index 00000000..0c6272ac
 --- /dev/null
 +++ b/project/include/graphics/format/ImageDecodeScale.h
 @@ -0,0 +1,114 @@
@@ -368,14 +368,14 @@ index 00000000..028a4ade
 +
 +			sourceWidth = originalWidth;
 +			sourceHeight = originalHeight;
-+			int longest = std::max (sourceWidth, sourceHeight);
-+			double scale = longest >= threshold && std::isfinite (ratio) ? std::sqrt (std::max (0.1, std::min (ratio, 1.0))) : 1.0;
-+			if (maximum > 0) scale = std::min (scale, (double)maximum / longest);
-+			width = std::max (1, (int)std::floor (sourceWidth * scale + 1e-9));
-+			height = std::max (1, (int)std::floor (sourceHeight * scale + 1e-9));
++			int longest = (std::max) (sourceWidth, sourceHeight);
++			double scale = longest >= threshold && std::isfinite (ratio) ? std::sqrt ((std::max) (0.1, (std::min) (ratio, 1.0))) : 1.0;
++			if (maximum > 0) scale = (std::min) (scale, (double)maximum / longest);
++			width = (std::max) (1, (int)std::floor (sourceWidth * scale + 1e-9));
++			height = (std::max) (1, (int)std::floor (sourceHeight * scale + 1e-9));
 +			if (maximum > 0) {
-+				width = std::min (width, maximum);
-+				height = std::min (height, maximum);
++				width = (std::min) (width, maximum);
++				height = (std::min) (height, maximum);
 +			}
 +			return (width != sourceWidth || height != sourceHeight) && height <= INT_MAX / 4 / width;
 +
@@ -398,7 +398,7 @@ index 00000000..028a4ade
 +
 +					double sampleY = (row + 0.5) * stepY - 0.5;
 +					int top = (int)sampleY;
-+					int bottom = std::min (top + 1, inputHeight - 1);
++					int bottom = (std::min) (top + 1, inputHeight - 1);
 +					if (bottom != inputRow) return;
 +					Write (top == bottom ? current : previous, current, sampleY - top);
 +					row++;
@@ -416,7 +416,7 @@ index 00000000..028a4ade
 +				for (int column = 0; column < target.width; column++) {
 +					double sampleX = (column + 0.5) * stepX - 0.5;
 +					int left = (int)sampleX * 4;
-+					int right = std::min (left + 4, inputWidth * 4 - 4);
++					int right = (std::min) (left + 4, inputWidth * 4 - 4);
 +					double horizontal = sampleX - (int)sampleX;
 +					const unsigned char *neighbors[] = {upper + left, upper + right, lower + left, lower + right};
 +					double weights[] = {(1 - horizontal) * (1 - vertical), horizontal * (1 - vertical),

@@ -1,0 +1,22 @@
+diff --git a/project/Build.xml b/project/Build.xml
+--- a/project/Build.xml
++++ b/project/Build.xml
+@@ -400,6 +400,7 @@
+ 	<target id="lime" output="${LIBPREFIX}lime${DEBUGEXTRA}${LIBSUFFIX}" tool="linker" toolid="${STD_MODULE_LINK}">
+ 
+ 		<outdir name="${OUTPUT_DIR}/${BINDIR}" />
++		<depend name="${HXCPP}/toolchain/android-toolchain-clang.xml" if="android HXCPP_ARM64 || android HXCPP_X86_64" unless="static_link" />
+ 
+ 		<files id="lime" />
+ 		<files id="android-cpufeatures" if="android" />
+diff --git a/templates/android/template/app/build.gradle b/templates/android/template/app/build.gradle
+--- a/templates/android/template/app/build.gradle
++++ b/templates/android/template/app/build.gradle
+@@ -17,6 +17,7 @@ android {
+ 	compileSdkVersion Integer.parseInt(project.ANDROID_BUILD_SDK_VERSION)
+ 	buildToolsVersion project.ANDROID_BUILD_TOOLS_VERSION
+ 	::if (ANDROID_GRADLE_PLUGIN>="4.0")::ndkPath '::ANDROID_NDK_ROOT_ESCAPED::'::end::
++	::if (ANDROID_NDK_VERSION)::ndkVersion '::ANDROID_NDK_VERSION::'::end::
+ 	
+ 	defaultConfig {
+ 		applicationId "::META_PACKAGE_NAME::"

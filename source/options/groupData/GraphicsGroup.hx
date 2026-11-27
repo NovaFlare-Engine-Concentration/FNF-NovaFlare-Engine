@@ -14,10 +14,6 @@ class GraphicsGroup extends OptionCata
 		var option:Option = new Option(this, 'gameQuality', INT, [0, 3]);
 		addOption(option);
 
-		var option:Option = new Option(this, 'maxImageSize', INT, [0, 32768, 'px']);
-		option.onChange = ImageCompression.refreshPreferences;
-		addOption(option);
-
 		var thresholdLimit = imageCompressionThresholdLimit();
 		ClientPrefs.data.minImageCompressionSize = Std.int(Math.max(0, Math.min(ClientPrefs.data.minImageCompressionSize, thresholdLimit)));
 		var option:Option = new Option(this, 'minImageCompressionSize', INT, [0, thresholdLimit, 'px']);

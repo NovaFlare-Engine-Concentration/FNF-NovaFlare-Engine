@@ -1,0 +1,116 @@
+diff --git a/project/Build.xml b/project/Build.xml
+index 04e03dd..8ca274b 100644
+--- a/project/Build.xml
++++ b/project/Build.xml
+@@ -273,6 +273,7 @@
+ 			<compilerflag value="-DHAVE_STDIO_H" unless="windows" />
+ 
+ 			<file name="src/backend/sdl/SDLApplication.cpp">
++				<depend name="src/backend/sdl/SDLApplication.h" />
+ 				<depend name="include/graphics/RenderThread.h" />
+ 			</file>
+ 			<file name="src/backend/sdl/SDLGamepad.cpp" />
+@@ -281,6 +282,7 @@
+ 			<file name="src/backend/sdl/SDLMutex.cpp" />
+ 			<file name="src/backend/sdl/SDLSystem.cpp" />
+ 			<file name="src/backend/sdl/SDLWindow.cpp">
++				<depend name="src/backend/sdl/SDLApplication.h" />
+ 				<depend name="include/graphics/RenderThread.h" />
+ 			</file>
+ 
+diff --git a/project/src/backend/sdl/SDLApplication.cpp b/project/src/backend/sdl/SDLApplication.cpp
+index d8b3b33..8444091 100644
+--- a/project/src/backend/sdl/SDLApplication.cpp
++++ b/project/src/backend/sdl/SDLApplication.cpp
+@@ -301,11 +301,24 @@ namespace lime {
+ 			#endif
+ 			if (pending >= pendingLimit) {
+ 				FrameTimeline::RenderBlocked (pending);
+-				if (lockRender && pendingLimit == 1) windowRedrawRequested = true;
++				if (lockRender && pendingLimit == 1) {
++#ifdef ANDROID
++					renderRetryRequested = true;
++#else
++					windowRedrawRequested = true;
++#endif
++				}
+ 				return false;
+ 			}
+ 		}
+ 
++#ifdef ANDROID
++		if (renderRetryRequested) {
++			renderRetryRequested = false;
++			// A late retry consumes a draw slot. Leave a full period before the next scheduled draw.
++			nextRenderCounter = SDL_GetPerformanceCounter () + renderPeriodTicks;
++		}
++#endif
+ 		windowRedrawRequested = false;
+ 		renderEvent.type = RENDER;
+ 		DispatchScheduledRender (&renderEvent, periodMs);
+@@ -536,6 +549,9 @@ namespace lime {
+ 		renderPeriodTicks = FramePeriodTicks (renderFramePeriod, performanceFrequency);
+ 		nextUpdateCounter = now + updatePeriodTicks;
+ 		nextRenderCounter = now + renderPeriodTicks;
++#ifdef ANDROID
++		renderRetryRequested = false;
++#endif
+ 
+ 	}
+ 
+@@ -1077,6 +1093,9 @@ void SDLApplication::ProcessTextEvent (SDL_Event* event) {
+ 		frameRate = FrameRateOverride ("NOVAFLARE_DRAW_RATE", frameRate);
+ 		#endif
+ 		renderFramePeriod = frameRate > 0 ? 1000.0 / frameRate : 1000.0;
++#ifdef ANDROID
++		renderRetryRequested = false;
++#endif
+ 		if (performanceFrequency) {
+ 			renderPeriodTicks = FramePeriodTicks (renderFramePeriod, performanceFrequency);
+ 			nextRenderCounter = SDL_GetPerformanceCounter () + renderPeriodTicks;
+@@ -1096,6 +1115,9 @@ void SDLApplication::ProcessTextEvent (SDL_Event* event) {
+ 		}
+ 		#endif
+ 		lockRender = split;
++#ifdef ANDROID
++		renderRetryRequested = false;
++#endif
+ 		TraceFrameSetting("split_render", split ? 1 : 0);
+ 		if (split && performanceFrequency) nextRenderCounter = SDL_GetPerformanceCounter () + renderPeriodTicks;
+ 
+@@ -1141,7 +1163,11 @@ void SDLApplication::ProcessTextEvent (SDL_Event* event) {
+ 			TryDispatchRender (renderFramePeriod);
+ 		}
+ 
+-		if (windowRedrawRequested && TryDispatchRender (lockRender ? renderFramePeriod : framePeriod)) return active;
++		if ((windowRedrawRequested
++#ifdef ANDROID
++			|| renderRetryRequested
++#endif
++			) && TryDispatchRender (lockRender ? renderFramePeriod : framePeriod)) return active;
+ 
+ 		#if !defined(IPHONE) && !defined(EMSCRIPTEN)
+ 		if (active && !updateDue && !renderDue) {
+@@ -1149,7 +1175,7 @@ void SDLApplication::ProcessTextEvent (SDL_Event* event) {
+ 				? nextRenderCounter : nextUpdateCounter;
+ #ifdef ANDROID
+ 			auto* thread = OpenGLBindings::renderThread;
+-			if (windowRedrawRequested && lockRender && !inBackground &&
++			if (renderRetryRequested && lockRender && !inBackground &&
+ 				OpenGLBindings::CanRender() && OpenGLBindings::isMultiThreaded &&
+ 				thread && thread->IsRunning() && thread->CurrentSwapInterval() != 0) {
+ 				const auto waitStart = SDL_GetPerformanceCounter();
+diff --git a/project/src/backend/sdl/SDLApplication.h b/project/src/backend/sdl/SDLApplication.h
+index 79ff8fd..a1eab96 100644
+--- a/project/src/backend/sdl/SDLApplication.h
++++ b/project/src/backend/sdl/SDLApplication.h
+@@ -70,6 +70,9 @@ namespace lime {
+ 			bool active = false;
+ 			bool lockRender;
+ 			bool windowRedrawRequested = false;
++#ifdef ANDROID
++			bool renderRetryRequested = false;
++#endif
+ 			bool renderDeviceResetPending = false;
+ 			ApplicationEvent applicationEvent;
+ 			ClipboardEvent clipboardEvent;

@@ -225,10 +225,15 @@ class PauseSubState extends MusicBeatSubstate
 
 		if (!PlayState.instance.startingSong)
 			debugType.insert(1, 'Skip Time');
+		#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
+		debugType.insert(debugType.length - 1, 'hideLuaDebugText');
+		#end
 
 		for (i in 0...debugType.length)
 		{
-			var optionText:FlxText = new FlxText(0, 0, 0, debugType[i], 50);
+			var option = debugType[i];
+			var label = option == 'hideLuaDebugText' ? Language.get(option, 'pause') : option;
+			var optionText:FlxText = new FlxText(0, 0, 0, label, 50);
 
 			optionText.x = -1000;
 			optionText.y = (i - debugCurSelected) * 180 + 325;
@@ -482,7 +487,7 @@ class PauseSubState extends MusicBeatSubstate
 				}
 
 				var text = debugAlphabet[debugCurSelected];
-				if ((text.text == 'Botplay' || text.text == 'Practice') && staymainmenu == 'debug')
+				if (debugOptionValue() != null)
 				{
 					boolText.x = text.x + text.width + 5;
 					boolText.y = text.y;
@@ -490,7 +495,7 @@ class PauseSubState extends MusicBeatSubstate
 				else
 					boolText.y = 1000;
 
-				if (text.text == 'Skip Time' && staymainmenu == 'debug')
+				if (debugType[debugCurSelected] == 'Skip Time')
 				{
 					skipTimeText.x = text.x + text.width + 125;
 					skipTimeText.y = text.y + 7.5;
@@ -576,11 +581,8 @@ class PauseSubState extends MusicBeatSubstate
 
 				debugAlphabet[debugCurSelected].alpha = 1;
 
-				var text = debugAlphabet[debugCurSelected];
-				if (text.text == 'Botplay' || text.text == 'Practice')
-				{
-					boolText.text = (text.text == 'Botplay' ? (PlayState.instance.cpuControlled ? 'ON' : 'OFF') : (PlayState.instance.practiceMode ? 'ON' : 'OFF'));
-				}
+				var value = debugOptionValue();
+				if (value != null) boolText.text = value ? 'ON' : 'OFF';
 			case 'difficulty':
 				difficultyCurSelected += num;
 				if (difficultyCurSelected > difficultyChoices.length - 1)
@@ -596,6 +598,19 @@ class PauseSubState extends MusicBeatSubstate
 
 		if (num != 0)
 			FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
+	}
+
+	function debugOptionValue():Null<Bool>
+	{
+		return switch (debugType[debugCurSelected])
+		{
+			case 'Botplay': PlayState.instance.cpuControlled;
+			case 'Practice': PlayState.instance.practiceMode;
+			#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
+			case 'hideLuaDebugText': ClientPrefs.data.hideLuaDebugText;
+			#end
+			default: null;
+		};
 	}
 
 	function doEvent()
@@ -691,6 +706,13 @@ class PauseSubState extends MusicBeatSubstate
 					PlayState.instance.practiceMode = !PlayState.instance.practiceMode;
 					PlayState.changedDifficulty = true;
 					boolText.text = (PlayState.instance.practiceMode ? 'ON' : 'OFF');
+				#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
+				case 'hideLuaDebugText':
+					ClientPrefs.data.hideLuaDebugText = !ClientPrefs.data.hideLuaDebugText;
+					PlayState.instance.refreshLuaDebugDisplay();
+					ClientPrefs.savePreferences();
+					changeOptions(0);
+				#end
 				case 'Skip Time':
 					if (curTime < Conductor.songPosition)
 					{

@@ -115,6 +115,12 @@ class OpenGLRenderer extends DisplayObjectRenderer
 	@:noCompletion private var __updatedStencil:Bool;
 	@:noCompletion private var __upscaled:Bool;
 	@:noCompletion private var __values:Array<Float>;
+	#if novaflare_threaded_projection_matrix
+	private var __queuedProjectionMatrix:ShaderParameter<Float>;
+	#end
+	#if (novaflare_threaded_projection_matrix && cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
+	private final __projectionInputs:Array<Float> = [];
+	#end
 	@:noCompletion private var __width:Int;
 
 	@:noCompletion private function new(context:Context3D, defaultRenderTarget:BitmapData = null)
@@ -313,6 +319,9 @@ class OpenGLRenderer extends DisplayObjectRenderer
 	**/
 	public function applyMatrix(matrix:Array<Float>):Void
 	{
+		#if novaflare_threaded_projection_matrix
+		__queuedProjectionMatrix = null;
+		#end
 		if (__currentShaderBuffer != null)
 		{
 			__currentShaderBuffer.addFloatOverride("openfl_Matrix", matrix);
@@ -362,6 +371,9 @@ class OpenGLRenderer extends DisplayObjectRenderer
 	**/
 	public function setShader(shader:Shader):Void
 	{
+		#if novaflare_threaded_projection_matrix
+		__queuedProjectionMatrix = null;
+		#end
 		__currentShaderBuffer = null;
 
 		var sameShader = __currentShader == shader;
@@ -431,6 +443,13 @@ class OpenGLRenderer extends DisplayObjectRenderer
 			__context3D.setProgram(__currentShader.program);
 			__context3D.__flushGLProgram();
 			__context3D.__flushGLTextures();
+			#if novaflare_threaded_projection_matrix
+			if (__queuedProjectionMatrix != null)
+			{
+				__currentShader.__updateWithProjectionMatrix(__queuedProjectionMatrix);
+				return;
+			}
+			#end
 			__currentShader.__update();
 		}
 	}
@@ -492,6 +511,9 @@ class OpenGLRenderer extends DisplayObjectRenderer
 
 	@:noCompletion private function __clearShader():Void
 	{
+		#if novaflare_threaded_projection_matrix
+		__queuedProjectionMatrix = null;
+		#end
 		if (__currentShader != null)
 		{
 			if (__currentShaderBuffer == null)
@@ -521,6 +543,9 @@ class OpenGLRenderer extends DisplayObjectRenderer
 
 	@:noCompletion private function __copyShader(other:OpenGLRenderer):Void
 	{
+		#if novaflare_threaded_projection_matrix
+		__queuedProjectionMatrix = null;
+		#end
 		__currentShader = other.__currentShader;
 		__currentShaderBuffer = other.__currentShaderBuffer;
 		__currentDisplayShader = other.__currentDisplayShader;
@@ -528,6 +553,63 @@ class OpenGLRenderer extends DisplayObjectRenderer
 
 		// __gl.glProgram = other.__gl.glProgram;
 	}
+
+	@:noCompletion private function __applyTransformMatrix(transform:Matrix, pixelSnapping:PixelSnapping):Void
+	{
+		#if (novaflare_threaded_projection_matrix && cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
+		if (__tryQueueProjectionMatrix(transform, pixelSnapping)) return;
+		#end
+		applyMatrix(__getMatrix(transform, pixelSnapping));
+	}
+
+	#if (novaflare_threaded_projection_matrix && cpp && lime && lime_cffi && !disable_cffi && !optional_cffi && !lime_webgl && !macro && (lime_opengl || lime_opengles))
+	private function __tryQueueProjectionMatrix(transform:Matrix, pixelSnapping:PixelSnapping):Bool
+	{
+		final shader = __currentShader;
+		if (shader == null || shader.__context != __context3D) return false;
+		#if CODENAME_ENGINE_COMPAT
+		// onGLUpdate listeners can inspect or replace the matrix before the shader uploads it.
+		if (shader is codename.funkin.backend.shaders.FunkinShader) return false;
+		#end
+
+		final parameter = shader.__matrix;
+		if (parameter == null || !parameter.__isUniform || parameter.type != MATRIX4X4 || parameter.index == null) return false;
+		final location:Int = parameter.index;
+		if (location < 0) return false;
+
+		// The recorded program bind must precede the GL uniform command in the same queue.
+		final program = shader.program;
+		if (program == null || __context3D.__state.program != program || __context3D.__contextState.program != program) return false;
+
+		final world = __worldTransform;
+		final values = __projectionInputs;
+		values[0] = transform.a;
+		values[1] = transform.b;
+		values[2] = transform.c;
+		values[3] = transform.d;
+		values[4] = transform.tx;
+		values[5] = transform.ty;
+		values[6] = world.a;
+		values[7] = world.b;
+		values[8] = world.c;
+		values[9] = world.d;
+		values[10] = world.tx;
+		values[11] = world.ty;
+		values[12] = __projectionScaleX;
+		values[13] = __projectionScaleY;
+		final snappingMode = switch (pixelSnapping)
+		{
+			case ALWAYS: 2;
+			case AUTO: 1;
+			default: 0;
+		}
+		final flags = snappingMode | (__flipped ? 4 : 0);
+		if (!lime._internal.backend.native.NativeCFFI.tryQueueProjectionMatrix(location, values, flags)) return false;
+
+		__queuedProjectionMatrix = parameter;
+		return true;
+	}
+	#end
 
 	@:noCompletion private function __getMatrix(transform:Matrix, pixelSnapping:PixelSnapping):Array<Float>
 	{
@@ -1077,7 +1159,7 @@ class OpenGLRenderer extends DisplayObjectRenderer
 		applyAlpha(1);
 		applyBitmapData(source, smooth);
 		applyColorTransform(null);
-		applyMatrix(__getMatrix(source.__renderTransform, AUTO));
+		__applyTransformMatrix(source.__renderTransform, AUTO);
 		updateShader();
 
 		var vertexBuffer = source.getVertexBuffer(__context3D);
@@ -1242,6 +1324,13 @@ class OpenGLRenderer extends DisplayObjectRenderer
 	{
 		if (__currentShader != null && __currentShaderBuffer != null)
 		{
+			#if novaflare_threaded_projection_matrix
+			if (__queuedProjectionMatrix != null)
+			{
+				__currentShader.__updateWithProjectionMatrix(__queuedProjectionMatrix, __currentShaderBuffer, bufferOffset);
+				return;
+			}
+			#end
 			__currentShader.__updateFromBuffer(__currentShaderBuffer, bufferOffset);
 		}
 	}
