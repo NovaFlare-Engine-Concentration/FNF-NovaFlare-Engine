@@ -110,7 +110,7 @@ private class CompressionCheck extends FlxState
                 if (library.cachedImages.exists("sheet.png")) throw new haxe.Exception("Preload retained the original pixels.");
                 var source = library.cachedBytes.get("sheet.png");
                 if (source == null || source.compare(encoded) != 0) throw new haxe.Exception("Preload did not retain the encoded PNG.");
-                ImageCompression.configure(64, 5, 0.75);
+                ImageCompression.configure(6, 0, 0.5);
                 var image = ImageCompression.withScaledDecode(() -> Image.fromFile(fixturePath));
                 equal(image.width, STORED_WIDTH, "native decoded width before BitmapData");
                 equal(image.height, STORED_HEIGHT, "native decoded height before BitmapData");
@@ -245,7 +245,7 @@ private class CompressionCheck extends FlxState
         liveBitmaps = [fileBitmap, bytesBitmap, bytesBitmap.clone(), Assets.getBitmapData(ASSET_KEY), gpuBitmap, gpuClone, uploadingBitmap];
         liveFrame = checkSparrowFrame(FlxGraphic.fromBitmapData(bytesBitmap));
         deadline = Timer.stamp() + 12;
-        rebuildImages(0.25);
+        rebuildImages(0.5);
     }
 
     override public function update(elapsed:Float):Void
@@ -272,7 +272,7 @@ private class CompressionCheck extends FlxState
             {
                 case 0:
                     rebuildImages(0.81);
-                    rebuildImages(0.1);
+                    rebuildImages(0.3);
                 case 1:
                     rebuildImages(1);
                 case 2:
@@ -350,24 +350,27 @@ private class CompressionCheck extends FlxState
 
         ImageCompression.configure(64, 0, 0);
         var minimum = BitmapData.fromBytes(png);
-        equal(minimum.width, 3, "legacy zero clamps to ten percent of the area");
-        equal(minimum.height, 2, "minimum ratio retains the aspect ratio");
+        equal(minimum.width, 1, "legacy zero clamps to ten percent of the original width");
+        equal(minimum.height, 1, "height rounds to at least one pixel");
         ImageCompression.configure(64, 0, 0.25);
-        var quarterArea = ImageCompression.resize(new Image(null, 0, 0, 20, 12));
-        equal(quarterArea.width, 10, "quarter area halves width");
-        equal(quarterArea.height, 6, "quarter area halves height");
-        equal(quarterArea.width * quarterArea.height, 60, "quarter area applies the ratio once");
+        var quarterSize = ImageCompression.resize(new Image(null, 0, 0, 20, 12));
+        equal(quarterSize.width, 5, "quarter ratio scales the original width");
+        equal(quarterSize.height, 3, "quarter ratio scales the original height");
+        ImageCompression.configure(8192, 0, 0.25);
+        var oversized = ImageCompression.resize(new Image(null, 0, 0, 16384, 8));
+        equal(oversized.width, 4096, "ratio applies before the device limit");
+        equal(oversized.height, 2, "both sides use the same scale");
         ImageCompression.configure(64, 0, 1);
         equal(BitmapData.fromBytes(png).width, SOURCE_WIDTH, "default ratio retains original width");
 
         ImageCompression.configure(64, 0, 0, SOURCE_WIDTH + 1);
         equal(BitmapData.fromBytes(png).width, SOURCE_WIDTH, "below the start size skips the ratio");
         ImageCompression.configure(64, 0, 0, SOURCE_WIDTH);
-        equal(BitmapData.fromBytes(png).width, 3, "equal to the start size applies the ratio");
+        equal(BitmapData.fromBytes(png).width, 1, "equal to the start size applies the ratio");
         ImageCompression.configure(64, 5, 0, SOURCE_WIDTH + 1);
         equal(BitmapData.fromBytes(png).width, 5, "maximum side applies below the start size");
         ImageCompression.configure(8, 0, 0, 64);
-        equal(BitmapData.fromBytes(png).width, 3, "the start size is clamped to the device limit");
+        equal(BitmapData.fromBytes(png).width, 1, "the start size is clamped to the device limit");
     }
 
     static function fixtureAlpha():ByteArray

@@ -216,7 +216,7 @@ class ImageCompression
 	{
 		var policy = settings;
 		var longest = Math.max(width, height);
-		var scale = longest < policy.threshold ? 1.0 : Math.sqrt(policy.ratio);
+		var scale = longest < policy.threshold ? 1.0 : policy.ratio;
 		return policy.maximum > 0 ? Math.min(scale, policy.maximum / longest) : scale;
 	}
 

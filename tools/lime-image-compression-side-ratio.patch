@@ -1,0 +1,10 @@
+diff --git a/project/include/graphics/format/ImageDecodeScale.h b/project/include/graphics/format/ImageDecodeScale.h
+--- a/project/include/graphics/format/ImageDecodeScale.h
++++ b/project/include/graphics/format/ImageDecodeScale.h
+@@ -29,5 +29,5 @@ namespace lime {
+ 			sourceHeight = originalHeight;
+ 			int longest = (std::max) (sourceWidth, sourceHeight);
+-			double scale = longest >= threshold && std::isfinite (ratio) ? std::sqrt ((std::max) (0.1, (std::min) (ratio, 1.0))) : 1.0;
++			double scale = longest >= threshold && std::isfinite (ratio) ? (std::max) (0.1, (std::min) (ratio, 1.0)) : 1.0;
+ 			if (maximum > 0) scale = (std::min) (scale, (double)maximum / longest);
+ 			width = (std::max) (1, (int)std::floor (sourceWidth * scale + 1e-9));

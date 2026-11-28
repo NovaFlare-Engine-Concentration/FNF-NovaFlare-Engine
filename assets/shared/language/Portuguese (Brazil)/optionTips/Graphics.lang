@@ -1,8 +1,8 @@
 Graphics => Gráficos
 
 gameQuality => Alterar a qualidade do jogo na tela
-minImageCompressionSize => Aplica a taxa quando o lado mais longo da imagem original atinge este tamanho.
-imageCompressionRatio => Fração do total de pixels mantidos. 0,1 mantém cerca de 10%.
+minImageCompressionSize => Aplica a taxa se o maior lado original atingir este tamanho.
+imageCompressionRatio => Multiplica os lados originais pela taxa e aplica o limite do dispositivo.
 
 FPScounter => Contador de FPS
 

@@ -1,8 +1,8 @@
 Graphics => Graphics
 
 gameQuality => Change game quality for screen
-minImageCompressionSize => Applies the ratio when the original longest side reaches this size.
-imageCompressionRatio => Fraction of total pixels retained. 0.1 keeps about 10%.
+minImageCompressionSize => Apply the ratio at this original longest side or above.
+imageCompressionRatio => Multiply original sides by this ratio, then apply the device limit.
 
 FPScounter => FPS counter
 

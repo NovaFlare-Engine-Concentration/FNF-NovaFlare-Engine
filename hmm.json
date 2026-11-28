@@ -11,14 +11,14 @@
       "name": "lime",
       "type": "git",
       "dir": null,
-      "ref": "e4adfed089eacf9e6eb1bc3ed306eb2e68336256",
+      "ref": "92f31b0b5c7f20e74d50a4d240c0f19c9e3eda8b",
       "url": "https://github.com/NovaFlare-Engine-haxelib/lime-8.3.0"
     },
     {
       "name": "openfl",
       "type": "git",
       "dir": null,
-      "ref": "89a29e6ebbd19a4fdc3c37ed41e4fbe8a8208923",
+      "ref": "df895452b4ea7801d2bbf84eea7822550c4017f4",
       "url": "https://github.com/NovaFlare-Engine-haxelib/openfl-9.5.0"
     },
     {

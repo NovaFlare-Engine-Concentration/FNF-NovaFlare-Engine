@@ -99,7 +99,7 @@ Starting from NovaFlare 1.2.0, Hscript has been upgraded to Hscript--iris-improv
 
 ## Image compression
 
-In Graphics settings, **Maximum Image Side** limits the longest side of a texture in pixels. The value `0` uses the device limit. **Compression Threshold** is the minimum original longest side eligible for ratio compression. Its range is `0` to the device texture limit. The value `0` makes every size eligible. **Image Compression Ratio** retains a fraction of the total pixel count, from `0.1` to `1.0`. The engine multiplies both dimensions by the square root of that fraction, then rounds to whole pixels and applies the side limit. For example, `0.25` halves each side. The maximum side still applies below the threshold. Changes apply during play and refresh loaded textures from their source images.
+In Graphics settings, **Maximum Image Side** limits the longest side of a texture in pixels. The value `0` uses the device limit. **Compression Threshold** is the minimum original longest side eligible for ratio compression. Its range is `0` to the device texture limit. The value `0` makes every size eligible. **Image Compression Ratio** multiplies both original dimensions by a value from `0.1` to `1.0`. The engine rounds both dimensions down and applies the side limit. For example, `0.25` scales each side to a quarter of its original length. The maximum side still applies below the threshold. Changes apply during play and refresh loaded textures from their source images.
 
 Sprite sheets keep their original frame coordinates, dimensions and offsets after compression. Very low ratios can make neighboring frames share texture pixels.
 

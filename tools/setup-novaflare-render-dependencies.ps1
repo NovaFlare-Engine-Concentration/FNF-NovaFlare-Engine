@@ -73,7 +73,11 @@ try {
         $flixel = Find-DependencyRoot 'flixel' 'flixel/graphics/FlxGraphic.hx'
         Install-DependencyPatch $flixel 'flixel-image-frame-coordinates.patch' ''
         $lime = Find-DependencyRoot 'lime' 'project/Build.xml'
-        Install-DependencyPatch $lime 'lime-scaled-image-decode.patch' ''
+        $sideRatioPatch = 'lime-image-compression-side-ratio.patch'
+        if (-not (Test-DependencyPatch $lime $sideRatioPatch)) {
+            Install-DependencyPatch $lime 'lime-scaled-image-decode.patch' ''
+            Install-DependencyPatch $lime $sideRatioPatch ''
+        }
         $Component = @($Component | Where-Object { $_ -ne 'ImageCoordinates' })
         if ($Component.Count -eq 0) { return }
     }
