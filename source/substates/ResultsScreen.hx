@@ -329,8 +329,11 @@ class ResultsScreen extends MusicBeatSubstate
 		graphNote.alpha = 0;
 		add(graphNote);
 
+		final graphStarted = haxe.Timer.stamp();
 		graphNoteDraw();
-		trace('perf:ResultsScreen.new graph_ms=' + Math.round((haxe.Timer.stamp() - buildStarted) * 1000));
+		final graphFinished = haxe.Timer.stamp();
+		trace('perf:ResultsScreen.new graph_ms=' + Math.round((graphFinished - buildStarted) * 1000)
+			+ ' graph_draw_ms=' + Math.round((graphFinished - graphStarted) * 1000));
 
 		//-------------------------
 

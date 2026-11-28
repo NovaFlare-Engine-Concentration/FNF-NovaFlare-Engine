@@ -128,7 +128,9 @@ try {
     $androidRenderPacingPatch = 'lime-android-render-pacing.patch'
     $androidDeadlinePhasePatch = 'lime-android-deadline-phase.patch'
     $androidRenderRetryPatch = 'lime-android-render-retry.patch'
-    $androidRenderRetryInstalled = Test-DependencyPatch $lime $androidRenderRetryPatch
+    $renderRetryWaitPatch = 'lime-vsync-render-retry-wait.patch'
+    $renderRetryWaitInstalled = Test-DependencyPatch $lime $renderRetryWaitPatch
+    $androidRenderRetryInstalled = $renderRetryWaitInstalled -or (Test-DependencyPatch $lime $androidRenderRetryPatch)
     $backpressureInstalled = $androidRenderRetryInstalled -or (Test-DependencyPatch $lime $androidRenderPacingPatch) -or (Test-DependencyPatch $lime $backpressurePatch)
     $cadenceInstalled = $backpressureInstalled -or (Test-DependencyPatch $lime $cadencePatch)
     $threadRepairInstalled = $cadenceInstalled -or (Test-DependencyPatch $lime $threadRepairPatch)
@@ -194,7 +196,8 @@ try {
         }
         if (!$androidRenderRetryInstalled) { Install-DependencyPatch $lime $androidRenderPacingPatch '' }
         Install-DependencyPatch $lime $androidDeadlinePhasePatch ''
-        Install-DependencyPatch $lime $androidRenderRetryPatch ''
+        if (!$renderRetryWaitInstalled) { Install-DependencyPatch $lime $androidRenderRetryPatch '' }
+        Install-DependencyPatch $lime $renderRetryWaitPatch ''
         $threadedMeshPatch = 'lime-threaded-mesh-upload.patch'
         $threadedShaderPatch = 'lime-threaded-shader-inputs.patch'
         $limeShaderTicketPatch = 'lime-shader-param-ticket-reuse.patch'
@@ -243,6 +246,7 @@ try {
         $flixel = Find-DependencyRoot 'flixel' 'flixel/FlxG.hx'
         Install-DependencyPatch $flixel 'flixel-render-cadence.patch' ''
         Install-DependencyPatch $flixel 'flixel-compact-quad-shader-attributes.patch' ''
+        Install-DependencyPatch $flixel 'flixel-color-matrix-filter-cache.patch' ''
     }
 }
 finally {

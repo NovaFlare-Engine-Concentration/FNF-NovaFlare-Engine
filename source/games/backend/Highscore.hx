@@ -53,80 +53,50 @@ class Highscore
 
 	public static function saveGameData(song:String, diff:Int = 0, details:Array<Array<Dynamic>>, keyHit:Array<Array<Array<Float>>>):Void
 	{
-		var daSong:String = formatSong(song, diff);
+		final songKey = formatSong(song, diff);
+		recordPlay(songKey);
 
-		if (songPlayCount.exists(daSong))
-			songPlayCount.set(daSong, songPlayCount.get(daSong) + 1);
-		else
-			songPlayCount.set(daSong, 1);
-		persistPlayCount();
+		final records = songDetails.get(songKey);
+		final preferredRank = records == null ? 0 : findRecordRank(records, details);
+		// Preserve the positions used by existing saves when no score is outranked.
+		final rank = preferredRank < 0 ? records.length - 1 : preferredRank;
+		final keyHitRank = preferredRank < 0 ? records.length : preferredRank;
+		setDetails(songKey, rank, details);
+		setKeyHit(songKey, keyHitRank, keyHit);
+		FlxG.save.flush();
+	}
 
-		if (songDetails.exists(daSong))
+	static function findRecordRank(records:Array<Array<Array<Dynamic>>>, details:Array<Array<Dynamic>>):Int
+	{
+		final field = switch (ClientPrefs.data.saveScoreBase)
 		{
-			var input:Float = 0;
-			var output:Int = 0;
-			var checkFlip:Bool = false; //是否要比小
-			switch(ClientPrefs.data.saveScoreBase) {
-				case 'Accuracy':
-					input = details[2][1];
-					output = 1;
-				case 'Misses':
-					input = details[2][5];
-					output = 5;
-					checkFlip = true;
-				case 'highestCombo':
-					input = details[2][4];
-					output = 4;
-					checkFlip = true;
-				default: //score以及神人瞎去设置的情况
-					input = details[2][0];
-					output = 0;
-			}
-
-			if (checkFlip) {
-				for (i in 0...songDetails.get(daSong).length) {
-					if (songDetails.get(daSong)[i][2][output] > input) {
-						setDetails(daSong, i, details);
-						setKeyHit(daSong, i, keyHit);
-						return;
-						break;
-					}
-				}
-			} else {
-				for (i in 0...songDetails.get(daSong).length) {
-					if (songDetails.get(daSong)[i][2][output] < input) {
-						setDetails(daSong, i, details);
-						setKeyHit(daSong, i, keyHit);
-						return;
-						break;
-					}
-				}
-			}
-			setDetails(daSong, songDetails.get(daSong).length - 1, details);
-			setKeyHit(daSong, songDetails.get(daSong).length - 1, keyHit);
-		}
-		else
+			case 'Accuracy': 1;
+			case 'highestCombo': 4;
+			case 'Misses': 5;
+			default: 0;
+		};
+		final preferLower = field == 4 || field == 5;
+		final value:Float = details[2][field];
+		for (index in 0...records.length)
 		{
-			setDetails(daSong, 0, details);
-			setKeyHit(daSong, 0, keyHit);
+			final previous:Float = records[index][2][field];
+			if (preferLower ? previous > value : previous < value)
+				return index;
 		}
+		return -1;
 	}
 
 	public static function savePlayCount(song:String, diff:Int = 0):Void
 	{
-		var daSong:String = formatSong(song, diff);
-
-		if (songPlayCount.exists(daSong))
-			songPlayCount.set(daSong, songPlayCount.get(daSong) + 1);
-		else
-			songPlayCount.set(daSong, 1);
-		persistPlayCount();
+		recordPlay(formatSong(song, diff));
+		FlxG.save.flush();
 	}
 
-	static function persistPlayCount():Void
+	static function recordPlay(songKey:String):Void
 	{
+		final previous = songPlayCount.get(songKey);
+		songPlayCount.set(songKey, previous == null ? 1 : previous + 1);
 		FlxG.save.data.songPlayCount = songPlayCount;
-		FlxG.save.flush();
 	}
 
 	////////////////////////////////////////////////////////////////////////
@@ -145,7 +115,6 @@ class Highscore
 		mainGroup.insert(sort, input);
 		songDetails.set(song, mainGroup);
 		FlxG.save.data.songDetails = songDetails;
-		FlxG.save.flush();
 	}
 
 	static function setKeyHit(song:String, sort:Int, input:Array<Array<Array<Float>>>):Void
@@ -155,7 +124,6 @@ class Highscore
 		mainGroup.insert(sort, input);
 		songKeyHit.set(song, mainGroup);
 		FlxG.save.data.songKeyHit = songKeyHit;
-		FlxG.save.flush();
 	}
 
 	/////////////////////////////////////////////////////////////////////////

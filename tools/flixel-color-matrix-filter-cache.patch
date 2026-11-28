@@ -1,0 +1,87 @@
+diff --git a/flixel/FlxGame.hx b/flixel/FlxGame.hx
+--- a/flixel/FlxGame.hx
++++ b/flixel/FlxGame.hx
+@@ -12,6 +12,9 @@
+ import openfl.display.StageScaleMode;
+ import openfl.events.Event;
+ import openfl.filters.BitmapFilter;
++#if !flash
++import openfl.filters.ColorMatrixFilter;
++#end
+ #if CODENAME_ENGINE_COMPAT
+ import flixel.system.FlxAssets.FlxShader;
+ import openfl.filters.ShaderFilter;
+@@ -176,6 +179,10 @@
+ 	 * The filters array to be applied to the game.
+ 	 */
+ 	var _filters:Array<BitmapFilter>;
++	#if !flash
++	var _appliedColorFilters:Array<BitmapFilter>;
++	var _appliedColorMatrix:Array<Float>;
++	#end
+ 
+ 	#if CODENAME_ENGINE_COMPAT
+ 	/**
+@@ -346,7 +353,52 @@
+ 	public function setFilters(filters:Array<BitmapFilter>):Void
+ 	{
+ 		_filters = filters;
+-	}
++		#if !flash
++		_appliedColorFilters = null;
++		#end
++	}
++
++	function updateGameFilters():Void
++	{
++		final active = filtersEnabled ? _filters : null;
++		#if !flash
++		if (active != null && active.length == 1 && Type.getClass(active[0]) == ColorMatrixFilter)
++		{
++			final filter:ColorMatrixFilter = cast active[0];
++			final matrix = @:privateAccess filter.__matrix;
++			final installed = @:privateAccess this.__filters;
++			// Scripts can edit the source array or replace the installed clone's matrix.
++			if (_appliedColorFilters != null && installed == _appliedColorFilters)
++			{
++				final installedFilter:ColorMatrixFilter = cast installed[0];
++				if ((@:privateAccess installedFilter.__matrix) == matrix && sameColorMatrix(matrix))
++					return;
++			}
++
++			filters = active;
++			_appliedColorFilters = @:privateAccess this.__filters;
++			_appliedColorMatrix = matrix.copy();
++			return;
++		}
++		_appliedColorFilters = null;
++		_appliedColorMatrix = null;
++		#end
++		filters = active;
++	}
++
++	#if !flash
++	function sameColorMatrix(matrix:Array<Float>):Bool
++	{
++		if (_appliedColorMatrix == null || matrix.length != _appliedColorMatrix.length)
++			return false;
++
++		for (index in 0...matrix.length)
++			if (matrix[index] != _appliedColorMatrix[index])
++				return false;
++
++		return true;
++	}
++	#end
+ 
+ 	#if CODENAME_ENGINE_COMPAT
+ 	/** Adds a shader filter to the complete game output. */
+@@ -933,7 +985,7 @@
+ 		}
+ 		#end
+ 
+-		filters = filtersEnabled ? _filters : null;
++		updateGameFilters();
+ 		#if sys
+ 		if (__novaPerfTrace)
+ 		{

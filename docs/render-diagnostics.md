@@ -12,11 +12,13 @@ OpenFL 的紧密排列 32 位 RGBA 或 BGRA 图像在确认缓冲区范围后复
 
 游戏更新和独立绘制分别维护截止时间。回调中调整速率会立即替换对应的截止时间。短暂延迟允许下一轮事件循环补跑一次更新，较长延迟从当前时刻排期。独立绘制会跳过过期帧。关闭独立绘制后，定时绘制随游戏更新派发。绘制回调使用浮点毫秒计算间隔，亚毫秒间隔仍会传给动画与脚本。
 
-Windows、Linux、macOS 和 Android 在 SDL 确认开启 VSync 且使用 OpenGL 渲染线程时，上一批绘制完成后才开始下一次绘制派发。iOS 的 UIKit 后端通过屏幕刷新回调安排绘制，OpenGL 渲染线程采用同一条单批规则。游戏更新继续按原截止时间调度。独立绘制错过截止时间时保留一次绘制请求，渲染线程完成上一批后再派发。OpenGL 同步查询和渲染命令保持原提交顺序。
+Windows、Linux、macOS 和 Android 在 SDL 确认开启 VSync 且使用 OpenGL 渲染线程时，上一批绘制完成后才开始下一次绘制派发。独立绘制会等待渲染线程完成批次，最多等待 8 毫秒或到下一次游戏更新截止，以便及时处理 SDL 窗口和输入事件。iOS 通过 UIKit 的屏幕刷新回调检查队列。OpenGL 同步查询和渲染命令保持原提交顺序。
 
 应用仅在当前 OpenGL 上下文成功设置交换间隔后记录新的 VSync 值。修改渲染帧率不会重新开启独立绘制。核对锁帧时同时查看 `swap_interval`、`split_render`、更新与绘制周期，以及窗口焦点。 [Windows 渲染线程回归测试](../tools/tests/render-thread/README.md) [Windows 绘制节奏回归测试](../tools/tests/render-cadence/README.md)
 
 OpenFL 的原生四边形绘制会复用 CPU 顶点容量，只上传本帧实际使用的顶点前缀。三角形、Tilemap 和浏览器继续通过各自的上传入口。
+
+全局滤镜只有一个颜色矩阵时，Flixel 在矩阵内容和已安装的滤镜未变时复用现有滤镜。脚本可修改矩阵或重新提交滤镜，其他滤镜继续按更新节奏提交。
 
 在 Windows 上重建 Lime 后，运行以下命令检查图形缩小后的上传字节数、缓冲区复用和像素结果。测试会额外执行一次完整容量上传，打印两种上传方式的字节数。
 
@@ -69,7 +71,26 @@ Lime 在首次交换缓冲区和窗口尺寸或显示器变化时记录 `window_
 
 用 `-Dnovaflare_transition_trace` 重新构建 Windows 游戏，再用相同的独立采样脚本运行，可在 `stdout.log` 读取歌曲结束阶段的 `perf:transition_phase` 区间。`begin_qpc` 和 `end_qpc` 与逐帧 CSV 使用同一个性能计数器。成绩界面分支记录构造、打开请求及菜单音乐准备和播放，回调区间覆盖完整的 `endCallback` 调用。移除玩法 GC 接管后，游戏不再产生 `gameplay_gc_finish` 区间，旧日志仍可读取。
 
+一条成绩的游玩次数、排名和击键记录一起写入存档。`perf:ResultsScreen.new` 的 `graph_draw_ms` 记录命中图本身的绘制时间，`graph_ms` 仍从界面构造开始计时。
+
+启用成绩界面时，自由游玩的歌曲在进入玩法时准备菜单音乐。Windows 跟踪记录 `preload_results_music` 区间，可与曲终的 `menu_music_load` 对照。成绩界面播放时仍按当前模组和资源目录解析音乐。
+
 需要追踪 OpenGL 深度附件首次分配时，运行 `tools/setup-novaflare-render-dependencies.ps1 -Component RenderAttachmentTrace`，用 `-Dnovaflare_render_attachment_trace` 重新构建 Windows 游戏，再给采样命令加上 `-RenderAttachmentTrace`。`stdout.log` 中的 `perf:render_attachment_allocation` 记录附件分配区间。`perf:render_attachment` 记录可关联的位图绘制区间、显示对象与父对象，以及缓存位图和滤镜信息。用纹理、帧缓冲区和深度附件编号关联两条记录，并按 QPC 核对区间。只有分配记录时，当前日志未识别出显示对象。
+
+## Windows 采样记录了绘制等待的变化。
+
+在 GTX 1050 上以 1280×720、VSync 开启、目标每秒 240 次更新和 1200 次独立绘制自动游玩 MILF Hard。两次采样使用同一个游戏可执行文件，仅替换 Lime 原生库。两次均保持窗口在前台，交换缓冲区约每秒完成 60 次。
+
+| 歌曲期间的指标 | 优化前 | 等待渲染线程后 |
+| --- | ---: | ---: |
+| 因上一批绘制未结束而拒绝的派发次数 | 290,650 | 30,787 |
+| 交换间隔第 99 百分位 | 26.97 毫秒 | 17.12 毫秒 |
+| 超过 33.3 毫秒的交换间隔次数 | 43 | 1 |
+| 更新间隔第 99 百分位 | 12.52 毫秒 | 5.87 毫秒 |
+
+对包含成绩保存优化的 Windows 构建使用同样的采样设置。启用音乐预载后，曲终读取菜单音乐的时间从 289.17 毫秒降至 0.13 毫秒，完整曲终回调从 395.09 毫秒降至 92.25 毫秒。进歌前的冷缓存预载耗时 243.28 毫秒。最终成品在歌曲期间每秒完成约 60 次交换，交换间隔第 99 百分位为 17.81 毫秒，更新间隔第 99 百分位为 5.97 毫秒。
+
+Windows 最终原生库通过 15 帧纹理上传和读回测试，以及六项绘制节奏测试。Android ARM64 通过两处 Lime 原生文件的编译器语法检查。Android、Linux、macOS 和 iOS 的运行时性能仍待测量。
 
 # 分辨率选项调整 OpenGL 缓冲区的像素尺寸。
 

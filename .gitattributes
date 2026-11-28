@@ -1,5 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+tools/*.patch text eol=lf
 
 *.hxs linguist-language=Haxe
 *.hxc linguist-language=Haxe

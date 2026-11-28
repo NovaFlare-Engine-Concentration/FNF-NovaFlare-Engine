@@ -1,0 +1,180 @@
+diff --git a/project/include/graphics/RenderThread.h b/project/include/graphics/RenderThread.h
+--- a/project/include/graphics/RenderThread.h
++++ b/project/include/graphics/RenderThread.h
+@@ -218,9 +218,7 @@
+ 
+         bool IsRenderThread() const;
+         bool IsRunning() const { return running; }
+-#ifdef ANDROID
+         void WaitForPendingFrames(std::chrono::nanoseconds timeout);
+-#endif
+         bool MakeCurrent();
+         bool SetSwapInterval(int interval, bool useWorker = false);
+         bool ApplySwapInterval();
+diff --git a/project/src/graphics/RenderThread.cpp b/project/src/graphics/RenderThread.cpp
+--- a/project/src/graphics/RenderThread.cpp
++++ b/project/src/graphics/RenderThread.cpp
+@@ -344,14 +344,12 @@
+         return nullptr;
+     }
+ 
+-#ifdef ANDROID
+     void RenderThread::WaitForPendingFrames(std::chrono::nanoseconds timeout) {
+         std::unique_lock<std::mutex> lock(mutex);
+         condition.wait_for(lock, timeout, [this] {
+             return !running || activePendingFrames.load(std::memory_order_acquire) == 0;
+         });
+     }
+-#endif
+     void RenderThread::ReturnFrame(Frame* frame) {
+         frame->commands.clear();
+         std::lock_guard<std::mutex> lock(mutex);
+diff --git a/project/src/backend/sdl/SDLApplication.h b/project/src/backend/sdl/SDLApplication.h
+--- a/project/src/backend/sdl/SDLApplication.h
++++ b/project/src/backend/sdl/SDLApplication.h
+@@ -45,6 +45,9 @@
+ 			void ResetFrameDeadlines ();
+ 			void DispatchScheduledUpdate ();
+ 			bool TryDispatchRender (double periodMs);
++			#if !defined(IPHONE) && !defined(EMSCRIPTEN)
++			bool WaitForRenderRetry ();
++			#endif
+ 			void DispatchPendingRenderDeviceReset ();
+ 			void HandleEvent (SDL_Event* event);
+ 			void ProcessClipboardEvent (SDL_Event* event);
+@@ -74,9 +77,7 @@
+ 			bool active = false;
+ 			bool lockRender;
+ 			bool windowRedrawRequested = false;
+-#ifdef ANDROID
+ 			bool renderRetryRequested = false;
+-#endif
+ 			bool renderDeviceResetPending = false;
+ 			ApplicationEvent applicationEvent;
+ 			ClipboardEvent clipboardEvent;
+diff --git a/project/src/backend/sdl/SDLApplication.cpp b/project/src/backend/sdl/SDLApplication.cpp
+--- a/project/src/backend/sdl/SDLApplication.cpp
++++ b/project/src/backend/sdl/SDLApplication.cpp
+@@ -301,30 +301,45 @@
+ 			#endif
+ 			if (pending >= pendingLimit) {
+ 				FrameTimeline::RenderBlocked (pending);
+-				if (lockRender && pendingLimit == 1) {
+-#ifdef ANDROID
+-					renderRetryRequested = true;
+-#else
+-					windowRedrawRequested = true;
+-#endif
+-				}
++				if (lockRender && pendingLimit == 1) renderRetryRequested = true;
+ 				return false;
+ 			}
+ 		}
+ 
+ #ifdef ANDROID
+ 		if (renderRetryRequested) {
+-			renderRetryRequested = false;
+ 			// A late retry consumes a draw slot. Leave a full period before the next scheduled draw.
+ 			nextRenderCounter = SDL_GetPerformanceCounter () + renderPeriodTicks;
+ 		}
+ #endif
++		renderRetryRequested = false;
+ 		windowRedrawRequested = false;
+ 		renderEvent.type = RENDER;
+ 		DispatchScheduledRender (&renderEvent, periodMs);
+ 		return true;
+ 
+ 	}
++
++
++	#if !defined(IPHONE) && !defined(EMSCRIPTEN)
++	bool SDLApplication::WaitForRenderRetry () {
++		if (!renderRetryRequested || inBackground || !OpenGLBindings::CanRender() ||
++			!OpenGLBindings::isMultiThreaded) return false;
++
++		auto* thread = OpenGLBindings::renderThread;
++		if (!thread || !thread->IsRunning() || thread->CurrentSwapInterval() == 0) return false;
++
++		// The worker can wake us first, but presentation must not postpone an update.
++		const auto now = SDL_GetPerformanceCounter ();
++		if (nextUpdateCounter > now) {
++			auto nanoseconds = (nextUpdateCounter - now) * 1000000000ULL / performanceFrequency;
++			// Return periodically to poll SDL events at lower update rates.
++			if (nanoseconds > 8000000ULL) nanoseconds = 8000000ULL;
++			thread->WaitForPendingFrames (std::chrono::nanoseconds(nanoseconds));
++		}
++		return true;
++	}
++	#endif
+ 
+ 
+ 	void SDLApplication::DispatchPendingRenderDeviceReset () {
+@@ -549,9 +564,7 @@
+ 		renderPeriodTicks = FramePeriodTicks (renderFramePeriod, performanceFrequency);
+ 		nextUpdateCounter = now + updatePeriodTicks;
+ 		nextRenderCounter = now + renderPeriodTicks;
+-#ifdef ANDROID
+ 		renderRetryRequested = false;
+-#endif
+ 
+ 	}
+ 
+@@ -1125,9 +1138,7 @@
+ 		frameRate = FrameRateOverride ("NOVAFLARE_DRAW_RATE", frameRate);
+ 		#endif
+ 		renderFramePeriod = frameRate > 0 ? 1000.0 / frameRate : 1000.0;
+-#ifdef ANDROID
+ 		renderRetryRequested = false;
+-#endif
+ 		if (performanceFrequency) {
+ 			renderPeriodTicks = FramePeriodTicks (renderFramePeriod, performanceFrequency);
+ 			nextRenderCounter = SDL_GetPerformanceCounter () + renderPeriodTicks;
+@@ -1147,9 +1158,7 @@
+ 		}
+ 		#endif
+ 		lockRender = split;
+-#ifdef ANDROID
+ 		renderRetryRequested = false;
+-#endif
+ 		TraceFrameSetting("split_render", split ? 1 : 0);
+ 		if (split && performanceFrequency) nextRenderCounter = SDL_GetPerformanceCounter () + renderPeriodTicks;
+ 
+@@ -1190,33 +1199,16 @@
+ 		}
+ 
+ 		const bool renderDue = lockRender && now >= nextRenderCounter;
+-		if (renderDue) {
++		if (renderDue)
+ 			nextRenderCounter = AdvanceFrameDeadline (nextRenderCounter, renderPeriodTicks, now);
+-			TryDispatchRender (renderFramePeriod);
+-		}
+-
+-		if ((windowRedrawRequested
+-#ifdef ANDROID
+-			|| renderRetryRequested
+-#endif
+-			) && TryDispatchRender (lockRender ? renderFramePeriod : framePeriod)) return active;
++
++		if ((renderDue || windowRedrawRequested || renderRetryRequested) &&
++			TryDispatchRender (lockRender ? renderFramePeriod : framePeriod)) return active;
+ 
+ 		#if !defined(IPHONE) && !defined(EMSCRIPTEN)
+-		if (active && !updateDue && !renderDue) {
++		if (active && !WaitForRenderRetry () && !updateDue && !renderDue) {
+ 			const auto deadline = lockRender && nextRenderCounter < nextUpdateCounter
+ 				? nextRenderCounter : nextUpdateCounter;
+-#ifdef ANDROID
+-			auto* thread = OpenGLBindings::renderThread;
+-			if (renderRetryRequested && lockRender && !inBackground &&
+-				OpenGLBindings::CanRender() && OpenGLBindings::isMultiThreaded &&
+-				thread && thread->IsRunning() && thread->CurrentSwapInterval() != 0) {
+-				const auto waitStart = SDL_GetPerformanceCounter();
+-				if (deadline > waitStart) {
+-					const auto nanoseconds = (deadline - waitStart) * 1000000000ULL / performanceFrequency;
+-					thread->WaitForPendingFrames(std::chrono::nanoseconds(nanoseconds));
+-				}
+-			} else
+-#endif
+ 			WaitForFrameDeadline (deadline, performanceFrequency);
+ 		}
+ 		#endif

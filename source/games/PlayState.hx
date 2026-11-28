@@ -873,6 +873,24 @@ class PlayState extends MusicBeatState
 
 		addMobileControls(false);
 
+		if (ClientPrefs.data.resultsScreen && !isStoryMode && !chartingMode)
+		{
+			#if (windows && cpp && novaflare_transition_trace)
+			var preloadMusicBegin = developer.diagnostics.FrameTimeline.beginTransitionPhase();
+			#end
+			try
+			{
+				Paths.music('freakyMenu');
+			}
+			catch (error:haxe.Exception)
+			{
+				trace('Could not preload results music: ${error.message}');
+			}
+			#if (windows && cpp && novaflare_transition_trace)
+			developer.diagnostics.FrameTimeline.endTransitionPhase('preload_results_music', preloadMusicBegin);
+			#end
+		}
+
 		startCallback();
 		RecalculateRating();
 
