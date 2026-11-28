@@ -46,7 +46,7 @@
       "name": "flixel-addons",
       "type": "git",
       "dir": null,
-      "ref": "516853354f0fca367e9eba3b21c77b78ed16a0a6",
+      "ref": "d831e8849e40ec29028c86dda281ba362ee8053b",
       "url": "https://github.com/NovaFlare-Engine-haxelib/flixel-addons-3.3.2"
     },
     {
@@ -109,7 +109,7 @@
       "name": "hxcpp",
       "type": "git",
       "dir": null,
-      "ref": "3f50506ae47aa801fd7e8ef7636ea2dd80b73254",
+      "ref": "c3494237281cb5fd81042da9a312bc3ee2160371",
       "url": "https://github.com/NovaFlare-Engine-haxelib/hxcpp-4.3.2-new"
     },
     {

@@ -77,26 +77,35 @@ try {
         $Component = @($Component | Where-Object { $_ -ne 'ImageCoordinates' })
         if ($Component.Count -eq 0) { return }
     }
-    if ('GenerationalGC' -in $Component -or 'ImmixReclaim' -in $Component -or 'ImmixMark' -in $Component) {
+    $immixComponents = @('GenerationalGC', 'ImmixReclaim', 'ImmixMark')
+    if (@($Component | Where-Object { $_ -in $immixComponents }).Count -gt 0) {
         $runtime = Find-DependencyRoot 'hxcpp' 'src/hx/gc/Immix.cpp'
-        $supportedRevisions = @(
-            '3f50506ae47aa801fd7e8ef7636ea2dd80b73254'
-            'ac2af3cdc20ce3173b26a56d845a264b0a372ac3'
-        )
         $revision = & git -C $runtime rev-parse HEAD
-        if ($LASTEXITCODE -ne 0 -or $revision -notin $supportedRevisions) {
-            throw "The Immix patches require the pinned NovaFlare hxcpp checkout. Run hmm install. Found: $revision"
+        if ($LASTEXITCODE -ne 0) { throw "Could not identify the selected hxcpp checkout: $runtime" }
+        if ($revision -eq 'c3494237281cb5fd81042da9a312bc3ee2160371') {
+            & git -C $runtime diff --quiet HEAD -- src/hx/gc/Immix.cpp include/hx/GC.h toolchain/common-defines.xml
+            if ($LASTEXITCODE -ne 0) { throw "Integrated Immix sources differ from the pinned hxcpp revision in $runtime" }
+            Write-Output "Verified integrated NovaFlare Immix patches in $runtime"
+        } else {
+            $supportedRevisions = @(
+                '3f50506ae47aa801fd7e8ef7636ea2dd80b73254'
+                'ac2af3cdc20ce3173b26a56d845a264b0a372ac3'
+            )
+            if ($revision -notin $supportedRevisions) {
+                throw "The Immix patches require the pinned NovaFlare hxcpp checkout. Run hmm install. Found: $revision"
+            }
+            if ('GenerationalGC' -in $Component) {
+                Install-DependencyPatch $runtime 'hxcpp-immix-generational-preference.patch' ''
+            }
+            if ('ImmixReclaim' -in $Component) {
+                Install-DependencyPatch $runtime 'hxcpp-immix-reclaim.patch' ''
+            }
+            if ('ImmixMark' -in $Component) {
+                Install-DependencyPatch $runtime 'hxcpp-immix-mark.patch' ''
+            }
         }
-        if ('GenerationalGC' -in $Component) {
-            Install-DependencyPatch $runtime 'hxcpp-immix-generational-preference.patch' ''
-        }
-        if ('ImmixReclaim' -in $Component) {
-            Install-DependencyPatch $runtime 'hxcpp-immix-reclaim.patch' ''
-        }
-        if ('ImmixMark' -in $Component) {
-            Install-DependencyPatch $runtime 'hxcpp-immix-mark.patch' ''
-        }
-        if (@($Component | Where-Object { $_ -notin @('GenerationalGC', 'ImmixReclaim', 'ImmixMark') }).Count -eq 0) { return }
+        $Component = @($Component | Where-Object { $_ -notin $immixComponents })
+        if ($Component.Count -eq 0) { return }
     }
     $lime = Find-DependencyRoot 'lime' 'project/Build.xml'
     $asyncTimelinePatch = 'lime-frame-timeline-async.patch'

@@ -49,11 +49,11 @@ haxelib run lime build tools/tests/render-geometry/Project.xml windows -64
 
 普通采样的 `gc-pauses-qpc.csv` 保持六列。需要记录 Immix 阶段时，运行 `tools/setup-novaflare-render-dependencies.ps1 -Component GcBreakdown`，重新构建 Windows 游戏，再给采样命令加上 `-GcBreakdown`。该开关设置 `NOVAFLARE_GC_BREAKDOWN=1`，日志额外记录线程就绪、根与线程栈扫描、标记遍历、终结器、回收、碎片整理、释放线程及收集时的堆状态。`*_ticks` 使用同一 QPC 时钟。给采样命令加上 `-HaxePerfTrace` 可开启 Stage、Flixel 和 OpenFL 的细分日志。采样脚本在后台排空游戏输出管道，进程退出后保存原始日志。给采样命令加上 `-PreferencesFile '<funkin.sol>'` 可复制指定存档到隔离环境。采集清单记录复制字节的 SHA-256。
 
-普通 Windows 和 Android 构建需要先运行 `tools/setup-novaflare-render-dependencies.ps1 -Component GenerationalGC`。脚本支持项目固定的 NovaFlare hxcpp `3f50506` 和本地使用的 `ac2af3c`。首次启用这一构建配置时，重新生成应用 C++ 并重新编译所有使用 hxcpp 布局的编译单元。`HXCPP_GC_GENERATIONAL` 会同时编译分配布局和写屏障。选项默认关闭，关闭时 Immix 使用全堆收集，已编译的分配布局和写屏障仍会使用。退出设置页面时保存，下次启动从 `funkin.sol` 读取并应用。NovaGC 和其他平台的构建不显示此选项。
+普通 Windows 和 Android 构建需要先运行 `tools/setup-novaflare-render-dependencies.ps1 -Component GenerationalGC`。项目固定的 NovaFlare hxcpp `c349423` 内置分代 GC、块回收和数组标记修改，脚本会检查相关源码。使用 `3f50506` 或 `ac2af3c` 时，脚本仍安装对应补丁。首次启用这一构建配置时，重新生成应用 C++ 并重新编译所有使用 hxcpp 布局的编译单元。`HXCPP_GC_GENERATIONAL` 会同时编译分配布局和写屏障。选项默认关闭，关闭时 Immix 使用全堆收集，已编译的分配布局和写屏障仍会使用。退出设置页面时保存，下次启动从 `funkin.sol` 读取并应用。NovaGC 和其他平台的构建不显示此选项。
 
-Windows、Android、iOS、Linux 和 macOS 的 Immix 构建通过 `-Component ImmixReclaim` 安装全量块回收优化。全量回收读取对象起点位图，只检查登记了对象起点的位置，并按这一轮的标记更新位图和存活字节数。手动安装补丁后需重建游戏的原生可执行文件。使用 `-GcBreakdown` 采样时，可在 `full_reclaim=1` 的记录中用 `reclaim_ticks` 比较块回收阶段。
+Windows、Android、iOS、Linux 和 macOS 的 Immix 构建通过 `-Component ImmixReclaim` 准备全量块回收优化。全量回收读取对象起点位图，只检查登记了对象起点的位置，并按这一轮的标记更新位图和存活字节数。手动安装补丁后需重建游戏的原生可执行文件。使用 `-GcBreakdown` 采样时，可在 `full_reclaim=1` 的记录中用 `reclaim_ticks` 比较块回收阶段。
 
-Android ARM64 构建通过 `-Component ImmixMark` 安装数组标记优化。每次扫描对象数组时读取一次当前 GC 标记掩码，标记条件与对象晋升逻辑沿用 Immix 的原有规则。补丁随应用原生库重编生效。
+Android ARM64 构建通过 `-Component ImmixMark` 准备数组标记优化。每次扫描对象数组时读取一次当前 GC 标记掩码，标记条件与对象晋升逻辑沿用 Immix 的原有规则。补丁随应用原生库重编生效。
 
 Lime 在首次交换缓冲区和窗口尺寸或显示器变化时记录 `window_size` 与 `drawable_size`。`display_dpi_milli` 记录可获得的水平和垂直显示 DPI，每单位表示千分之一 DPI。`capture.json` 另记录歌曲开始时的 Win32 客户区和窗口 DPI。硬件查询在歌曲启动后创建，开始时可看到驱动为当前进程建立的计数器实例。GPU 峰值报告仅使用该进程存在对应计数器的样本。
 

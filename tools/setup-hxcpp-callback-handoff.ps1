@@ -17,6 +17,16 @@ if ([string]::IsNullOrWhiteSpace($HxcppRoot)) { throw 'Cannot locate the selecte
 $HxcppRoot = (Resolve-Path -LiteralPath $HxcppRoot).Path
 $target = Join-Path $HxcppRoot 'src\hx\gc\Immix.cpp'
 $currentHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+# hxcpp c349423 includes the fix. Match its complete LF or CRLF source.
+$integratedHashes = @(
+  '436CC51F5850AE0958A7E2C9BBD1951F2E40A8B6E7F75271283918CC418B858D'
+  '01C8A45F035F1C27BDCC1E0D7F5450C5BC571754ADEFC5321A98597065540ED7'
+)
+if ($currentHash -in $integratedHashes) {
+  if ($Rollback) { throw 'The callback handoff fix is part of this hxcpp revision.' }
+  Write-Output "Verified integrated callback handoff fix: $target ($currentHash)"
+  return
+}
 # Pinned hxcpp 3f50506ae47aa801fd7e8ef7636ea2dd80b73254: existing Windows bytes,
 # canonical Git LF, and Git's full CRLF checkout. All outputs are checked in full.
 $profiles = @(
